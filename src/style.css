@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    border-radius: 10px !important;
+    background: transparent !important;
+    overflow: hidden;
+}
+
+*::-webkit-scrollbar {
+    width: 5px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #c0c1c550;
+    border-radius: 5px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #c0c1c550;
+}
+
+/* 控件统一的「浮起」感：白底 + 发丝边 + 一层很浅的投影。
+   .border-medium 是 NextUI 给 variant='bordered' / 'faded' 加的类，
+   我自己写的容器一律用 Tailwind 原生的 border-1，所以这条只打到控件上，
+   打不到悬浮窗和生词本那两张卡。宽度已在 tailwind.config.cjs 里调成 1px。 */
+.border-medium {
+    background-color: hsl(var(--nextui-content1));
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+/* 暗色下黑投影看不见，加重一档；边框色走 token，不在这儿写。 */
+.dark .border-medium {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
+
+/* 打开下拉时 React Aria 会把焦点放到菜单容器 <ul> 上，而 NextUI 的 menu /
+   listbox base（"w-full relative flex flex-col gap-1 p-1"）里没有 outline-none，
+   Chromium 就画出自己那圈黑色默认焦点框——看起来像给弹层加了道黑边，
+   而且只在 :focus-visible 命中时出现，所以时有时无。
+   焦点提示由每个 item 自己的 data-[focus-visible] 环负责，容器这圈是纯噪音。
+   长菜单要滚动时，overflow 必须写在 classNames.list 上（就是这个 <ul>）。写在
+   className 上会落到外层没有 role 的 div，它变成滚动容器后 Chromium 让它可聚焦，
+   黑框就画在它身上，这条规则管不到。 */
+[role='menu'],
+[role='listbox'] {
+    outline: none;
+}

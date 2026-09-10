@@ -1,0 +1,71 @@
+[package]
+name = "tilex"
+version = "0.1.0"
+description = "TiLex"
+authors = ["auroraascent"]
+license = "GPL-3.0-only"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# OCR 子进程在 ocr-sidecar/ 里，是独立 package 不是这里的第二个 bin。
+# 曾经放在 src/bin/ 下，结果 tauri 打包时把它当成主程序挑走了，
+# 打出来的安装包 1.9 MB、里面没有主程序。原因见 ocr-sidecar/Cargo.toml。
+[workspace]
+members = ["ocr-sidecar"]
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+
+tauri = { version = "1.8", features = [ "global-shortcut-all", "dialog-save", "dialog-open", "fs-all", "protocol-asset", "shell-all", "clipboard-all", "os-all", "http-all", "http-multipart", "notification-all", "window-all", "path-all", "system-tray", "devtools"] }
+tauri-plugin-single-instance = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+tauri-plugin-autostart = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+tauri-plugin-fs-watch = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+tauri-plugin-sql = { git= "https://github.com/tauri-apps/plugins-workspace", branch = "v1",features = ["sqlite"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "5.0.1"
+once_cell = "1.19.0"
+mouse_position = "0.1.4"
+log = "0.4"
+arboard = "3.4"
+lingua = { version = "1.6.2", optional = true, default-features = false }
+thiserror = "1.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+macos-accessibility-client = "0.0.1"
+window-shadows = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = {version="0.58.0",features= ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Foundation", "Globalization"] }
+window-shadows = "0.2"
+# 截图裁出来的那块喂给 OCR 之前编成 PNG。已经在 Cargo.lock 里（tauri 的图标那条链路），
+# 加成直接依赖不多编一个 crate。
+png = "0.17"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+#openssl
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+# 本地语种识别。哪些语言被编进来只由这里决定，
+# src/lang_detect.rs 不列语言（它用 from_all_languages()）。
+#
+#   npx tauri build                  → detect-lite：中日英韩，tilex.exe 17.74 MB
+#   npx tauri build -f detect-full   → 22 种，tilex.exe 37.55 MB（发布用这个）
+#   npx tauri build -f ""            → 不编 lingua（还得加 --no-default-features）
+#
+# detect-full 和 default 的 detect-lite 同时生效时 Cargo 取并集，
+# 而 lite 是 full 的子集，所以结果就是 full，不用 --no-default-features。
+# custom-protocol 不用自己写：tauri CLI 实测会拼成
+# `cargo build --features detect-full,custom-protocol --release`。
+default = ["detect-lite", "custom-protocol"]
+local-detect = ["lingua"]
+detect-lite = ["local-detect", "lingua/chinese", "lingua/japanese", "lingua/english", "lingua/korean"]
+detect-full = ["local-detect", "lingua/chinese", "lingua/japanese", "lingua/english", "lingua/korean", "lingua/french", "lingua/spanish", "lingua/german", "lingua/russian", "lingua/italian", "lingua/portuguese", "lingua/turkish", "lingua/arabic", "lingua/vietnamese", "lingua/thai", "lingua/indonesian", "lingua/malay", "lingua/hindi", "lingua/mongolian", "lingua/persian", "lingua/nynorsk", "lingua/bokmal", "lingua/ukrainian"]
