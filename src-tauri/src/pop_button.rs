@@ -150,7 +150,7 @@ mod imp {
     use super::{place, Rect, Side};
     use crate::config::get as config_get;
     use crate::APP;
-    use log::{error, info, warn};
+    use log::{debug, error, info, warn};
     use once_cell::sync::OnceCell;
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -534,11 +534,21 @@ mod imp {
         if !armed() {
             return;
         }
+        let foreground = unsafe { GetForegroundWindow() };
+        let gesture = LAST_UP_MS.load(Relaxed);
         // No readable selection means this was a double click on a desktop
         // icon, a window drag, or an app UIA cannot see into. The first two get
         // nothing; the third may still turn up on the clipboard, so leave
         // PENDING_CLIP_MS alone and let clip_proc decide.
         let text = uia_selected_text(x, y);
+        // UIA calls cross process boundaries. Discard the answer if the user
+        // changed windows or completed another gesture while we were reading.
+        if unsafe { GetForegroundWindow() } != foreground
+            || LAST_UP_MS.load(Relaxed) != gesture
+            || !armed()
+        {
+            return;
+        }
         if text.is_empty() {
             return;
         }
@@ -662,11 +672,11 @@ mod imp {
             return;
         }
         let (sx, sy) = corner(&config_string("pop_result_pos", "")).unwrap_or((Side::After, Side::After));
-        show_result(Rect::point(x, y), sx, sy, 0, text);
+        crate::screenshot::with_selection(|| show_result(Rect::point(x, y), sx, sy, 0, text, None));
     }
 
     // 截图识别完由前端调进来。box_* 以选区为基准，cursor_* 以松手时的光标为基准。
-    pub fn show_screenshot_result(sel: Rect, text: String) {
+    pub fn show_screenshot_result(sel: Rect, text: String, request_id: u64) {
         let pos = config_string("screenshot_pos", "");
         let (anchor, sx, sy, gap) = match pos.as_str() {
             "box_right_top" => (sel, Side::After, Side::Start, GAP),
@@ -683,12 +693,12 @@ mod imp {
                 None => (sel, Side::Start, Side::After, 0),
             },
         };
-        show_result(anchor, sx, sy, gap, text);
+        show_result(anchor, sx, sy, gap, text, Some(request_id));
     }
 
     // Called from an async command, so the blocking getters below never run on
     // the main thread.
-    fn show_result(anchor: Rect, sx: Side, sy: Side, gap: i32, text: String) {
+    fn show_result(anchor: Rect, sx: Side, sy: Side, gap: i32, text: String, request_id: Option<u64>) {
         let window = match APP.get().and_then(|app| app.get_window("pop_result")) {
             Some(v) => v,
             None => return,
@@ -719,7 +729,11 @@ mod imp {
         // 面板在基准上方时，内容变高要钉住底边往上长：把底边的物理 y 告诉 JS，
         // 下方时发 null。必须先于 new_text 发 —— 同一个窗口的事件按发送顺序到。
         let _ = window.emit("pop_anchor", above.then_some(y + h));
-        let _ = window.emit("new_text", text);
+        if let Some(request_id) = request_id {
+            let _ = window.emit("new_text", crate::screenshot::OcrText { request_id, text });
+        } else {
+            let _ = window.emit("new_text", text);
+        }
     }
 
     // hwnd() 每次都要 round-trip 到事件循环，所以只问一次。
@@ -788,13 +802,66 @@ mod imp {
     }
 
     unsafe fn read_selection(auto: &IUIAutomation, x: i32, y: i32) -> String {
-        if let Some(text) = selection_of(auto.GetFocusedElement().ok()) {
-            return text;
+        let foreground = GetForegroundWindow();
+        let Ok(root) = auto.ElementFromHandle(foreground) else {
+            debug!("PopButton: UIA foreground element unavailable");
+            return String::new();
+        };
+        let Ok(walker) = auto.RawViewWalker() else {
+            debug!("PopButton: UIA raw tree walker unavailable");
+            return String::new();
+        };
+        // A text leaf need not implement TextPattern: its enclosing document
+        // often owns the selection. Raw view retains otherwise filtered wrappers.
+        // Prefer the gesture location over an unrelated focused input control.
+        for (source, element) in [
+            ("pointer", auto.ElementFromPoint(POINT { x, y }).ok()),
+            ("focus", auto.GetFocusedElement().ok()),
+        ] {
+            let Some(element) = element else { continue };
+            let Some(path) = scoped_ancestors(
+                element,
+                |element| walker.GetParentElement(element).ok(),
+                |element| auto.CompareElements(element, &root).map(|v| v.as_bool()).unwrap_or(false),
+            ) else {
+                debug!("PopButton: UIA {} outside foreground tree or ancestry limit reached", source);
+                continue;
+            };
+            for (depth, element) in path.into_iter().enumerate() {
+                if GetForegroundWindow() != foreground {
+                    return String::new();
+                }
+                if let Some(text) = selection_of(Some(element)) {
+                    debug!("PopButton: UIA selection via {} at ancestor depth {} ({} chars)",
+                        source, depth, text.chars().count());
+                    return text;
+                }
+            }
         }
-        // Read-only text panels often never take the focus, so give whatever
-        // sits under the cursor a turn. Still a real selection, just read from
-        // a different element.
-        selection_of(auto.ElementFromPoint(POINT { x, y }).ok()).unwrap_or_default()
+        debug!("PopButton: UIA no selected text in foreground ancestor chains");
+        String::new()
+    }
+
+    // Validate the entire chain before reading any selection: matching process
+    // IDs alone would also admit other windows from the same application.
+    // Never scan descendants or walk beyond the foreground window to desktop.
+    fn scoped_ancestors<T>(
+        start: T,
+        mut parent: impl FnMut(&T) -> Option<T>,
+        mut is_root: impl FnMut(&T) -> bool,
+    ) -> Option<Vec<T>> {
+        let mut path = vec![start];
+        for _ in 0..32 {
+            let element = path.last()?;
+            if is_root(element) {
+                return Some(path);
+            }
+            if path.len() == 32 {
+                break;
+            }
+            path.push(parent(element)?);
+        }
+        None
     }
 
     unsafe fn selection_of(element: Option<IUIAutomationElement>) -> Option<String> {
@@ -997,6 +1064,22 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
+        #[test]
+        fn selection_ancestors_stop_at_foreground_window() {
+            let path = super::scoped_ancestors(4u32, |n| n.checked_sub(1), |n| *n == 1);
+            assert_eq!(path, Some(vec![4, 3, 2, 1]));
+            assert_eq!(super::scoped_ancestors(1u32, |_| panic!("must stop at root"), |n| *n == 1), Some(vec![1]));
+        }
+
+        #[test]
+        fn selection_ancestors_reject_other_windows_and_cycles() {
+            assert_eq!(super::scoped_ancestors(4u32, |n| n.checked_sub(1), |n| *n == 9), None);
+            let mut calls = 0;
+            let path = super::scoped_ancestors(4, |n| { calls += 1; Some(*n) }, |n| *n == 9);
+            assert!(path.is_none());
+            assert_eq!(calls, 31);
+        }
+
         use super::{is_native_language_for, matches_blacklist, same_base_language};
 
         #[test]
@@ -1069,7 +1152,7 @@ mod imp {
 mod imp {
     pub fn start() {}
     pub fn translate() {}
-    pub fn show_screenshot_result(_sel: super::Rect, _text: String) {}
+    pub fn show_screenshot_result(_sel: super::Rect, _text: String, _request_id: u64) {}
 }
 
 pub fn start_pop_button() {
@@ -1086,6 +1169,9 @@ pub fn pop_button_translate() {
 /// 把一段文字推进悬浮结果面板。截图识别完由前端调这个，
 /// 四条边是 crop_region 返回的选区矩形（物理坐标），摆在哪由 `screenshot_pos` 定。
 #[tauri::command(async)]
-pub fn show_pop_result(left: i32, top: i32, right: i32, bottom: i32, text: String) {
-    imp::show_screenshot_result(Rect { l: left, t: top, r: right, b: bottom }, text);
+pub fn show_pop_result(request_id: u64, left: i32, top: i32, right: i32, bottom: i32, text: String) -> Result<(), String> {
+    crate::screenshot::with_current(request_id, || {
+        imp::show_screenshot_result(Rect { l: left, t: top, r: right, b: bottom }, text, request_id);
+        Ok(())
+    })
 }

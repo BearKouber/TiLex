@@ -44,7 +44,7 @@ async function baidu_detect(text) {
             return lang_map[result.lan];
         }
     }
-    return 'en';
+    throw new Error('Language detection failed');
 }
 // https://cloud.google.com/translate/docs/languages?hl=zh-cn
 async function google_detect(text) {
@@ -99,7 +99,7 @@ async function google_detect(text) {
             return lang_map[result[2]];
         }
     }
-    return 'en';
+    throw new Error('Language detection failed');
 }
 // https://niutrans.com/documents/contents/trans_text#languageList
 async function niutrans_detect(text) {
@@ -145,7 +145,7 @@ async function niutrans_detect(text) {
             return lang_map[result['language']];
         }
     }
-    return 'en';
+    throw new Error('Language detection failed');
 }
 // https://yandex.com/dev/translate/doc/en/concepts/api-overview
 async function yandex_detect(text) {
@@ -186,7 +186,7 @@ async function yandex_detect(text) {
             return lang_map[result['lang']];
         }
     }
-    return 'en';
+    throw new Error('Language detection failed');
 }
 // 本地识别（lingua）：~0.2ms，离线。Rust 端用 --no-default-features
 // 编译时会返回 Err，那时退到测下来最快的网络引擎。

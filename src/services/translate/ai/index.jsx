@@ -1,5 +1,6 @@
 import { fetch, Body } from '@tauri-apps/api/http';
-import { extractJson, isWord } from '../../../utils/wordbook_format';
+import { isWord } from '../../../utils/wordbook_format';
+import { dictionaryResult } from './dictionary';
 import { Language } from './info';
 import { defaultRequestArguments } from './Config';
 import { formatOf } from './protocol';
@@ -71,8 +72,7 @@ export async function translate(text, from, to, options) {
         if (target) {
             if (dict) {
                 // 解析不出来就退回纯文本，最差也就是和改之前一样。
-                const parsed = extractJson(target);
-                if (parsed?.explanations) return parsed;
+                return dictionaryResult(target);
             }
             if (target.startsWith('"')) {
                 target = target.slice(1);

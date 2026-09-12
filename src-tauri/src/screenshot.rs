@@ -14,10 +14,111 @@
 // 前端回传的是 0..1 的比例，不是像素：覆盖窗铺满整个虚拟屏，比例乘物理宽高就是
 // 物理像素。所以这条链路上没有 devicePixelRatio，多屏各自不同的缩放也不用分屏算。
 
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tauri::Manager;
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    request_id: u64,
+    active: bool,
+}
+
+impl Session {
+    fn advance(&mut self, active: bool) -> u64 {
+        self.request_id += 1;
+        self.active = active;
+        self.request_id
+    }
+
+    fn accepts(&self, request_id: u64) -> bool {
+        self.active && self.request_id == request_id
+    }
+}
+
+// Serialize native side effects with new captures/cancellation. JS checks alone cannot
+// guard commands already queued across IPC, nor the shared full-screen buffer.
+static SESSION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(Session::default()));
+
+fn announce(session: Session) {
+    if let Some(app) = crate::APP.get() {
+        let _ = app.emit_all("screenshot_session", session);
+    }
+}
+
+pub fn with_current<T>(request_id: u64, action: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let session = SESSION.lock().map_err(|e| e.to_string())?;
+    if !session.accepts(request_id) { return Err("Screenshot superseded".into()); }
+    action()
+}
+
+// Normal text selection also owns the result panel and supersedes any pending OCR.
+pub fn with_selection(action: impl FnOnce()) {
+    if let Ok(mut session) = SESSION.lock() {
+        session.advance(false);
+        announce(*session);
+        action();
+    }
+}
+
+#[tauri::command(async)]
+pub fn screenshot_current() -> Result<Session, String> {
+    SESSION.lock().map(|session| *session).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn screenshot_is_current(request_id: u64) -> bool {
+    SESSION.lock().map(|session| session.accepts(request_id)).unwrap_or(false)
+}
+
+#[tauri::command(async)]
+pub fn screenshot_cancel(request_id: u64) -> Result<(), String> {
+    let mut session = SESSION.lock().map_err(|e| e.to_string())?;
+    if !session.accepts(request_id) { return Ok(()); }
+    session.advance(false);
+    announce(*session);
+    overlay_visibility(false)
+}
+
+fn overlay_visibility(visible: bool) -> Result<(), String> {
+    if let Some(window) = crate::APP.get().and_then(|app| app.get_window("screenshot")) {
+        if visible { window.show() } else { window.hide() }.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn screenshot_overlay(request_id: u64, visible: bool) -> Result<(), String> {
+    with_current(request_id, || overlay_visibility(visible))
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrText {
+    pub request_id: u64,
+    pub text: String,
+}
+
+#[tauri::command(async)]
+pub fn screenshot_publish(request_id: u64, text: String, is_error: bool) -> Result<(), String> {
+    with_current(request_id, || {
+        let window = crate::APP.get().and_then(|app| app.get_window("pop_result")).ok_or("No result window")?;
+        window.emit(if is_error { "recognize_error" } else { "new_text" }, OcrText { request_id, text })
+            .map_err(|e| e.to_string())
+    })
+}
+
+fn region_filename() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    format!("ocr_region_{}_{}.png", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed))
+}
+
 #[cfg(windows)]
 mod imp {
     use crate::APP;
-    use log::{error, info};
+    use log::info;
     use once_cell::sync::Lazy;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -115,7 +216,7 @@ mod imp {
         let app = APP.get().ok_or("APP 还没初始化")?;
         let dir = tauri::api::path::app_cache_dir(&app.config()).ok_or("拿不到 app cache 目录")?;
         std::fs::create_dir_all(&dir).map_err(|e| format!("建不出缓存目录：{e}"))?;
-        Ok(dir.join("ocr_region.png"))
+        Ok(dir.join(super::region_filename()))
     }
 
     // 路径由调用方给：算路径要 APP，而裁剪 + PNG 编码这段是真正会写错的地方，
@@ -160,23 +261,20 @@ mod imp {
     }
 
     /// 托盘点进来的入口：抓屏 → 铺满虚拟屏的覆盖窗 → 交给前端拖框。
-    pub fn start() {
-        let shot = match capture() {
-            Ok(v) => v,
-            Err(e) => return error!("Screenshot: {}", e),
-        };
+    pub fn start() -> Result<(), String> {
+        // Discard the previous pixels even when a fresh capture fails.
+        *SHOT.lock().map_err(|e| e.to_string())? = None;
+        let shot = capture()?;
         let (x, y, w, h) = (shot.x, shot.y, shot.w, shot.h);
         info!("Screenshot: captured {}x{} at ({}, {})", w, h, x, y);
         *SHOT.lock().unwrap() = Some(shot);
 
-        let window = match overlay() {
-            Ok(v) => v,
-            Err(e) => return error!("Screenshot: 覆盖窗建不出来：{}", e),
-        };
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-        let _ = window.set_size(PhysicalSize::new(w as u32, h as u32));
-        let _ = window.show();
-        let _ = window.set_focus();
+        let window = overlay()?;
+        window.set_position(PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        window.set_size(PhysicalSize::new(w as u32, h as u32)).map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     /// 选区用 0..1 的比例传进来，见本文件顶部。裁好图返回路径，认字是前端的事。
@@ -193,7 +291,10 @@ mod imp {
         }
 
         let path = region_path()?;
-        crop_png(shot, l, t, w, h, &path)?;
+        if let Err(error) = crop_png(shot, l, t, w, h, &path) {
+            let _ = std::fs::remove_file(&path);
+            return Err(error);
+        }
         Ok(Region {
             path: path.to_string_lossy().into_owned(),
             left: shot.x + l,
@@ -229,7 +330,7 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    pub fn start() {}
+    pub fn start() -> Result<(), String> { Err("仅 Windows".into()) }
     pub fn crop_region(_l: f64, _t: f64, _r: f64, _b: f64) -> Result<super::Region, String> {
         Err("仅 Windows".into())
     }
@@ -247,10 +348,83 @@ pub struct Region {
 
 /// 托盘菜单点「截图翻译」。抓屏要几十毫秒，别占着事件循环。
 pub fn start_screenshot() {
-    std::thread::spawn(imp::start);
+    // Never acquire this mutex on the UI thread: a worker holding it may be
+    // waiting for a Tauri window getter. Invalidate before capture, not on focus.
+    std::thread::spawn(|| {
+        match SESSION.lock() {
+            Ok(mut session) => {
+                session.advance(true);
+                announce(*session);
+                if let Err(error) = imp::start() {
+                    log::error!("Screenshot: {error}");
+                    session.advance(false);
+                    announce(*session);
+                    let _ = overlay_visibility(false);
+                }
+            }
+            Err(error) => log::error!("Screenshot session: {error}"),
+        }
+    });
 }
 
 #[tauri::command(async)]
-pub fn crop_region(left: f64, top: f64, right: f64, bottom: f64) -> Result<Region, String> {
-    imp::crop_region(left, top, right, bottom)
+pub fn crop_region(request_id: u64, left: f64, top: f64, right: f64, bottom: f64) -> Result<Region, String> {
+    with_current(request_id, || imp::crop_region(left, top, right, bottom))
+}
+
+#[cfg(test)]
+mod session_tests {
+    #[test]
+    fn publication_preserves_tauri_callback_envelope() {
+        // Exercise Tauri's real deserializer: an `error: bool` business argument
+        // replaces the callback ID and rejects the entire message before dispatch.
+        for is_error in [false, true] {
+            let payload = serde_json::json!({
+                "cmd": "screenshot_publish", "callback": 100, "error": 101,
+                "requestId": 7, "text": "OCR result", "isError": is_error,
+            });
+            let parsed: tauri::InvokePayload = serde_json::from_value(payload.clone()).unwrap();
+            assert_eq!(parsed.error.0, 101);
+            assert_eq!(parsed.inner["isError"], is_error);
+            assert!(parsed.inner.get("error").is_none());
+
+            let mut broken = payload;
+            broken["error"] = is_error.into();
+            assert!(serde_json::from_value::<tauri::InvokePayload>(broken).is_err());
+        }
+    }
+
+    #[test]
+    fn newer_capture_cancel_and_selection_reject_old_work() {
+        let mut session = super::Session::default();
+        let a = session.advance(true);
+        assert!(session.accepts(a));
+        let b = session.advance(true);
+        assert!(!session.accepts(a));
+        assert!(session.accepts(b));
+        session.advance(false);
+        assert!(!session.accepts(b));
+    }
+
+    #[test]
+    fn crops_have_independent_paths() {
+        assert_ne!(super::region_filename(), super::region_filename());
+    }
+
+    #[test]
+    fn native_guard_blocks_stale_actions_and_stale_cancel() {
+        let (old, current) = {
+            let mut session = super::SESSION.lock().unwrap();
+            (session.advance(true), session.advance(true))
+        };
+        let mut called = false;
+        assert!(super::with_current(old, || { called = true; Ok(()) }).is_err());
+        assert!(!called);
+        super::screenshot_cancel(old).unwrap();
+        assert!(super::screenshot_is_current(current));
+        super::with_current(current, || { called = true; Ok(()) }).unwrap();
+        assert!(called);
+        super::with_selection(|| {});
+        assert!(!super::screenshot_is_current(current));
+    }
 }

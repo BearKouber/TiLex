@@ -100,6 +100,11 @@ fn main() {
             ocr_status,
             crop_region,
             show_pop_result,
+            screenshot_current,
+            screenshot_is_current,
+            screenshot_cancel,
+            screenshot_overlay,
+            screenshot_publish,
             register_shortcut
         ])
         .on_system_tray_event(tray_event_handler)

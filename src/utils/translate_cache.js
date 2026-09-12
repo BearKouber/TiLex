@@ -3,7 +3,19 @@
 const MAX_ENTRIES = 200;
 const cache = new Map();
 
-export const cacheKey = (text, from, to, service) => JSON.stringify([text, from, to, service]);
+function canonical(value) {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+    }
+    return value;
+}
+
+// Configuration may contain credentials: these keys stay in memory and must never be logged.
+export const cacheKey = (text, from, to, service, config = {}, detected = '') =>
+    JSON.stringify([text, from, to, service, canonical(config), detected]);
+
+export const requestConfigSnapshot = (config) => JSON.parse(JSON.stringify(config));
 
 export function getCached(key) {
     if (!cache.has(key)) return undefined;

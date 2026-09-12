@@ -1,5 +1,6 @@
 import Database from 'tauri-plugin-sql-api';
 import { isWord } from './wordbook_format.js';
+import { emit } from '@tauri-apps/api/event';
 
 // 生词本用自己的库，不和 history.db 共用 —— 批次 9 删 History 页时不牵连。
 // 表结构与取舍见 docs/整合方案.md §4.1（一张表 + 一个 detail JSON 列）。
@@ -31,7 +32,7 @@ export function getDB() {
     return dbPromise;
 }
 
-// detail 传对象，这里负责序列化；长句的 AI 结果由批次 8 回填。
+// Store structured detail alongside searchable plain text.
 export async function addEntry({ text, translation = '', detail = null, sourceId = null, type = null }) {
     const db = await getDB();
     const result = await db.execute(
@@ -45,5 +46,13 @@ export async function addEntry({ text, translation = '', detail = null, sourceId
             Date.now(),
         ]
     );
+    void emit('wordbook_changed').catch(console.error);
     return result.lastInsertId;
+}
+
+export async function updateEntry(id, { translation, detail }) {
+    const db = await getDB();
+    await db.execute('UPDATE entries SET translation=$1, detail=$2 WHERE id=$3 AND deleted=0',
+        [translation, detail && JSON.stringify(detail), id]);
+    void emit('wordbook_changed').catch(console.error);
 }

@@ -1,6 +1,6 @@
 import { Button, Card, CardBody, Chip, Input, Listbox, ListboxItem, Tab, Tabs } from '@nextui-org/react';
 import { MdDeleteOutline, MdDownload, MdVolumeUp } from 'react-icons/md';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +9,8 @@ import { getDB } from '../../../../utils/wordbook';
 import { exportMarkdown } from '../../../../utils/wordbook_export';
 import { speak } from '../../../../utils/speak';
 import { useToastStyle } from '../../../../hooks';
+import { listen } from '@tauri-apps/api/event';
+import { entryDisplay } from '../../../../utils/saved_entry';
 
 // 生词本页面。数据全在 wordbook.db 的 entries 表（结构见 docs/整合方案.md §4.1）。
 //
@@ -23,15 +25,21 @@ export default function Wordbook() {
     const [selectedId, setSelectedId] = useState(null);
     const toastStyle = useToastStyle();
     const { t } = useTranslation();
+    const loadVersion = useRef(0);
 
     const load = useCallback(async () => {
+        const version = ++loadVersion.current;
         const db = await getDB();
         const rows = await db.select('SELECT * FROM entries WHERE deleted=0 ORDER BY id DESC');
-        setEntries(rows.map((r) => ({ ...r, detail: parseDetail(r.detail) })));
+        if (version === loadVersion.current) {
+            setEntries(rows.map((r) => ({ ...r, detail: parseDetail(r.detail) })));
+        }
     }, []);
 
     useEffect(() => {
-        void load();
+        const unlisten = listen('wordbook_changed', () => { void load().catch(console.error); });
+        void unlisten.then(() => load()).catch(console.error);
+        return () => { void unlisten.then((stop) => stop()); };
     }, [load]);
 
     const list = useMemo(() => {
@@ -41,6 +49,7 @@ export default function Wordbook() {
 
     // 选中的条目被筛掉或被删掉时，落到当前列表的第一条上。
     const selected = list.find((e) => e.id === selectedId) ?? list[0] ?? null;
+    const display = selected ? entryDisplay(selected) : null;
 
     const remove = async (id) => {
         const db = await getDB();
@@ -178,9 +187,9 @@ export default function Wordbook() {
                                 </div>
                             )}
 
-                            {selected.translation && (
+                            {display.translation && (
                                 <div className='mt-[12px] text-[14px] select-text whitespace-pre-wrap'>
-                                    {selected.translation}
+                                    {display.translation}
                                 </div>
                             )}
 
@@ -196,9 +205,9 @@ export default function Wordbook() {
                                 </div>
                             ))}
 
-                            {(selected.detail?.associations ?? []).length > 0 && (
+                            {display.associations.length > 0 && (
                                 <div className='mt-[8px] text-[12px] text-default-500 select-text'>
-                                    {selected.detail.associations.join(' · ')}
+                                    {display.associations.join(', ')}
                                 </div>
                             )}
 

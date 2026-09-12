@@ -51,7 +51,7 @@ export default function App() {
                 if (e.key.startsWith('F') && e.key.length > 1) {
                     e.preventDefault();
                 }
-                if (e.key === 'Escape') {
+                if (e.key === 'Escape' && appWindow.label !== 'screenshot') {
                     // pop_result and screenshot are built once and reused;
                     // closing them would leave nothing to show next time.
                     await (HIDE_ON_ESC.includes(appWindow.label) ? appWindow.hide() : appWindow.close());
@@ -66,7 +66,7 @@ export default function App() {
                 if (e.key.startsWith('F') && e.key.length > 1) {
                     e.preventDefault();
                 }
-                if (e.key === 'Escape') {
+                if (e.key === 'Escape' && appWindow.label !== 'screenshot') {
                     // pop_result and screenshot are built once and reused;
                     // closing them would leave nothing to show next time.
                     await (HIDE_ON_ESC.includes(appWindow.label) ? appWindow.hide() : appWindow.close());

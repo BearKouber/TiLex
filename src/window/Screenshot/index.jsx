@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { appWindow } from '@tauri-apps/api/window';
+import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 
 import { recognize } from '../../utils/recognize';
-import { emit, listen } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
+import { removeFile } from '@tauri-apps/api/fs';
+import { runOcrRequest } from '../../utils/ocr_request';
 import { useTranslation } from 'react-i18next';
 
 // 框选覆盖窗。Rust 在显示这个窗口之前就已经把整屏抓进内存了，这里只负责画框，
@@ -19,6 +20,8 @@ export default function Screenshot() {
     const [down, setDown] = useState(false);
     const [msg, setMsg] = useState(''); // 识别中 / 错误
     const { t } = useTranslation();
+    const session = useRef({ requestId: 0, active: false });
+    const busy = useRef(false);
 
     // style.css 给 html 加了 10px 圆角（悬浮窗要的），铺满全屏时会缺四个角
     useEffect(() => {
@@ -31,59 +34,72 @@ export default function Screenshot() {
         setMsg('');
     };
     const dismiss = () => {
+        const { requestId } = session.current;
+        session.current = { requestId, active: false };
+        busy.current = false;
         reset();
-        void appWindow.hide();
+        void invoke('screenshot_cancel', { requestId });
     };
 
-    // Esc 关窗是 App.jsx 上那个全局监听干的，状态清理挂在「又被显示出来」这一刻，
-    // 这样不管上次是怎么退出的，下次打开都是干净的。
+    // A new capture resets the selection; focus recovery after an error does not.
     useEffect(() => {
-        const un = listen('tauri://focus', reset);
-        return () => void un.then((f) => f());
+        let mounted = true;
+        const receive = (value) => {
+            if (!mounted || value.requestId <= session.current.requestId) return;
+            session.current = value;
+            busy.current = false;
+            reset();
+        };
+        const un = listen('screenshot_session', (e) => receive(e.payload));
+        // A lazily created webview can miss the first start event. Subscribe before reading.
+        void un.then(() => invoke('screenshot_current')).then(receive);
+        const keydown = (e) => { if (e.key === 'Escape') dismiss(); };
+        document.addEventListener('keydown', keydown);
+        return () => {
+            mounted = false;
+            dismiss();
+            void un.then((f) => f());
+            document.removeEventListener('keydown', keydown);
+        };
     }, []);
 
     const finish = async (e) => {
         setDown(false);
-        if (!sel) return;
+        if (!down || !sel || busy.current || !session.current.active) return;
         const box = rectOf({ ...sel, x1: e.clientX, y1: e.clientY });
         if (box.w < MIN || box.h < MIN) return dismiss();
         const { clientWidth: cw, clientHeight: ch } = document.documentElement;
-        // 先收覆盖窗，再识别 —— 顺序不能反。反过来的话结果面板已经弹出来了，
-        // 覆盖窗这时候 hide，Windows 要重新分配焦点，面板立刻吃到一个 blur，
-        // 按「失焦就消失」的规矩把自己关掉 —— 就是那个「闪一下直接退了」。
-        // 顺带识别那半秒屏幕是干净的，不用一直压着一层灰。
-        await appWindow.hide();
-        // 面板先亮出来（空文本 = 识别中），认完字再把结果 emit 过去。等认完再弹
-        // 的话，Umi 认一屏字要好几秒，那几秒屏幕上什么都没有，像卡死了。
-        let popped = false;
+        const { requestId } = session.current;
+        const current = () => session.current.active && session.current.requestId === requestId;
+        busy.current = true;
         try {
-            // Rust 只管裁图，认字走前端的识别服务（微信 OCR / Umi-OCR），
-            // 因为后者要读 store 里的 key、要发 HTTP —— 和翻译服务一个分法。
-            const region = await invoke('crop_region', {
-                left: box.l / cw,
-                top: box.t / ch,
-                right: (box.l + box.w) / cw,
-                bottom: (box.t + box.h) / ch,
+            await runOcrRequest({
+                current,
+                // Native commands also check ownership, including time spent in the IPC queue.
+                hide: () => invoke('screenshot_overlay', { requestId, visible: false }),
+                crop: () => invoke('crop_region', {
+                    requestId, left: box.l / cw, top: box.t / ch,
+                    right: (box.l + box.w) / cw, bottom: (box.t + box.h) / ch,
+                }),
+                show: ({ left, top, right, bottom }) => invoke('show_pop_result', {
+                    requestId, left, top, right, bottom, text: '',
+                }),
+                recognize,
+                // `error` is reserved by Tauri v1 for its numeric rejection callback.
+                publish: (text, isError) => invoke('screenshot_publish', { requestId, text, isError }),
+                restore: async (message) => {
+                    if (!current()) return;
+                    setMsg(message);
+                    await invoke('screenshot_overlay', { requestId, visible: true });
+                },
+                reset,
+                cleanup: (path) => removeFile(path).catch(() => {}),
+                noText: t('config.service.no_text'),
             });
-            const { left, top, right, bottom } = region;
-            await invoke('show_pop_result', { left, top, right, bottom, text: '' });
-            popped = true;
-            const text = await recognize(region.path);
-            if (!text) throw new Error(t('config.service.no_text'));
-            // 面板已经开着了，第二次不能再走 show_pop_result —— 那会重新定位、
-            // 重新抢焦点。全局 emit 直接送进它的 new_text 监听就够了。
-            await emit('new_text', text);
-            reset();
-        } catch (err) {
-            // 取 message：识别服务抛的已经是给人看的话了，加个 "Error:" 前缀反而难看。
-            const message = err?.message ?? String(err);
-            // 错误也进面板。原来是把覆盖窗叫回来显示 —— 但那样一个识别服务都没开
-            // 的时候，每次划完框都退回框选状态，看着像卡在截屏里出不去。
-            if (popped) await emit('recognize_error', message);
-            else {
-                setMsg(message);
-                void appWindow.show();
-            }
+        } catch {
+            // The session may have been cancelled while a guarded native command was queued.
+        } finally {
+            if (current()) busy.current = false;
         }
     };
 

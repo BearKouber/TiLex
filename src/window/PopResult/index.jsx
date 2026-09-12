@@ -5,14 +5,18 @@ import { speak } from '../../utils/speak';
 import PulseLoader from 'react-spinners/PulseLoader';
 import { MdCheck, MdChevronRight, MdContentCopy, MdExpandMore, MdStarBorder, MdVolumeUp } from 'react-icons/md';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/tauri';
+import { createOcrEventGate } from '../../utils/ocr_request';
 import { useTranslation } from 'react-i18next';
 
 import { INSTANCE_NAME_CONFIG_KEY, getDisplayInstanceName, getServiceName } from '../../utils/service_instance';
-import { cacheKey, getCached, setCached } from '../../utils/translate_cache';
+import { cacheKey, getCached, setCached, requestConfigSnapshot } from '../../utils/translate_cache';
+import { detectionWithFallback } from '../../utils/detection_fallback';
 import * as builtinServices from '../../services/translate';
 import { preprocess } from '../../utils/text_preprocess';
 import detect from '../../utils/lang_detect';
-import { addEntry } from '../../utils/wordbook';
+import { addEntry, updateEntry } from '../../utils/wordbook';
+import { createSavedEntry, resultText as plainText } from '../../utils/saved_entry';
 import { store } from '../../utils/store';
 
 // The floating panel the PopButton opens into. Rust positions it, shows it and
@@ -45,21 +49,7 @@ const ARM_PX = 24;
 let origin = null;
 let armed = false;
 
-// Several services answer a single word with a dictionary entry rather than a
-// sentence - google does it for any word it knows. Results are kept in whatever
-// shape they arrive in; this is only for copying and for the length check.
-const plainText = (v) =>
-    typeof v === 'string'
-        ? v.trim()
-        : [
-              ...(v?.pronunciations ?? []).map((p) => p.symbol).filter(Boolean),
-              ...(v?.explanations ?? []).map((e) => `${e.trait ?? ''} ${(e.explains ?? []).join(', ')}`.trim()),
-              ...(v?.associations ?? []),
-          ].join('\n');
-
-// Compact form of the full window's dictionary view: pronunciation and
-// meanings only. Example sentences are what the arrow button is for - they do
-// not fit in a panel this size.
+// Compact dictionary view: pronunciation, meanings, and associations.
 function DictView({ data }) {
     const symbols = (data.pronunciations ?? []).map((p) => p.symbol).filter(Boolean);
     return (
@@ -94,33 +84,38 @@ export default function PopResult() {
     const { t } = useTranslation();
     const boxRef = useRef();
     const heightRef = useRef(0);
+    const entryRef = useRef(null);
 
     const patch = (id, key, fields) => {
         if (id !== runID) return;
         setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...fields } : it)));
     };
 
-    const runOne = async (id, item, text, from, to, detected) => {
+    const runOne = async (id, item, text, from, to, detected, entry) => {
+        const receive = (fields) => {
+            entry.patch(item.key, fields);
+            patch(id, item.key, fields);
+        };
         try {
             const service = builtinServices[getServiceName(item.key)];
             if (!(from in service.Language) || !(to in service.Language)) {
                 throw new Error('Language not supported');
             }
-            const ck = cacheKey(text, from, to, item.key);
+            const ck = cacheKey(text, from, to, item.key, item.config, detected);
             const cached = getCached(ck);
             if (cached !== undefined) {
-                patch(id, item.key, { result: cached, loading: false });
+                receive({ result: cached, loading: false });
                 return;
             }
             const value = await service.translate(text, service.Language[from], service.Language[to], {
                 config: item.config,
                 detect: detected,
-                setResult: (v) => patch(id, item.key, { result: v }),
+                setResult: (v) => receive({ result: v }),
             });
-            patch(id, item.key, { result: value, loading: false });
+            receive({ result: value, loading: false });
             if (plainText(value)) setCached(ck, value);
         } catch (e) {
-            patch(id, item.key, { error: e.toString(), loading: false });
+            receive({ error: e.toString(), loading: false });
         }
     };
 
@@ -130,6 +125,7 @@ export default function PopResult() {
         armed = false;
         void appWindow.setFocus();
         const id = ++runID;
+        entryRef.current = null;
         const text = preprocess(raw, {
             deleteNewline: (await store.get('translate_delete_newline')) ?? false,
             codeSplit: (await store.get('translate_code_split')) ?? false,
@@ -144,11 +140,17 @@ export default function PopResult() {
         // 空文本 = 截图识别刚开的头，先把面板亮着转圈占位，正文等 OCR 那边认完
         // 再 emit 一次 new_text 进来。
         if (!text) return;
+        const entry = createSavedEntry(text, {
+            add: addEntry,
+            update: updateEntry,
+            onStatus: (value) => { if (id === runID) setSaved(value); },
+        });
+        entryRef.current = entry;
 
         const list = (await store.get('translate_service_list')) ?? ['google'];
         const pending = [];
         for (const key of list) {
-            const config = (await store.get(key)) ?? {};
+            const config = requestConfigSnapshot((await store.get(key)) ?? {});
             if (config['enable'] === false) continue;
             // 服务被删掉后，config.json 里还留着名字。这里不挡的话，每次划词都
             // 会多出一条永远失败的错误行。
@@ -164,33 +166,41 @@ export default function PopResult() {
                 loading: true,
             });
         }
-        if (id !== runID) return;
-        setItems(pending);
+        if (id !== runID && !entry.requested) return;
+        if (id === runID) setItems(pending);
+        entry.setItems(pending);
 
         const from = (await store.get('translate_source_language')) ?? 'auto';
         const to = (await store.get('translate_target_language')) ?? 'zh_cn';
         // 原文已经是目标语言时不该走到这里 —— pop_button.rs 的
         // is_native_language 在「显示按钮」那一步就挡掉了，面板不再自己改
         // 目标语言（原来那个退到第二目标语言的逻辑已删）。
-        const detected = await detect(text);
-        if (id !== runID) return;
+        const { detected, badge } = await detectionWithFallback(detect, text, from);
+        if (id !== runID && !entry.requested) return;
         // 上面那段逻辑本来就要 detect 一次，徽标是白捡的：不多发一次请求。
-        setLang(detected);
-        pending.forEach((item) => void runOne(id, item, text, from, to, detected));
+        if (id === runID) setLang(badge);
+        pending.forEach((item) => void runOne(id, item, text, from, to, detected, entry));
     };
 
     useEffect(() => {
+        const gate = createOcrEventGate((requestId) => invoke('screenshot_is_current', { requestId }));
+        const unlistenSession = listen('screenshot_session', (e) => {
+            if (gate.invalidate(e.payload.requestId)) runID++;
+        });
         const unlistenAnchor = listen('pop_anchor', (e) => {
             pinBottom = e.payload;
         });
-        const unlistenText = listen('new_text', (e) => run(e.payload));
+        const unlistenText = listen('new_text', (e) => void gate.accept(e.payload, run));
         // 截图识别失败走这条，不再退回框选覆盖窗。
-        const unlistenErr = listen('recognize_error', (e) => {
+        const unlistenErr = listen('recognize_error', (e) => void gate.accept(e.payload, (message) => {
             runID++;
+            entryRef.current = null;
             setSource('');
+            setLang('');
             setItems([]);
-            setStatus(e.payload);
-        });
+            setSaved('');
+            setStatus(message);
+        }));
         // Switching away is the dismiss gesture. The grace period covers the
         // focus handover right after show(), which lands as a blur first.
         //
@@ -210,6 +220,9 @@ export default function PopResult() {
             }, -late);
         });
         return () => {
+            gate.invalidate();
+            runID++;
+            unlistenSession.then((f) => f());
             unlistenAnchor.then((f) => f());
             unlistenText.then((f) => f());
             unlistenErr.then((f) => f());
@@ -245,28 +258,10 @@ export default function PopResult() {
         return () => observer.disconnect();
     }, []);
 
-    // 单词的谷歌词典结果窗口里已经拿到了，直接落库：零网络、零 token。
-    // 长句先存原文 + 译文立刻返回，AI 拆解在后台回填。
+    // Save immediately; this selection's remaining results update the same row.
     const collect = async () => {
-        if (!source) return;
-        const dict = items.find((it) => it.result && typeof it.result === 'object');
-        const translation = items.map((it) => plainText(it.result)).find(Boolean) ?? '';
-        try {
-            await addEntry({
-                text: source,
-                translation,
-                detail: dict && {
-                    pronunciations: dict.result.pronunciations ?? [],
-                    explanations: dict.result.explanations ?? [],
-                },
-            });
-            setSaved('ok');
-        } catch (e) {
-            console.error(e);
-            setSaved('error');
-            // 失败要能重试，所以只有这一支自己退回星星。
-            setTimeout(() => setSaved((v) => (v === 'error' ? '' : v)), 1500);
-        }
+        if (!source || entryRef.current?.text !== source) return;
+        await entryRef.current.save();
     };
     // 每个服务一个复制：原来底部那个「全部拼起来」的按钮，从外观上根本看不出
     // 复制的是哪一条。反馈沿用 saved 那一套，两个绿勾长得一样。
@@ -455,7 +450,7 @@ export default function PopResult() {
                 {/* 收好之后一直停在对勾上，直到换一段划词才退回星星：
                     原来 1.5 秒就复位，看上去像没存进去，很容易再点一次。 */}
                 <button
-                    disabled={saved === 'ok'}
+                    disabled={saved === 'ok' || saved === 'saving' || !source}
                     aria-label={t('config.wordbook.title')}
                     title={t('config.wordbook.title')}
                     className={
