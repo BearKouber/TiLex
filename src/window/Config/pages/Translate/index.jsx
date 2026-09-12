@@ -7,11 +7,11 @@ import { Dropdown } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Button } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 
 import { languageList } from '../../../../utils/language';
-import { useConfig, deleteKey } from '../../../../hooks/useConfig';
+import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
 import { osType } from '../../../../utils/env';
 import { invoke } from '@tauri-apps/api';
@@ -121,15 +121,6 @@ export default function Translate() {
         }
     };
 
-    // 生词本 AI 分析已删（批次 12 R4）：候选只认内置 ai 实例，而插件只有
-    // translate() 接口发不了自由 prompt，天然进不了这个列表 —— 功能对插件用户
-    // 永远是空的。存量的实例 key 在这里扫掉。
-    useEffect(() => {
-        deleteKey('wordbook_ai_instance');
-    }, []);
-
-    // 自动删除换行 / 拆分代码标识符两个开关删掉了（用户不需要，默认就是关）。
-    // PopResult 还在读那两个 key，读不到按 false 走，所以行为不变。
     return (
         <Card
             shadow='none'

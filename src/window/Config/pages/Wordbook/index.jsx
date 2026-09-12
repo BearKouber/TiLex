@@ -1,4 +1,4 @@
-import { Button, Card, CardBody, Chip, Input, Listbox, ListboxItem, Tab, Tabs } from '@nextui-org/react';
+import { Button, Card, CardBody, Input, Listbox, ListboxItem, Tab, Tabs } from '@nextui-org/react';
 import { MdDeleteOutline, MdDownload, MdVolumeUp } from 'react-icons/md';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import { speak } from '../../../../utils/speak';
 import { useToastStyle } from '../../../../hooks';
 import { listen } from '@tauri-apps/api/event';
 import { entryDisplay } from '../../../../utils/saved_entry';
+import TranslationResult from '../../../../components/TranslationResult';
 
 // 生词本页面。数据全在 wordbook.db 的 entries 表（结构见 docs/整合方案.md §4.1）。
 //
@@ -67,14 +68,15 @@ export default function Wordbook() {
     };
 
     return (
-        <div className='flex h-full gap-[10px]'>
+        <div className='flex h-full min-h-0 gap-[10px]'>
             <Card
                 shadow='none'
                 className='w-[280px] shrink-0 h-full border-1 border-default-100'
             >
-                <CardBody className='gap-[8px] p-[8px] overflow-hidden'>
+                <CardBody className='flex flex-col min-h-0 gap-[8px] p-[8px] overflow-hidden'>
                     <Button
                         size='sm'
+                        className='shrink-0'
                         variant='bordered'
                         startContent={<MdDownload className='text-[16px]' />}
                         onPress={doExport}
@@ -83,6 +85,7 @@ export default function Wordbook() {
                     </Button>
                     <Input
                         size='sm'
+                        classNames={{ base: 'shrink-0' }}
                         isClearable
                         value={keyword}
                         onValueChange={setKeyword}
@@ -91,7 +94,7 @@ export default function Wordbook() {
                     <Tabs
                         size='sm'
                         fullWidth
-                        classNames={{ panel: 'hidden' }}
+                        classNames={{ base: 'shrink-0', panel: 'hidden' }}
                         selectedKey={filter}
                         onSelectionChange={setFilter}
                     >
@@ -110,7 +113,7 @@ export default function Wordbook() {
                     </Tabs>
                     <Listbox
                         aria-label='wordbook entries'
-                        className='overflow-y-auto min-h-0 p-0'
+                        className='flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-0'
                         // 默认的选中态是 bg-default，压在第二行译文上就看不见了。
                         // ⚠️ 光改 data-[selected] 不够：点过之后 item 还带 focus，
                         // NextUI 的 data-[selectable=true]:focus:bg-default 会盖回去
@@ -146,15 +149,17 @@ export default function Wordbook() {
 
             <Card
                 shadow='none'
-                className='grow h-full border-1 border-default-100'
+                className='grow min-w-0 h-full border-1 border-default-100'
             >
-                <CardBody className='p-[20px] overflow-y-auto'>
+                <CardBody className='p-[20px] overflow-y-auto overflow-x-hidden'>
                     {selected === null ? (
                         <div className='m-auto text-default-400'>{t('config.wordbook.empty')}</div>
                     ) : (
                         <>
                             <div className='flex items-start justify-between gap-[12px]'>
-                                <h2 className='text-[18px] select-text'>{selected.text}</h2>
+                                <h2 className='min-w-0 text-[18px] select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere]'>
+                                    {selected.text}
+                                </h2>
                                 <div className='flex gap-[4px] shrink-0'>
                                     <Button
                                         isIconOnly
@@ -178,62 +183,9 @@ export default function Wordbook() {
                                 </div>
                             </div>
 
-                            {(selected.detail?.pronunciations ?? []).some((p) => p.symbol) && (
-                                <div className='mt-[8px] text-[12px] text-default-500 select-text'>
-                                    {selected.detail.pronunciations
-                                        .map((p) => p.symbol)
-                                        .filter(Boolean)
-                                        .join('  ')}
-                                </div>
-                            )}
-
-                            {display.translation && (
-                                <div className='mt-[12px] text-[14px] select-text whitespace-pre-wrap'>
-                                    {display.translation}
-                                </div>
-                            )}
-
-                            {(selected.detail?.explanations ?? []).map((item, index) => (
-                                <div
-                                    key={index}
-                                    className='mt-[8px] text-[14px] select-text'
-                                >
-                                    {item.trait && (
-                                        <span className='text-[12px] text-default-400 mr-[6px]'>{item.trait}</span>
-                                    )}
-                                    {(item.explains ?? []).join(', ')}
-                                </div>
-                            ))}
-
-                            {display.associations.length > 0 && (
-                                <div className='mt-[8px] text-[12px] text-default-500 select-text'>
-                                    {display.associations.join(', ')}
-                                </div>
-                            )}
-
-                            {/* AI 分析已在批次 12 删掉（R4），这两段只为已经存下来的老记录保留渲染。 */}
-                            {selected.detail?.syntax_breakdown && (
-                                <div className='mt-[20px] text-[14px] select-text'>
-                                    <div>{selected.detail.syntax_breakdown.main_clause}</div>
-                                    <div className='mt-[8px] text-default-500'>
-                                        {selected.detail.syntax_breakdown.clauses_and_modifiers}
-                                    </div>
-                                </div>
-                            )}
-
-                            {(selected.detail?.key_vocabulary ?? []).length > 0 && (
-                                <div className='mt-[20px] flex flex-wrap gap-[8px]'>
-                                    {selected.detail.key_vocabulary.map((v) => (
-                                        <Chip
-                                            key={v.word}
-                                            size='sm'
-                                            variant='bordered'
-                                        >
-                                            {v.word} {v.meaning_in_context}
-                                        </Chip>
-                                    ))}
-                                </div>
-                            )}
+                            <div className='mt-[12px]'>
+                                <TranslationResult display={display} />
+                            </div>
                         </>
                     )}
                 </CardBody>

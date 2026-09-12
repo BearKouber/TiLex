@@ -5,6 +5,7 @@ import { recognize } from '../../utils/recognize';
 import { listen } from '@tauri-apps/api/event';
 import { removeFile } from '@tauri-apps/api/fs';
 import { runOcrRequest } from '../../utils/ocr_request';
+import { traceOcr } from '../../utils/ocr_diagnostics';
 import { useTranslation } from 'react-i18next';
 
 // 框选覆盖窗。Rust 在显示这个窗口之前就已经把整屏抓进内存了，这里只负责画框，
@@ -35,6 +36,7 @@ export default function Screenshot() {
     };
     const dismiss = () => {
         const { requestId } = session.current;
+        traceOcr('overlay-cancel', { requestId });
         session.current = { requestId, active: false };
         busy.current = false;
         reset();
@@ -95,6 +97,8 @@ export default function Screenshot() {
                 reset,
                 cleanup: (path) => removeFile(path).catch(() => {}),
                 noText: t('config.service.no_text'),
+                failureText: t('config.recognize.failed'),
+                trace: (event, details) => traceOcr(event, { requestId, ...details }),
             });
         } catch {
             // The session may have been cancelled while a guarded native command was queued.

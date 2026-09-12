@@ -17,6 +17,10 @@ members = ["ocr-sidecar"]
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }
 
+[dev-dependencies]
+# Exercise the installed StoreCollection/with_store implementation without a desktop.
+tauri = { version = "1.8", features = ["test"] }
+
 [dependencies]
 
 tauri = { version = "1.8", features = [ "global-shortcut-all", "dialog-save", "dialog-open", "fs-all", "protocol-asset", "shell-all", "clipboard-all", "os-all", "http-all", "http-multipart", "notification-all", "window-all", "path-all", "system-tray", "devtools"] }

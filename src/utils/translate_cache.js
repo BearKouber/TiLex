@@ -1,3 +1,5 @@
+import { effectiveAiConfig } from '../services/translate/ai/instructions.js';
+
 // LRU cache for translation results, so repeating a selection skips the network.
 // A Map preserves insertion order, so the oldest entry is simply the first key.
 const MAX_ENTRIES = 200;
@@ -15,7 +17,11 @@ function canonical(value) {
 export const cacheKey = (text, from, to, service, config = {}, detected = '') =>
     JSON.stringify([text, from, to, service, canonical(config), detected]);
 
-export const requestConfigSnapshot = (config) => JSON.parse(JSON.stringify(config));
+// AI requests and cache identity use the same effective configuration. Appearance
+// and migration backups stay in the settings draft, outside this request snapshot.
+export const requestConfigSnapshot = (config, service = '') => JSON.parse(JSON.stringify(
+    service.split('@')[0] === 'ai' ? effectiveAiConfig(config) : config
+));
 
 export function getCached(key) {
     if (!cache.has(key)) return undefined;

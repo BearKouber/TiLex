@@ -4,8 +4,7 @@ import { Tabs, Tab, Button, Tooltip } from '@nextui-org/react';
 import { appWindow } from '@tauri-apps/api/window';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api';
-import { useTheme } from 'next-themes';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import React, { useEffect } from 'react';
 
 import WindowControl from '../../components/WindowControl';
@@ -27,8 +26,7 @@ const TABS = ['translate', 'service', 'wordbook', 'about'];
 export default function Config() {
     const [appLanguage, setAppLanguage] = useConfig('app_language', 'en');
     const [appTheme, setAppTheme] = useConfig('app_theme', 'system');
-    const { t, i18n } = useTranslation();
-    const { setTheme } = useTheme();
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const location = useLocation();
     const page = useRoutes(routes);
@@ -86,11 +84,13 @@ export default function Config() {
                             variant='light'
                             aria-label='theme'
                             className='w-[26px] h-[26px] min-w-[26px]'
-                            onPress={() => {
+                            onPress={async () => {
                                 const next = THEME_CYCLE[appTheme] ?? 'system';
-                                setAppTheme(next);
-                                // App.jsx 收到 app_theme_changed 会自己应用，包括跟随系统那套监听。
-                                if (next !== 'system') setTheme(next);
+                                try {
+                                    await setAppTheme(next, true);
+                                } catch {
+                                    toast.error(t('config.save_failed'));
+                                }
                             }}
                         >
                             {THEME_ICON[appTheme]}
@@ -105,11 +105,14 @@ export default function Config() {
                         variant='light'
                         aria-label='language'
                         className='w-[26px] h-[26px] min-w-[26px] font-bold text-[12px] mr-[4px]'
-                        onPress={() => {
+                        onPress={async () => {
                             const next = appLanguage === 'zh_cn' ? 'en' : 'zh_cn';
-                            setAppLanguage(next);
-                            i18n.changeLanguage(next);
-                            invoke('update_tray', { language: next, copyMode: '' });
+                            try {
+                                await setAppLanguage(next, true);
+                                await invoke('update_tray', { language: next });
+                            } catch {
+                                toast.error(t('config.save_failed'));
+                            }
                         }}
                     >
                         {appLanguage === 'zh_cn' ? '中' : 'EN'}

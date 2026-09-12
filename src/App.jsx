@@ -1,7 +1,7 @@
 import { appWindow } from '@tauri-apps/api/window';
 import { BrowserRouter } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { warn } from 'tauri-plugin-log-api';
+import { info, warn } from 'tauri-plugin-log-api';
 import React, { useEffect } from 'react';
 import { useTheme } from 'next-themes';
 
@@ -9,7 +9,7 @@ import { invoke } from '@tauri-apps/api/tauri';
 import PopButton from './window/PopButton';
 import PopResult from './window/PopResult';
 import Screenshot from './window/Screenshot';
-import { store } from './utils/store';
+import { applyTheme } from './utils/theme_subscription';
 import Config from './window/Config';
 import { useConfig } from './hooks';
 import './style.css';
@@ -35,70 +35,27 @@ export default function App() {
     const { i18n } = useTranslation();
 
     useEffect(() => {
-        store.load();
-    }, []);
-
-    useEffect(() => {
-        if (devMode !== null && devMode) {
-            document.addEventListener('keydown', async (e) => {
-                let allowKeys = ['c', 'v', 'x', 'a', 'z', 'y'];
-                if (e.ctrlKey && !allowKeys.includes(e.key.toLowerCase())) {
-                    e.preventDefault();
-                }
-                if (e.key === 'F12') {
-                    await invoke('open_devtools');
-                }
-                if (e.key.startsWith('F') && e.key.length > 1) {
-                    e.preventDefault();
-                }
-                if (e.key === 'Escape' && appWindow.label !== 'screenshot') {
-                    // pop_result and screenshot are built once and reused;
-                    // closing them would leave nothing to show next time.
-                    await (HIDE_ON_ESC.includes(appWindow.label) ? appWindow.hide() : appWindow.close());
-                }
-            });
-        } else {
-            document.addEventListener('keydown', async (e) => {
-                let allowKeys = ['c', 'v', 'x', 'a', 'z', 'y'];
-                if (e.ctrlKey && !allowKeys.includes(e.key.toLowerCase())) {
-                    e.preventDefault();
-                }
-                if (e.key.startsWith('F') && e.key.length > 1) {
-                    e.preventDefault();
-                }
-                if (e.key === 'Escape' && appWindow.label !== 'screenshot') {
-                    // pop_result and screenshot are built once and reused;
-                    // closing them would leave nothing to show next time.
-                    await (HIDE_ON_ESC.includes(appWindow.label) ? appWindow.hide() : appWindow.close());
-                }
-            });
-        }
+        const onKeyDown = async (e) => {
+            const allowKeys = ['c', 'v', 'x', 'a', 'z', 'y'];
+            if (e.ctrlKey && !allowKeys.includes(e.key.toLowerCase())) e.preventDefault();
+            if (devMode && e.key === 'F12') await invoke('open_devtools');
+            if (e.key.startsWith('F') && e.key.length > 1) e.preventDefault();
+            if (e.key === 'Escape' && appWindow.label !== 'screenshot') {
+                if (appWindow.label === 'pop_result') info('PopResult: hide source=escape');
+                await (HIDE_ON_ESC.includes(appWindow.label) ? appWindow.hide() : appWindow.close());
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
     }, [devMode]);
 
     useEffect(() => {
-        if (appTheme !== null) {
-            if (appTheme !== 'system') {
-                setTheme(appTheme);
-            } else {
-                try {
-                    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                        setTheme('dark');
-                    } else {
-                        setTheme('light');
-                    }
-                    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                        if (e.matches) {
-                            setTheme('dark');
-                        } else {
-                            setTheme('light');
-                        }
-                    });
-                } catch {
-                    warn("Can't detect system theme.");
-                }
-            }
+        try {
+            return applyTheme(appTheme, setTheme, (query) => window.matchMedia(query));
+        } catch {
+            warn("Can't detect system theme.");
         }
-    }, [appTheme]);
+    }, [appTheme, setTheme]);
 
     useEffect(() => {
         if (appLanguage !== null) {

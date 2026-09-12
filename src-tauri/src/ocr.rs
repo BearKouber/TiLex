@@ -126,6 +126,31 @@ pub fn ocr_status() -> Result<String, String> {
 
 /// 识别一张图，返回 wcocr 原样吐出来的 JSON：
 /// { errcode, imgpath, width, height, ocr_response: [{left,top,right,bottom,rate,text,details}] }
+// Validate complete stdout before interpreting the exit: teardown may fail after
+// a usable result. Diagnostics include lengths only, never image/text contents.
+fn validate_output(stdout: &[u8], stderr: &[u8], exit_code: Option<i32>) -> Result<String, String> {
+    let invalid = |reason: &str| format!(
+        "WeChat OCR: {reason} (exit={}, stdout-bytes={}, stderr-bytes={})",
+        exit_code.map(|code| code.to_string()).unwrap_or_else(|| "unknown".into()),
+        stdout.len(), stderr.len(),
+    );
+    let text = std::str::from_utf8(stdout).map_err(|_| invalid("invalid UTF-8 output"))?;
+    let json: serde_json::Value = serde_json::from_str(text).map_err(|_| invalid("invalid JSON output"))?;
+    let code = json.get("errcode").and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| invalid("invalid result status"))?;
+    if code != 0 { return Err(format!("WeChat OCR: errcode={code}")); }
+    let blocks = json.get("ocr_response").and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid("invalid text blocks"))?;
+    let mut has_text = false;
+    for block in blocks {
+        let value = block.get("text").and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid("invalid text field"))?;
+        has_text |= !value.trim().is_empty();
+    }
+    if !has_text { return Err("OCR_NO_TEXT".into()); }
+    Ok(text.trim().to_owned())
+}
+
 #[tauri::command(async)]
 pub fn ocr_image(path: String) -> Result<String, String> {
     let engine = ocr_engine().ok_or("找不到微信 OCR 引擎（wxocr.dll）。需要先装微信并登录过一次。")?;
@@ -140,14 +165,40 @@ pub fn ocr_image(path: String) -> Result<String, String> {
         .arg(&path)
         .output()
         .map_err(|e| format!("起 tilex-ocr.exe 失败：{e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    let result = validate_output(&out.stdout, &out.stderr, out.status.code());
+    if result.is_ok() && !out.status.success() {
+        log::warn!("OCR: usable-output-after-exit status={} stdout-bytes={} stderr-bytes={}",
+            out.status, out.stdout.len(), out.stderr.len());
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    result
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn output_validation_precedes_exit_status_and_rejects_bad_shapes() {
+        let success = br#"{"errcode":0,"ocr_response":[{"text":"recognized"}]}"#;
+        for exit in [Some(0), Some(3), None] {
+            assert!(super::validate_output(success, b"", exit).is_ok());
+            assert_eq!(super::validate_output(br#"{"errcode":2}"#, b"", exit).unwrap_err(), "WeChat OCR: errcode=2");
+            for empty in [r#"{"errcode":0,"ocr_response":[]}"#, r#"{"errcode":0,"ocr_response":[{"text":"  "}]}"#] {
+                assert_eq!(super::validate_output(empty.as_bytes(), b"", exit).unwrap_err(), "OCR_NO_TEXT");
+            }
+            for bad in ["", "null", "[]", "{}", "{", "noise {\"errcode\":0}",
+                "{\"errcode\":0,\"ocr_response\":{}}", "{\"errcode\":0,\"ocr_response\":[null]}",
+                "{\"errcode\":0,\"ocr_response\":[{\"text\":3}]}",
+                "{\"errcode\":0,\"ocr_response\":[{\"text\":\"ok\"},{}]}"] {
+                let error = super::validate_output(bad.as_bytes(), b"sensitive diagnostic", exit).unwrap_err();
+                assert!(!error.trim().is_empty());
+                assert!(!error.contains("sensitive diagnostic"));
+            }
+            assert!(super::validate_output(&[0xff], b"", exit).is_err());
+            let mut extra = success.to_vec();
+            extra.extend_from_slice(b" trailing output");
+            assert!(super::validate_output(&extra, b"", exit).is_err());
+        }
+    }
+
     // 路径探测不碰 DLL，跑得飞快
     #[test]
     fn detects_wechat_paths() {

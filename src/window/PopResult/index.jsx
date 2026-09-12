@@ -6,7 +6,9 @@ import PulseLoader from 'react-spinners/PulseLoader';
 import { MdCheck, MdChevronRight, MdContentCopy, MdExpandMore, MdStarBorder, MdVolumeUp } from 'react-icons/md';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
-import { createOcrEventGate } from '../../utils/ocr_request';
+import { createOcrEventGate, ocrErrorMessage } from '../../utils/ocr_request';
+import { createBlurGuard } from '../../utils/pop_result_lifecycle';
+import { traceOcr } from '../../utils/ocr_diagnostics';
 import { useTranslation } from 'react-i18next';
 
 import { INSTANCE_NAME_CONFIG_KEY, getDisplayInstanceName, getServiceName } from '../../utils/service_instance';
@@ -16,7 +18,8 @@ import * as builtinServices from '../../services/translate';
 import { preprocess } from '../../utils/text_preprocess';
 import detect from '../../utils/lang_detect';
 import { addEntry, updateEntry } from '../../utils/wordbook';
-import { createSavedEntry, resultText as plainText } from '../../utils/saved_entry';
+import { createSavedEntry, entryDisplay, resultText as plainText } from '../../utils/saved_entry';
+import TranslationResult from '../../components/TranslationResult';
 import { store } from '../../utils/store';
 
 // The floating panel the PopButton opens into. Rust positions it, shows it and
@@ -38,7 +41,6 @@ const LANG_BADGE = { zh_cn: '中', zh_tw: '繁', en: '英', ja: '日', ko: '韩'
 // Module scope on purpose: the listeners are registered once and would
 // otherwise close over a stale render.
 let runID = 0;
-let shownAt = 0;
 // Rust 摆放时面板在基准上方，就是面板底边的物理 y（内容变高时钉住它往上长）；
 // 在下方是 null（顶边不动往下长）。每次弹出由 pop_anchor 事件先于 new_text 送来。
 let pinBottom = null;
@@ -48,28 +50,6 @@ let pinBottom = null;
 const ARM_PX = 24;
 let origin = null;
 let armed = false;
-
-// Compact dictionary view: pronunciation, meanings, and associations.
-function DictView({ data }) {
-    const symbols = (data.pronunciations ?? []).map((p) => p.symbol).filter(Boolean);
-    return (
-        <div className='select-text'>
-            {symbols.length > 0 && <div className='text-[11px] text-default-500'>{symbols.join('  ')}</div>}
-            {(data.explanations ?? []).map((item, index) => (
-                <div
-                    key={index}
-                    className='text-[13px]'
-                >
-                    {item.trait && <span className='text-[10px] text-default-400 mr-[6px]'>{item.trait}</span>}
-                    {(item.explains ?? []).join(', ')}
-                </div>
-            ))}
-            {(data.associations ?? []).length > 0 && (
-                <div className='text-[11px] text-default-500'>{data.associations.join(', ')}</div>
-            )}
-        </div>
-    );
-}
 
 export default function PopResult() {
     const [source, setSource] = useState('');
@@ -85,6 +65,7 @@ export default function PopResult() {
     const boxRef = useRef();
     const heightRef = useRef(0);
     const entryRef = useRef(null);
+    const blurRef = useRef(null);
 
     const patch = (id, key, fields) => {
         if (id !== runID) return;
@@ -119,17 +100,15 @@ export default function PopResult() {
         }
     };
 
-    const run = async (raw) => {
-        shownAt = Date.now();
+    const run = async (raw, requestId) => {
         origin = null;
         armed = false;
-        void appWindow.setFocus();
         const id = ++runID;
+        blurRef.current?.begin(id, requestId);
+        traceOcr('focus-request', { runId: id, requestId, textLength: raw.length });
+        void appWindow.setFocus().catch(() => traceOcr('focus-request-failed', { runId: id, requestId }));
         entryRef.current = null;
-        const text = preprocess(raw, {
-            deleteNewline: (await store.get('translate_delete_newline')) ?? false,
-            codeSplit: (await store.get('translate_code_split')) ?? false,
-        }).trim();
+        const text = preprocess(raw);
         if (id !== runID) return;
         setSource(text);
         setLang('');
@@ -147,19 +126,28 @@ export default function PopResult() {
         });
         entryRef.current = entry;
 
-        const list = (await store.get('translate_service_list')) ?? ['google'];
+        // Capture this round's languages before awaiting individual instance reads.
+        const [configuredList, configuredFrom, configuredTo] = await Promise.all([
+            store.get('translate_service_list'),
+            store.get('translate_source_language'),
+            store.get('translate_target_language'),
+        ]);
+        const list = configuredList ?? ['google'];
+        const from = configuredFrom ?? 'auto';
+        const to = configuredTo ?? 'zh_cn';
         const pending = [];
         for (const key of list) {
-            const config = requestConfigSnapshot((await store.get(key)) ?? {});
-            if (config['enable'] === false) continue;
+            const rawConfig = (await store.get(key)) ?? {};
+            if (rawConfig['enable'] === false) continue;
             // 服务被删掉后，config.json 里还留着名字。这里不挡的话，每次划词都
             // 会多出一条永远失败的错误行。
-            if (!(getServiceName(key) in builtinServices)) continue;
+            const name = getServiceName(key);
+            if (!(name in builtinServices)) continue;
             pending.push({
                 key,
-                config,
-                label: getDisplayInstanceName(config[INSTANCE_NAME_CONFIG_KEY], () =>
-                    t(`services.translate.${getServiceName(key)}.title`)
+                config: requestConfigSnapshot(rawConfig, name),
+                label: getDisplayInstanceName(rawConfig[INSTANCE_NAME_CONFIG_KEY], () =>
+                    t(`services.translate.${name}.title`)
                 ),
                 result: '',
                 error: '',
@@ -170,8 +158,6 @@ export default function PopResult() {
         if (id === runID) setItems(pending);
         entry.setItems(pending);
 
-        const from = (await store.get('translate_source_language')) ?? 'auto';
-        const to = (await store.get('translate_target_language')) ?? 'zh_cn';
         // 原文已经是目标语言时不该走到这里 —— pop_button.rs 的
         // is_native_language 在「显示按钮」那一步就挡掉了，面板不再自己改
         // 目标语言（原来那个退到第二目标语言的逻辑已删）。
@@ -183,23 +169,35 @@ export default function PopResult() {
     };
 
     useEffect(() => {
+        const blur = createBlurGuard({
+            isFocused: () => appWindow.isFocused(),
+            hide: () => appWindow.hide(),
+            trace: traceOcr,
+        });
+        blurRef.current = blur;
         const gate = createOcrEventGate((requestId) => invoke('screenshot_is_current', { requestId }));
         const unlistenSession = listen('screenshot_session', (e) => {
-            if (gate.invalidate(e.payload.requestId)) runID++;
+            if (gate.invalidate(e.payload.requestId)) {
+                runID++;
+                blur.invalidate();
+                traceOcr('session-changed', { requestId: e.payload.requestId, runId: runID });
+            }
         });
         const unlistenAnchor = listen('pop_anchor', (e) => {
             pinBottom = e.payload;
         });
         const unlistenText = listen('new_text', (e) => void gate.accept(e.payload, run));
         // 截图识别失败走这条，不再退回框选覆盖窗。
-        const unlistenErr = listen('recognize_error', (e) => void gate.accept(e.payload, (message) => {
+        const unlistenErr = listen('recognize_error', (e) => void gate.accept(e.payload, (message, requestId) => {
             runID++;
             entryRef.current = null;
             setSource('');
             setLang('');
             setItems([]);
             setSaved('');
-            setStatus(message);
+            const visibleMessage = ocrErrorMessage(message, t('config.recognize.failed'));
+            setStatus(visibleMessage);
+            traceOcr('error-displayed', { requestId, runId: runID, errorLength: visibleMessage.length });
         }));
         // Switching away is the dismiss gesture. The grace period covers the
         // focus handover right after show(), which lands as a blur first.
@@ -209,24 +207,21 @@ export default function PopResult() {
         // —— 这就是「有时候切窗口它不自动关」的原因，偶发是因为要手快。
         // 改成延到宽限期结束再查一次真实焦点状态：交接抖动那次查出来仍有焦点，
         // 真切走那次查出来没焦点，两种都判对。
-        const unlistenBlur = listen('tauri://blur', () => {
-            const late = Date.now() - shownAt - 300;
-            if (late > 0) {
-                void appWindow.hide();
-                return;
-            }
-            setTimeout(async () => {
-                if (!(await appWindow.isFocused())) void appWindow.hide();
-            }, -late);
-        });
+        // Global listen also receives Config/Screenshot focus changes. Those
+        // can enqueue a hide before this result's new_text has even arrived.
+        const unlistenBlur = appWindow.listen('tauri://blur', () => blur.blur());
+        const unlistenFocus = appWindow.listen('tauri://focus', () => blur.focus());
         return () => {
             gate.invalidate();
+            blur.invalidate();
+            blurRef.current = null;
             runID++;
             unlistenSession.then((f) => f());
             unlistenAnchor.then((f) => f());
             unlistenText.then((f) => f());
             unlistenErr.then((f) => f());
             unlistenBlur.then((f) => f());
+            unlistenFocus.then((f) => f());
         };
     }, []);
 
@@ -288,8 +283,8 @@ export default function PopResult() {
             <div
                 className='absolute top-0 left-0 z-30 cursor-pointer w-[10px] h-[10px]'
                 title={t('common.close', { defaultValue: '关闭' })}
-                onClick={() => armed && void appWindow.hide()}
-                onMouseEnter={() => armed && void appWindow.hide()}
+                onClick={() => armed && blurRef.current?.dismiss('corner-click')}
+                onMouseEnter={() => armed && blurRef.current?.dismiss('corner-hover')}
             >
                 <svg
                     className='w-full h-full text-danger hover:text-danger-600 transition-colors'
@@ -365,7 +360,7 @@ export default function PopResult() {
                             {t('recognize.recognizing')}
                         </div>
                     ) : (
-                        <div className='px-[8px] py-[4px] text-[12px] text-danger'>{status}</div>
+                        <div className='px-[8px] py-[4px] text-[12px] text-danger break-words'>{status}</div>
                     ))}
                 {items.map((it) => (
                     <div
@@ -425,20 +420,17 @@ export default function PopResult() {
                         </div>
                         <div className='px-[8px]'>
                             {collapsed[it.key] ? null : it.error ? (
-                                <div className='text-[12px] text-danger'>{it.error}</div>
+                                <div className='text-[12px] text-danger break-words'>{it.error}</div>
                             ) : it.loading && !it.result ? (
                                 <PulseLoader
                                     size={4}
                                     color='#a1a1aa'
                                 />
-                            ) : typeof it.result === 'string' ? (
-                                // break-words：长 URL / 长单词不换行的话会顶宽内容盒，
-                                // 上面 overflow-x-hidden 一挡就变成看不见的截断。
-                                <div className='text-[13px] whitespace-pre-wrap break-words select-text'>
-                                    {it.result}
-                                </div>
                             ) : (
-                                <DictView data={it.result} />
+                                <TranslationResult
+                                    compact
+                                    display={entryDisplay({ detail: it.result, translation: plainText(it.result) })}
+                                />
                             )}
                         </div>
                     </div>

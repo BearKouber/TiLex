@@ -22,7 +22,55 @@ function resolve(requestPath, tail, version) {
     return url.href;
 }
 
-const num = (v) => (typeof v === 'number' ? v : undefined);
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+
+// Legacy parameters may tune generation, but cannot replace the translation
+// messages, fixed model, non-streaming transport, or structured output contract.
+const FIXED_ARGUMENTS = new Set([
+    'model',
+    'messages',
+    'input',
+    'instructions',
+    'system',
+    'systemInstruction',
+    'contents',
+    'generationConfig',
+    'stream',
+    'stream_options',
+    'response_format',
+    'text',
+    'tools',
+    'tool_choice',
+    'functions',
+    'function_call',
+    'parallel_tool_calls',
+    'previous_response_id',
+    'conversation',
+    'prompt',
+    'stop',
+    'stop_sequences',
+    'modalities',
+    'audio',
+]);
+
+export const compatibleArguments = (args) =>
+    Object.fromEntries(Object.entries(args).filter(([key]) => !FIXED_ARGUMENTS.has(key)));
+
+// Match the existing protocol support so ignored legacy fields do not create
+// different cache identities. Keep the complete original values in the backup.
+export function argumentsFor(apiFormat, args) {
+    const compatible = compatibleArguments(args);
+    if (apiFormat !== 'anthropic' && apiFormat !== 'google') return compatible;
+    return {
+        ...(num(compatible.temperature) !== undefined ? { temperature: compatible.temperature } : {}),
+        ...(num(compatible.top_p) !== undefined ? { top_p: compatible.top_p } : {}),
+        ...(apiFormat === 'anthropic'
+            ? { max_tokens: num(compatible.max_tokens) ?? 4096 }
+            : num(compatible.max_tokens) !== undefined
+              ? { max_tokens: compatible.max_tokens }
+              : {}),
+    };
+}
 
 export const FORMATS = {
     openai_chat: {
@@ -30,7 +78,7 @@ export const FORMATS = {
         chatUrl: (base) => resolve(base, 'chat/completions', 'v1'),
         modelsUrl: (base) => resolve(base, 'models', 'v1'),
         headers: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
-        body: (model, messages, args) => ({ ...args, stream: false, model, messages }),
+        body: (model, messages, args) => ({ ...compatibleArguments(args), stream: false, model, messages }),
         text: (d) => d?.choices?.[0]?.message?.content,
         models: (d) => (Array.isArray(d?.data) ? d.data.map((m) => m.id) : null),
     },
@@ -40,7 +88,7 @@ export const FORMATS = {
         modelsUrl: (base) => resolve(base, 'models', 'v1'),
         headers: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
         // Responses 用 input 而不是 messages，形状照样是 {role, content}
-        body: (model, messages, args) => ({ ...args, stream: false, model, input: messages }),
+        body: (model, messages, args) => ({ ...compatibleArguments(args), stream: false, model, input: messages }),
         text: (d) =>
             d?.output_text ??
             d?.output
@@ -57,6 +105,7 @@ export const FORMATS = {
         headers: (apiKey) => ({ 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }),
         body: (model, messages, args) => ({
             model,
+            stream: false,
             // Anthropic 必填。用户的 requestArguments 里没有就给个够用的默认值。
             max_tokens: num(args.max_tokens) ?? 4096,
             // system 不在 messages 里，要单独一个字段
@@ -107,8 +156,7 @@ export const FORMATS = {
                 ?.map((p) => p.text)
                 .filter(Boolean)
                 .join(''),
-        models: (d) =>
-            Array.isArray(d?.models) ? d.models.map((m) => (m.name ?? '').replace(/^models\//, '')) : null,
+        models: (d) => (Array.isArray(d?.models) ? d.models.map((m) => (m.name ?? '').replace(/^models\//, '')) : null),
     },
 };
 

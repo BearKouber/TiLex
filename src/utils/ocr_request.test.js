@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { runOcrRequest, createOcrEventGate } from './ocr_request.js';
+import { runOcrRequest, createOcrEventGate, ocrErrorMessage } from './ocr_request.js';
 
 const deferred = () => {
     let resolve, reject;
@@ -7,6 +7,34 @@ const deferred = () => {
     return { promise, resolve, reject };
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+for (const error of [new Error(), '', '  ', undefined, null, {}, { message: '' }]) {
+    assert.equal(ocrErrorMessage(error, 'Localized failure'), 'Localized failure');
+    assert.ok(ocrErrorMessage(error, '').trim());
+    for (const beforeShow of [false, true]) {
+        const outcomes = [];
+        const fail = async () => { throw error; };
+        await runOcrRequest({
+            current: () => true, hide: async () => {},
+            crop: beforeShow ? fail : async () => ({ path: 'empty-error.png' }),
+            show: async () => {}, recognize: fail,
+            publish: async (text, isError) => outcomes.push([text, isError]),
+            restore: async (text) => outcomes.push([text, 'restore']), reset: () => {},
+            cleanup: async (path) => outcomes.push(path), noText: 'No text', failureText: 'Localized failure',
+        });
+        assert.deepEqual(outcomes, beforeShow ? [['Localized failure', 'restore']] : [['Localized failure', true], 'empty-error.png']);
+    }
+}
+for (const text of ['', ' \n\t', null]) {
+    const events = [];
+    await runOcrRequest({
+        current: () => true, hide: async () => {}, crop: async () => ({ path: 'no-text.png' }),
+        show: async () => {}, recognize: async () => text,
+        publish: async (message, isError) => events.push([message, isError]),
+        restore: async () => assert.fail('result already shown'), reset: () => assert.fail('no success reset'),
+        cleanup: async (path) => events.push(path), noText: 'Localized no text',
+    });
+    assert.deepEqual(events, [['Localized no text', true], 'no-text.png']);
+}
 for (const staleStep of ['hide', 'crop', 'show', 'recognize', 'publish']) {
     for (const failure of [false, true]) {
         let active = true;

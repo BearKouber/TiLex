@@ -3,7 +3,6 @@
 
 mod cmd;
 mod config;
-mod error;
 mod lang_detect;
 mod ocr;
 mod pop_button;
@@ -69,7 +68,7 @@ fn main() {
             APP.get_or_init(|| app.handle());
             // Init Config
             info!("Init Config Store");
-            init_config(app);
+            init_config(app)?;
             // 启动要静默：只有第一次运行才把配置窗口摆出来，之后一律留在托盘。
             // 开机自启的场景尤其不能弹——每次开机都糊一个 800x600 在脸上。
             // 想看设置有两条路：托盘菜单，或者再点一次 exe（单例回调会开窗）。
@@ -79,7 +78,7 @@ fn main() {
             }
             app.manage(StringWrapper(Mutex::new("".to_string())));
             // Update Tray Menu
-            update_tray(app.app_handle(), "".to_string(), "".to_string());
+            update_tray(app.app_handle(), "".to_string());
             if let Some(engine) = get("translate_detect_engine") {
                 if engine.as_str().unwrap() == "local" {
                     init_lang_detect();
@@ -91,6 +90,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             reload_store,
+            config_path,
+            config_snapshot,
+            config_commit,
             get_text,
             open_devtools,
             update_tray,

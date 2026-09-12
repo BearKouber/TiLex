@@ -44,6 +44,8 @@
             "he": "Hebrew"
         },
         "config": {
+            "save_failed": "Could not save settings. Please try again.",
+            "removed": "This service was removed. Add it again to save.",
             "general": {
                 "label": "General",
                 "title": "General Settings",
@@ -165,6 +167,7 @@
                 "local": "Local"
             },
             "recognize": {
+                "failed": "Text recognition failed. Please try again.",
                 "label": "Recognize",
                 "title": "Recognition Settings",
                 "language": "Recognition Language",
@@ -331,8 +334,8 @@
                     "api_key": "API Key",
                     "model": "Model",
                     "stream": "Stream Mode",
-                    "prompt_description": "A custom prompt applies to sentences only; single words always use the built-in dictionary prompt. $text $from $to $detect are replaced with the input text, source language, target language and detected language.",
-                    "add": "Add Prompt",
+                    "custom_instructions": "Custom instructions",
+                    "legacy_arguments_invalid": "Your previous request parameters are invalid. Default parameters are being used; the original settings are kept in a backup.",
                     "fetch_models": "Fetch Models",
                     "fetch_success": "Successfully fetched {{count}} models",
                     "testing": "Testing...",
@@ -525,6 +528,8 @@
         },
         "translate": {
             "translate": "Translate",
+            "examples": "Examples",
+            "notes": "Usage and grammar",
             "add_collection_success": "Add to collection successfully",
             "recognizing": "Recognizing…",
             "speak": "Speak",

@@ -98,4 +98,32 @@ assert.equal(FORMATS.openai_chat.models({}), null);
 assert.equal(formatOf(undefined), FORMATS[DEFAULT_FORMAT]);
 assert.equal(formatOf('nonsense'), FORMATS.openai_chat);
 
+// Fixed task messages and non-streaming behavior win over old raw arguments,
+// including alternate protocol fields and requested tools/output schemas.
+const conflicting = {
+    model: 'wrong',
+    stream: true,
+    messages: ['wrong'],
+    input: 'wrong',
+    instructions: 'wrong',
+    response_format: { type: 'text' },
+    text: { format: {} },
+    tools: [{ type: 'function' }],
+    tool_choice: 'required',
+    stop: ['}'],
+    temperature: 0.3,
+};
+for (const key of ['openai_chat', 'openai_responses']) {
+    const body = FORMATS[key].body('chosen', PROMPT, conflicting);
+    assert.equal(body.model, 'chosen');
+    assert.equal(body.stream, false);
+    assert.deepEqual(key === 'openai_chat' ? body.messages : body.input, PROMPT);
+    assert.equal(body.temperature, 0.3);
+    for (const forbidden of ['instructions', 'response_format', 'text', 'tools', 'tool_choice', 'stop']) {
+        assert.equal(forbidden in body, false);
+    }
+    assert.equal((key === 'openai_chat' ? 'input' : 'messages') in body, false);
+}
+assert.equal(FORMATS.anthropic.body('m', PROMPT, { stream: true }).stream, false);
+
 console.log('ok');

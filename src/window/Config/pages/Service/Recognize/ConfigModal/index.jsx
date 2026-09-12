@@ -118,8 +118,9 @@ function UmiBody({ t, draft, setDraft }) {
 
 export default function ConfigModal(props) {
     const { name, isOpen, onOpenChange, updateServiceList } = props;
-    const [config, setConfig] = useConfig(recognizeConfigKey(name), {}, { sync: false });
+    const [config] = useConfig(recognizeConfigKey(name), {}, { sync: false });
     const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
     const { t } = useTranslation();
 
     // 打开时拷一份草稿，取消就整份丢掉，不去动已存的配置。
@@ -161,12 +162,17 @@ export default function ConfigModal(props) {
                                 </Button>
                                 <Button
                                     color='primary'
-                                    onPress={() => {
-                                        // 保存 = 落盘配置 + 确保这条在列表里（从「添加服务」
-                                        // 进来的时候列表里还没有它）。
-                                        setConfig({ ...config, ...draft }, true);
-                                        updateServiceList(name);
-                                        onClose();
+                                    isLoading={saving}
+                                    onPress={async () => {
+                                        setSaving(true);
+                                        try {
+                                            await updateServiceList(name, { ...config, ...draft });
+                                            onClose();
+                                        } catch {
+                                            toast.error(t('config.save_failed'));
+                                        } finally {
+                                            setSaving(false);
+                                        }
                                     }}
                                 >
                                     {t('common.ok')}

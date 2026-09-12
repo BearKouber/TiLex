@@ -16,6 +16,7 @@
 
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::Manager;
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -23,6 +24,17 @@ use tauri::Manager;
 pub struct Session {
     request_id: u64,
     active: bool,
+    // OCR ownership survives hiding the overlay; these states must be independent.
+    #[serde(skip)]
+    overlay: OverlayPhase,
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+enum OverlayPhase {
+    #[default]
+    Idle,
+    Opening,
+    Selecting,
 }
 
 impl Session {
@@ -35,13 +47,44 @@ impl Session {
     fn accepts(&self, request_id: u64) -> bool {
         self.active && self.request_id == request_id
     }
+
+    fn begin_capture(&mut self) -> Option<u64> {
+        if self.overlay != OverlayPhase::Idle { return None; }
+        let request_id = self.advance(true);
+        self.overlay = OverlayPhase::Opening;
+        Some(request_id)
+    }
+
+    fn set_overlay(&mut self, request_id: u64, phase: OverlayPhase) -> bool {
+        if !self.accepts(request_id) { return false; }
+        self.overlay = phase;
+        true
+    }
 }
 
 // Serialize native side effects with new captures/cancellation. JS checks alone cannot
 // guard commands already queued across IPC, nor the shared full-screen buffer.
 static SESSION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(Session::default()));
+// A nonblocking event-time snapshot only. Every selection is revalidated against
+// SESSION under its lock before it can replace OCR ownership.
+static ANNOUNCED_REQUEST: AtomicU64 = AtomicU64::new(0);
+// Reserve opening without waiting for SESSION on the UI thread. All releases
+// happen under SESSION and only for the overlay that the session actually owns.
+static OVERLAY_BUSY: AtomicBool = AtomicBool::new(false);
+
+fn reserve_overlay() -> bool {
+    OVERLAY_BUSY.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
+}
+
+fn release_overlay(session: &mut Session) {
+    if session.overlay != OverlayPhase::Idle {
+        session.overlay = OverlayPhase::Idle;
+        OVERLAY_BUSY.store(false, Ordering::Release);
+    }
+}
 
 fn announce(session: Session) {
+    ANNOUNCED_REQUEST.store(session.request_id, Ordering::Release);
     if let Some(app) = crate::APP.get() {
         let _ = app.emit_all("screenshot_session", session);
     }
@@ -49,17 +92,39 @@ fn announce(session: Session) {
 
 pub fn with_current<T>(request_id: u64, action: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let session = SESSION.lock().map_err(|e| e.to_string())?;
-    if !session.accepts(request_id) { return Err("Screenshot superseded".into()); }
+    if !session.accepts(request_id) {
+        log::info!("Screenshot: request={} stale current={}", request_id, session.request_id);
+        return Err("Screenshot superseded".into());
+    }
     action()
 }
 
-// Normal text selection also owns the result panel and supersedes any pending OCR.
-pub fn with_selection(action: impl FnOnce()) {
+pub fn selection_request_id() -> u64 {
+    ANNOUNCED_REQUEST.load(Ordering::Acquire)
+}
+
+// Normal text selection can supersede older OCR, but not a screenshot or gesture
+// started after its click was queued. Check after waiting for the native lock,
+// before hiding an overlay or advancing the request generation.
+pub fn with_selection(request_id: u64, still_current: impl FnOnce() -> bool, action: impl FnOnce()) -> bool {
     if let Ok(mut session) = SESSION.lock() {
+        if session.request_id != request_id || !still_current() { return false; }
+        // A screenshot may have reserved opening before its worker acquires
+        // SESSION and announces a new request. A queued click must not slip
+        // into that gap and show a result that the reserved capture would see.
+        if session.overlay == OverlayPhase::Idle && OVERLAY_BUSY.load(Ordering::Acquire) {
+            return false;
+        }
+        if session.overlay != OverlayPhase::Idle {
+            let _ = overlay_visibility(false);
+            release_overlay(&mut session);
+        }
         session.advance(false);
         announce(*session);
         action();
+        return true;
     }
+    false
 }
 
 #[tauri::command(async)]
@@ -76,9 +141,12 @@ pub fn screenshot_is_current(request_id: u64) -> bool {
 pub fn screenshot_cancel(request_id: u64) -> Result<(), String> {
     let mut session = SESSION.lock().map_err(|e| e.to_string())?;
     if !session.accepts(request_id) { return Ok(()); }
+    log::info!("Screenshot: request={} cancel", request_id);
+    let hidden = overlay_visibility(false);
+    release_overlay(&mut session);
     session.advance(false);
     announce(*session);
-    overlay_visibility(false)
+    hidden
 }
 
 fn overlay_visibility(visible: bool) -> Result<(), String> {
@@ -90,7 +158,17 @@ fn overlay_visibility(visible: bool) -> Result<(), String> {
 
 #[tauri::command(async)]
 pub fn screenshot_overlay(request_id: u64, visible: bool) -> Result<(), String> {
-    with_current(request_id, || overlay_visibility(visible))
+    let mut session = SESSION.lock().map_err(|e| e.to_string())?;
+    if !session.accepts(request_id) { return Err("Screenshot superseded".into()); }
+    overlay_visibility(visible)?;
+    if visible {
+        session.set_overlay(request_id, OverlayPhase::Selecting);
+        OVERLAY_BUSY.store(true, Ordering::Release);
+    } else {
+        release_overlay(&mut session);
+    }
+    log::info!("Screenshot: request={} overlay-visible={}", request_id, visible);
+    Ok(())
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -103,6 +181,7 @@ pub struct OcrText {
 #[tauri::command(async)]
 pub fn screenshot_publish(request_id: u64, text: String, is_error: bool) -> Result<(), String> {
     with_current(request_id, || {
+        log::info!("Screenshot: request={} publish is-error={} text-length={}", request_id, is_error, text.len());
         let window = crate::APP.get().and_then(|app| app.get_window("pop_result")).ok_or("No result window")?;
         window.emit(if is_error { "recognize_error" } else { "new_text" }, OcrText { request_id, text })
             .map_err(|e| e.to_string())
@@ -350,30 +429,78 @@ pub struct Region {
 pub fn start_screenshot() {
     // Never acquire this mutex on the UI thread: a worker holding it may be
     // waiting for a Tauri window getter. Invalidate before capture, not on focus.
+    if !reserve_overlay() {
+        return;
+    }
     std::thread::spawn(|| {
         match SESSION.lock() {
             Ok(mut session) => {
-                session.advance(true);
+                let Some(request_id) = session.begin_capture() else { return; };
+                log::info!("Screenshot: request={} opening", request_id);
                 announce(*session);
                 if let Err(error) = imp::start() {
-                    log::error!("Screenshot: {error}");
+                    log::error!("Screenshot: request={} open-failed error-length={}", request_id, error.len());
+                    let _ = overlay_visibility(false);
+                    release_overlay(&mut session);
                     session.advance(false);
                     announce(*session);
-                    let _ = overlay_visibility(false);
+                } else {
+                    session.set_overlay(request_id, OverlayPhase::Selecting);
+                    log::info!("Screenshot: request={} selecting", request_id);
                 }
             }
-            Err(error) => log::error!("Screenshot session: {error}"),
+            Err(_) => {
+                OVERLAY_BUSY.store(false, Ordering::Release);
+                log::error!("Screenshot: session-lock-failed");
+            }
         }
     });
 }
 
 #[tauri::command(async)]
 pub fn crop_region(request_id: u64, left: f64, top: f64, right: f64, bottom: f64) -> Result<Region, String> {
-    with_current(request_id, || imp::crop_region(left, top, right, bottom))
+    with_current(request_id, || {
+        log::info!("Screenshot: request={} crop", request_id);
+        imp::crop_region(left, top, right, bottom)
+    })
 }
 
 #[cfg(test)]
 mod session_tests {
+    static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn overlay_reentry_does_not_advance_ocr_ownership() {
+        use super::{OverlayPhase, Session};
+        let mut session = Session::default();
+        let first = session.begin_capture().unwrap();
+        assert!(session.begin_capture().is_none());
+        assert_eq!(session.request_id, first);
+        session.set_overlay(first, OverlayPhase::Selecting);
+        assert!(session.begin_capture().is_none());
+        assert!(session.set_overlay(first, OverlayPhase::Idle));
+        assert!(session.accepts(first), "hiding the overlay must not cancel OCR");
+        let next = session.begin_capture().unwrap();
+        assert!(!session.set_overlay(first, OverlayPhase::Idle));
+        assert!(!session.set_overlay(first, OverlayPhase::Selecting));
+        assert_eq!(session.overlay, OverlayPhase::Opening);
+        assert!(session.accepts(next));
+    }
+
+    #[test]
+    fn cancellation_or_capture_failure_releases_the_overlay() {
+        let _serial = NATIVE_TEST_LOCK.lock().unwrap();
+        for phase in [super::OverlayPhase::Opening, super::OverlayPhase::Selecting] {
+            let mut session = super::Session::default();
+            let id = session.begin_capture().unwrap();
+            session.set_overlay(id, phase);
+            super::release_overlay(&mut session);
+            session.advance(false);
+            assert!(!session.accepts(id));
+            assert!(session.begin_capture().is_some());
+        }
+    }
+
     #[test]
     fn publication_preserves_tauri_callback_envelope() {
         // Exercise Tauri's real deserializer: an `error: bool` business argument
@@ -413,18 +540,110 @@ mod session_tests {
 
     #[test]
     fn native_guard_blocks_stale_actions_and_stale_cancel() {
+        let _serial = NATIVE_TEST_LOCK.lock().unwrap();
         let (old, current) = {
             let mut session = super::SESSION.lock().unwrap();
-            (session.advance(true), session.advance(true))
+            let old = session.advance(true);
+            let current = session.advance(true);
+            session.set_overlay(current, super::OverlayPhase::Selecting);
+            (old, current)
         };
         let mut called = false;
         assert!(super::with_current(old, || { called = true; Ok(()) }).is_err());
         assert!(!called);
         super::screenshot_cancel(old).unwrap();
+        assert!(super::screenshot_overlay(old, false).is_err());
+        assert!(super::screenshot_overlay(old, true).is_err());
+        assert_eq!(super::SESSION.lock().unwrap().overlay, super::OverlayPhase::Selecting);
         assert!(super::screenshot_is_current(current));
         super::with_current(current, || { called = true; Ok(()) }).unwrap();
         assert!(called);
-        super::with_selection(|| {});
+        assert!(super::with_selection(current, || true, || {}));
         assert!(!super::screenshot_is_current(current));
+    }
+
+    #[test]
+    fn queued_selection_rechecks_screenshot_and_gesture_after_the_native_lock() {
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc::channel};
+        let _serial = NATIVE_TEST_LOCK.lock().unwrap();
+        for new_screenshot in [false, true] {
+            let mut session = super::SESSION.lock().unwrap();
+            super::release_overlay(&mut session);
+            let original = session.advance(true);
+            super::announce(*session);
+            let clicked_request = super::selection_request_id();
+            assert_eq!(clicked_request, original);
+            let gesture_current = Arc::new(AtomicBool::new(true));
+            let current = gesture_current.clone();
+            let (queued, waiting) = channel();
+            let worker = std::thread::spawn(move || {
+                queued.send(()).unwrap();
+                super::with_selection(clicked_request, || current.load(Ordering::SeqCst), || {
+                    panic!("stale selection must not touch the result window");
+                })
+            });
+            waiting.recv().unwrap();
+            // Keep the real production mutex locked until the competing event
+            // has occurred, so a check made before the lock would be insufficient.
+            if new_screenshot {
+                session.begin_capture().unwrap();
+                super::announce(*session);
+            } else {
+                gesture_current.store(false, Ordering::SeqCst);
+            }
+            let expected = *session;
+            drop(session);
+            assert!(!worker.join().unwrap());
+            let session = super::SESSION.lock().unwrap();
+            assert_eq!(session.request_id, expected.request_id);
+            assert_eq!(session.active, expected.active);
+            assert_eq!(session.overlay, expected.overlay);
+            drop(session);
+        }
+        let mut session = super::SESSION.lock().unwrap();
+        super::release_overlay(&mut session);
+        let pending_ocr = session.advance(true);
+        super::announce(*session);
+        drop(session);
+        let mut shown = false;
+        assert!(super::with_selection(pending_ocr, || true, || shown = true));
+        assert!(shown, "a new ordinary selection still supersedes older active OCR");
+        assert!(!super::screenshot_is_current(pending_ocr));
+    }
+
+    #[test]
+    fn reserved_capture_rejects_a_click_before_its_worker_advances_the_session() {
+        use super::Ordering;
+        let _serial = NATIVE_TEST_LOCK.lock().unwrap();
+        let mut session = super::SESSION.lock().unwrap();
+        super::release_overlay(&mut session);
+        let previous = session.advance(true);
+        super::announce(*session);
+        drop(session);
+        let clicked_request = super::selection_request_id();
+
+        // Exercise the exact reservation used by start_screenshot, while its
+        // worker has not entered SESSION and request_id still names older OCR.
+        assert!(super::reserve_overlay());
+        assert!(!super::reserve_overlay(), "a repeated start must not replace the reservation");
+        assert!(!super::with_selection(clicked_request, || true, || {
+            panic!("old click must not show inside the reserved screenshot");
+        }));
+        assert!(super::OVERLAY_BUSY.load(Ordering::Acquire));
+        assert_eq!(super::selection_request_id(), previous);
+        let mut session = super::SESSION.lock().unwrap();
+        assert_eq!(session.request_id, previous);
+        assert!(session.active, "the old click cannot cancel OCR while capture is reserved");
+        assert_eq!(session.overlay, super::OverlayPhase::Idle);
+
+        // The reserved worker still starts normally. Once its overlay hides,
+        // a fresh ordinary selection can supersede its unfinished OCR.
+        let captured = session.begin_capture().unwrap();
+        super::announce(*session);
+        super::release_overlay(&mut session);
+        drop(session);
+        let mut shown = false;
+        assert!(super::with_selection(captured, || true, || shown = true));
+        assert!(shown);
     }
 }

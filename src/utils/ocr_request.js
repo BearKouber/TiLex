@@ -1,24 +1,45 @@
 // Every await is a handover point: a newer capture/cancel may have taken ownership.
-export async function runOcrRequest({ current, hide, crop, show, recognize, publish, restore, reset, cleanup, noText }) {
+export function ocrErrorMessage(error, fallback = 'Text recognition failed. Please try again.') {
+    const message = typeof error === 'string' ? error : error?.message;
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    return typeof fallback === 'string' && fallback.trim() ? fallback.trim() : 'Text recognition failed. Please try again.';
+}
+
+export async function runOcrRequest({ current, hide, crop, show, recognize, publish, restore, reset, cleanup, noText, failureText, trace = () => {} }) {
     let region;
     let popped = false;
+    let stage = 'hide';
+    const isCurrent = () => {
+        const active = current();
+        if (!active) trace('stale-discard', { stage });
+        return active;
+    };
     try {
-        if (!current()) return;
+        if (!isCurrent()) return;
         await hide();
-        if (!current()) return;
+        trace('overlay-hidden');
+        if (!isCurrent()) return;
+        stage = 'crop';
         region = await crop();
-        if (!current()) return;
+        trace('cropped');
+        if (!isCurrent()) return;
+        stage = 'show';
         await show(region);
-        if (!current()) return;
+        trace('result-shown');
+        if (!isCurrent()) return;
         popped = true;
+        stage = 'recognize';
         const text = await recognize(region.path);
-        if (!current()) return;
-        if (!text) throw new Error(noText);
+        if (!isCurrent()) return;
+        if (typeof text !== 'string' || !text.trim()) throw new Error(noText);
+        trace('recognized', { textLength: text.length });
+        stage = 'publish';
         await publish(text, false);
-        if (current()) reset();
+        if (isCurrent()) reset();
     } catch (error) {
-        if (!current()) return;
-        const message = error?.message ?? String(error);
+        if (!isCurrent()) return;
+        const message = ocrErrorMessage(error, failureText);
+        trace('failed', { stage, errorLength: message.length });
         if (popped) await publish(message, true);
         else await restore(message);
     } finally {
@@ -43,7 +64,7 @@ export function createOcrEventGate(isCurrent) {
         async accept(payload, receive) {
             if (typeof payload === 'string') {
                 sequence++;
-                receive(payload);
+                receive(payload, null);
                 return;
             }
             if (!payload || typeof payload.requestId !== 'number' || typeof payload.text !== 'string') return;
@@ -51,7 +72,7 @@ export function createOcrEventGate(isCurrent) {
             latestRequest = payload.requestId;
             const own = ++sequence;
             try {
-                if (await isCurrent(payload.requestId) && own === sequence) receive(payload.text);
+                if (await isCurrent(payload.requestId) && own === sequence) receive(payload.text, payload.requestId);
             } catch { /* A failed ownership check must never resurrect an old result. */ }
         },
     };

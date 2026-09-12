@@ -1,18 +1,7 @@
-// Markdown 导出（个人需求 PRD §3）。纯字符串拼接，不引 markdown 库。
-//
-// 目标是「看着像一份真的笔记」：一个词一行，不是一个词一屏。
-//
-// 2026-09-08 重写，三件事（实测反馈，见 PROGRESS §7.28）：
-//
-// 1. **不再写 <a id> 锚点。** 用户的编辑器把它当纯文本显示出来，
-//    满屏的 `<a id="word-2"></a>` 比它能带来的跳转价值大得多。
-//    导航改靠标题（编辑器的大纲面板天然就是目录），
-//    词↔句的关系改成**直接把原句写在词底下**，不跳了。
-// 2. **单词从 #### 标题改成列表项。** 标题 + 空行 + 分隔线是
-//    「一个词一屏」的根源；顺带大纲里不再被每个单词刷屏，只剩字母。
-// 3. **有 detail 的词不再重复输出 translation。** 这是个真 bug：
-//    PopResult 存的 translation 就是 plainText(词典结果)，和 detail 同源，
-//    两边都印就是同一堆音标释义连着出两遍。
+import { entryDisplay } from './saved_entry.js';
+
+// Shared display content, laid out as compact notes. Only this formatter adds
+// Markdown syntax; saved/model text must remain literal in every field.
 
 // A–Z 分组；数字、中文、符号开头的统统进 # 桶。
 const letterOf = (text) => {
@@ -24,37 +13,103 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const stamp = (d) =>
     `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
-// 译文可能是 plainText 拼出来的多行，放进列表项得压成一行。
-const oneLine = (t) => (t ?? '').replace(/\s*\n\s*/g, ' ').trim();
+const hardBreak = '  \n';
+const nonblank = (value) => typeof value === 'string' && value.trim().length > 0;
 
-// 一个词一行：**词** `音标` — *词性* 释义；*词性* 释义
-function wordLine(w) {
-    const parts = [`**${w.text}**`];
-
-    const symbols = (w.detail?.pronunciations ?? []).map((p) => p.symbol).filter(Boolean);
-    if (symbols.length > 0) parts.push('`' + symbols.join(' ') + '`');
-
-    const senses = (w.detail?.explanations ?? [])
-        .map((item) => {
-            const explains = (item.explains ?? []).filter(Boolean).join(', ');
-            if (!explains && !item.trait) return '';
-            return item.trait ? `*${item.trait}* ${explains}`.trim() : explains;
+// Entities are decoded after Markdown parsing, so even line-start punctuation,
+// backticks, links and HTML-looking source cannot become layout. Preserve visible
+// indentation/repeated spaces with NBSP, and anchor empty lines with a zero-width
+// character so hard breaks survive. Tabs retain their visible four-space stops.
+export function markdownText(value) {
+    if (typeof value !== 'string') return '';
+    return value
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((line) => {
+            if (!line) return '&#8203;';
+            let column = 0;
+            const expanded = Array.from(line, (character) => {
+                const width = character === '\t' ? 4 - (column % 4) : 1;
+                column += width;
+                return character === '\t' ? ' '.repeat(width) : character;
+            }).join('');
+            return expanded.replace(/[!-/:-@[-`{-~]| +/g, (part, offset) => {
+                if (part[0] !== ' ') return `&#${part.codePointAt(0)};`;
+                return part.length > 1 || offset === 0 || offset + part.length === expanded.length
+                    ? '&#160;'.repeat(part.length)
+                    : part;
+            });
         })
-        .filter(Boolean);
-
-    if (senses.length > 0) {
-        parts.push('— ' + senses.join('；'));
-    } else if (w.translation) {
-        // 没有词典结果时 translation 才是唯一的释义来源。
-        parts.push('— ' + oneLine(w.translation));
-    }
-    return '- ' + parts.join(' ');
+        .join(hardBreak);
 }
 
-// entries：已经 parseDetail 过的数组。now 可注入，测试才能有稳定输出。
+function resultBlocks(view) {
+    const blocks = [];
+    if (view.pronunciations.length) {
+        blocks.push(view.pronunciations.map(({ symbol }) => markdownText(symbol)).join(hardBreak));
+    }
+    if (view.explanations.length) {
+        blocks.push(
+            view.explanations
+                .map(({ trait, explains }) => {
+                    const label = nonblank(trait) ? `*${markdownText(trait)}* ` : '';
+                    return label + explains.map(markdownText).join('；');
+                })
+                .join(hardBreak)
+        );
+    }
+    if (nonblank(view.translation)) blocks.push(markdownText(view.translation));
+    if (view.associations.length) blocks.push('搭配：' + view.associations.map(markdownText).join(' · '));
+    if (view.examples.length) {
+        blocks.push('**例句**');
+        blocks.push(
+            view.examples
+                .map(({ text, translation }, index) => {
+                    const content = markdownText(text) + hardBreak + markdownText(translation);
+                    // Every continuation belongs to this formatter-owned numbered item.
+                    const prefix = `${index + 1}. `;
+                    return prefix + content.replaceAll('\n', '\n' + ' '.repeat(prefix.length));
+                })
+                .join('\n')
+        );
+    }
+    if (view.notes.length) blocks.push('**补充说明**', ...view.notes.map(markdownText));
+    const syntax = view.syntax_breakdown;
+    if (nonblank(syntax?.main_clause)) blocks.push('**主干**：' + markdownText(syntax.main_clause));
+    if (nonblank(syntax?.clauses_and_modifiers)) blocks.push('**修饰**：' + markdownText(syntax.clauses_and_modifiers));
+    if (nonblank(view.nuance_note)) blocks.push('**语义说明**：' + markdownText(view.nuance_note));
+    if (view.key_vocabulary.length) {
+        blocks.push('**上下文词汇**');
+        blocks.push(
+            view.key_vocabulary
+                .map(({ word, meaning_in_context }) => `**${markdownText(word)}**：${markdownText(meaning_in_context)}`)
+                .join(hardBreak)
+        );
+    }
+    return blocks;
+}
+
+// Accept parsed details or SQLite JSON strings. The shared projection owns all
+// validation, flattened-text deduplication and legacy association recovery.
+// now is injectable; this function neither writes nor mutates its inputs.
 export function buildMarkdown(entries, now = new Date()) {
-    const words = entries.filter((e) => e.type === 'word').sort((a, b) => a.text.localeCompare(b.text));
-    const sentences = entries.filter((e) => e.type !== 'word').sort((a, b) => a.id - b.id);
+    const visible = entries
+        .filter((entry) => !entry.deleted)
+        .map((entry) => ({
+            ...entry,
+            detail: typeof entry.detail === 'string' ? parseDetail(entry.detail) : entry.detail,
+        }));
+    const words = visible
+        .filter((e) => e.type === 'word')
+        .sort((a, b) => {
+            const aGroup = letterOf(a.text);
+            const bGroup = letterOf(b.text);
+            if (aGroup === bGroup) return a.text.localeCompare(b.text);
+            if (aGroup === '#') return 1;
+            if (bGroup === '#') return -1;
+            return aGroup.localeCompare(bGroup);
+        });
+    const sentences = visible.filter((e) => e.type !== 'word').sort((a, b) => a.id - b.id);
     const sentenceById = new Map(sentences.map((s) => [s.id, s]));
 
     const out = ['# 我的生词本', ''];
@@ -67,43 +122,24 @@ export function buildMarkdown(entries, now = new Date()) {
             const letter = letterOf(w.text);
             if (letter !== current) {
                 current = letter;
-                // 上一组的最后一个列表项和这个标题之间必须空一行，
-                // 否则严格一点的解析器会把 ### 并进列表项里。
-                if (out[out.length - 1] !== '') out.push('');
-                out.push(`### ${letter}`, '');
+                out.push(`### ${letter === '#' ? '&#35;' : letter}`, '');
             }
-            out.push(wordLine(w));
-
-            const associations = (w.detail?.associations ?? []).filter(Boolean);
-            if (associations.length > 0) out.push(`  - 搭配：${associations.join(' · ')}`);
-
-            // 原句直接写在这里，代替原来那个靠锚点的「查看原句」链接。
-            const from = w.source_id && sentenceById.get(w.source_id);
-            if (from) out.push(`  - 出自：${oneLine(from.text)}`);
+            out.push(`**${markdownText(w.text)}**`, '');
+            for (const block of resultBlocks(entryDisplay(w))) out.push(block, '');
+            const from = sentenceById.get(w.source_id);
+            if (from && nonblank(from.text)) out.push('出自：' + markdownText(from.text), '');
         }
-        out.push('');
     }
 
     if (sentences.length > 0) {
         out.push('## 长难句', '');
-        for (const s of sentences) {
-            out.push(`### ${oneLine(s.text)}`, '');
-            if (s.translation) out.push(oneLine(s.translation), '');
-
+        for (const [index, s] of sentences.entries()) {
+            // Navigation never substitutes a shortened/flattened source text.
+            out.push(`### ${index + 1}`, '', markdownText(s.text), '');
+            for (const block of resultBlocks(entryDisplay(s))) out.push(block, '');
             const children = words.filter((w) => w.source_id === s.id);
             if (children.length > 0) {
-                out.push(`生词：${children.map((w) => w.text).join(' · ')}`, '');
-            }
-
-            const syntax = s.detail?.syntax_breakdown;
-            if (syntax?.main_clause || syntax?.clauses_and_modifiers || s.detail?.nuance_note) {
-                // <details> 是块级元素，绝大多数编辑器会当 HTML 渲染，
-                // 和上面删掉的行内 <a id> 不是一回事。
-                out.push('<details>', '<summary>语法拆解</summary>', '');
-                if (syntax?.main_clause) out.push(`**主干**：${syntax.main_clause}`, '');
-                if (syntax?.clauses_and_modifiers) out.push(`**修饰**：${syntax.clauses_and_modifiers}`, '');
-                if (s.detail?.nuance_note) out.push(`> ${s.detail.nuance_note}`, '');
-                out.push('</details>', '');
+                out.push(`生词：${children.map((w) => markdownText(w.text)).join(' · ')}`, '');
             }
         }
     }
@@ -141,9 +177,8 @@ export const parseDetail = (raw) => {
 
 // 单词的 detail 就是悬浮窗存下来的谷歌词典结果，形状和 PopResult 的 DictView 一样。
 export const wordSummary = (detail) =>
-    (detail?.explanations ?? [])
-        .map((e) => (e.explains ?? []).join(', '))
-        .filter(Boolean)
+    entryDisplay({ detail })
+        .explanations.map((e) => e.explains.join(', '))
         .join('; ');
 
 // 列表过滤：type 筛选 + 原文/译文/释义三处一起搜，关键词已经 trim + 小写。

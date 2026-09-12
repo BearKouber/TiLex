@@ -19,7 +19,7 @@ import {
 export default function ServiceItem(props) {
     const { serviceInstanceKey, deleteServiceInstance, setCurrentConfigKey, onConfigOpen, ...drag } = props;
     const { t } = useTranslation();
-    const [serviceInstanceConfig, setServiceInstanceConfig] = useConfig(serviceInstanceKey, {});
+    const [serviceInstanceConfig, setServiceInstanceConfig] = useConfig(serviceInstanceKey, {}, { initialize: false });
 
     const serviceName = getServiceName(serviceInstanceKey);
 

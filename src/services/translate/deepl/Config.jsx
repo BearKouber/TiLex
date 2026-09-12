@@ -59,8 +59,7 @@ export function Config(props) {
                     setIsLoading(true);
                     try {
                         await translate('Hello world', Language.auto, Language.zh_cn, { config: deeplConfig });
-                        setDeeplConfig(deeplConfig, true);
-                        updateServiceList(instanceKey);
+                        await updateServiceList(instanceKey, deeplConfig);
                         onClose();
                     } catch (err) {
                         const errMsg = err?.message || err?.toString() || JSON.stringify(err);

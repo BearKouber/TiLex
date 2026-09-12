@@ -6,7 +6,8 @@ import { useTranslation } from 'react-i18next';
 import React, { useState } from 'react';
 
 import { useToastStyle } from '../../../../../hooks';
-import { useConfig, deleteKey } from '../../../../../hooks';
+import { useConfig } from '../../../../../hooks';
+import { config as configStore } from '../../../../../utils/store';
 import SelectModal from './SelectModal';
 import SelectAiModal from './SelectAiModal';
 import ServiceItem from './ServiceItem';
@@ -23,6 +24,7 @@ export default function Translate() {
     const { isOpen: isSelectAiOpen, onOpen: onSelectAiOpen, onOpenChange: onSelectAiOpenChange } = useDisclosure();
     // 选中的厂商预设。null = 自定义（空实例），配置弹窗关掉就该清干净。
     const [presetConfig, setPresetConfig] = useState(null);
+    const [adding, setAdding] = useState(false);
     const [currentConfigKey, setCurrentConfigKey] = useState('google');
     // now it's service instance list
     const [translateServiceInstanceList, setTranslateServiceInstanceList] = useConfig('translate_service_list', [
@@ -44,23 +46,19 @@ export default function Translate() {
         setTranslateServiceInstanceList(items);
     };
 
-    const deleteServiceInstance = (instanceKey) => {
-        if (translateServiceInstanceList.length === 1) {
+    const deleteServiceInstance = async (instanceKey) => {
+        if ((configStore.value('translate_service_list') ?? []).length <= 1) {
             toast.error(t('config.service.least'), { style: toastStyle });
             return;
-        } else {
-            setTranslateServiceInstanceList(translateServiceInstanceList.filter((x) => x !== instanceKey));
-            deleteKey(instanceKey);
+        }
+        try {
+            await configStore.removeService('translate_service_list', instanceKey);
+        } catch {
+            toast.error(t('config.save_failed'), { style: toastStyle });
         }
     };
-    const updateServiceInstanceList = (instanceKey) => {
-        if (translateServiceInstanceList.includes(instanceKey)) {
-            return;
-        } else {
-            const newList = [...translateServiceInstanceList, instanceKey];
-            setTranslateServiceInstanceList(newList);
-        }
-    };
+    const updateServiceInstanceList = (instanceKey, value) =>
+        configStore.saveService('translate_service_list', instanceKey, value, instanceKey, adding);
 
     return (
         <>
@@ -101,6 +99,7 @@ export default function Translate() {
                                                                 serviceInstanceKey={x}
                                                                 deleteServiceInstance={deleteServiceInstance}
                                                                 setCurrentConfigKey={(key) => {
+                                                                    setAdding(false);
                                                                     setPresetConfig(null);
                                                                     setCurrentConfigKey(key);
                                                                 }}
@@ -175,7 +174,10 @@ export default function Translate() {
             <SelectAiModal
                 isOpen={isSelectAiOpen}
                 onOpenChange={onSelectAiOpenChange}
-                setCurrentConfigKey={setCurrentConfigKey}
+                setCurrentConfigKey={(key) => {
+                    setAdding(true);
+                    setCurrentConfigKey(key);
+                }}
                 setPresetConfig={setPresetConfig}
                 onConfigOpen={onConfigOpen}
             />
@@ -183,6 +185,7 @@ export default function Translate() {
                 isOpen={isSelectBuiltinOpen}
                 onOpenChange={onSelectBuiltinOpenChange}
                 setCurrentConfigKey={(key) => {
+                    setAdding(true);
                     setPresetConfig(null);
                     setCurrentConfigKey(key);
                 }}
@@ -190,14 +193,16 @@ export default function Translate() {
             />
             {/* key 换实例就重挂：useConfig 的 key 和默认值都是挂载时捕获的，
                 不重挂的话预设填不进去，还会写到上一个实例的配置里。 */}
-            <ConfigModal
-                key={currentConfigKey}
-                serviceInstanceKey={currentConfigKey}
-                presetConfig={presetConfig}
-                isOpen={isConfigOpen}
-                onOpenChange={onConfigOpenChange}
-                updateServiceInstanceList={updateServiceInstanceList}
-            />
+            {isConfigOpen && (
+                <ConfigModal
+                    key={currentConfigKey}
+                    serviceInstanceKey={currentConfigKey}
+                    presetConfig={presetConfig}
+                    isOpen={isConfigOpen}
+                    onOpenChange={onConfigOpenChange}
+                    updateServiceInstanceList={updateServiceInstanceList}
+                />
+            )}
         </>
     );
 }

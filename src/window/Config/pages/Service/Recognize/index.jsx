@@ -10,7 +10,7 @@ import {
     useDisclosure,
 } from '@nextui-org/react';
 import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -19,7 +19,9 @@ import {
     RECOGNIZE_SERVICES,
     recognizeConfigKey,
 } from '../../../../../utils/recognize';
-import { useConfig, deleteKey } from '../../../../../hooks';
+import { useConfig } from '../../../../../hooks';
+import toast from 'react-hot-toast';
+import { config as configStore } from '../../../../../utils/store';
 import ServiceItem from './ServiceItem';
 import ConfigModal from './ConfigModal';
 
@@ -31,14 +33,9 @@ export default function Recognize() {
     const { isOpen: isConfigOpen, onOpen: onConfigOpen, onOpenChange: onConfigOpenChange } = useDisclosure();
     const { isOpen: isAddOpen, onOpen: onAddOpen, onOpenChange: onAddOpenChange } = useDisclosure();
     const [currentConfigKey, setCurrentConfigKey] = useState('wechat');
+    const [adding, setAdding] = useState(false);
     const [serviceList, setServiceList] = useConfig(RECOGNIZE_LIST_KEY, DEFAULT_RECOGNIZE_LIST);
     const { t } = useTranslation();
-
-    // Google Vision 已经整个删掉了，它在 config.json 里留下的那条配置既看不见又
-    // 删不掉，扫一次。（新的服务列表默认值里没有 google，所以没有渲染路径要挡。）
-    useEffect(() => {
-        deleteKey('recognize_google');
-    }, []);
 
     const onDragEnd = (result) => {
         if (!result.destination) return;
@@ -49,14 +46,16 @@ export default function Recognize() {
     };
 
     // 不拦「至少留一个」：一个都不剩时上层截图那条路已经有 no_recognize 的提示了。
-    const deleteService = (name) => {
-        setServiceList(serviceList.filter((x) => x !== name));
-        deleteKey(recognizeConfigKey(name));
+    const deleteService = async (name) => {
+        try {
+            await configStore.removeService(RECOGNIZE_LIST_KEY, recognizeConfigKey(name), name);
+        } catch {
+            toast.error(t('config.save_failed'));
+        }
     };
 
-    const updateServiceList = (name) => {
-        if (!serviceList.includes(name)) setServiceList([...serviceList, name]);
-    };
+    const updateServiceList = (name, value) =>
+        configStore.saveService(RECOGNIZE_LIST_KEY, recognizeConfigKey(name), value, name, adding);
 
     // 还没装上的服务，就是「添加服务」弹窗里能挑的那些。
     const addable = Object.keys(RECOGNIZE_SERVICES).filter((x) => !(serviceList ?? []).includes(x));
@@ -94,7 +93,10 @@ export default function Recognize() {
                                                         {...provided.dragHandleProps}
                                                         name={x}
                                                         deleteService={deleteService}
-                                                        setCurrentConfigKey={setCurrentConfigKey}
+                                                        setCurrentConfigKey={(name) => {
+                                                            setAdding(false);
+                                                            setCurrentConfigKey(name);
+                                                        }}
                                                         onConfigOpen={onConfigOpen}
                                                     />
                                                     <Spacer y={2} />
@@ -137,6 +139,7 @@ export default function Recognize() {
                                         variant='bordered'
                                         onPress={() => {
                                             onClose();
+                                            setAdding(true);
                                             setCurrentConfigKey(name);
                                             onConfigOpen();
                                         }}
@@ -160,13 +163,15 @@ export default function Recognize() {
             </Modal>
             {/* key 换服务就重挂：useConfig 的 key 是挂载时捕获的，不重挂会写到上
                 一个服务的配置里去。 */}
-            <ConfigModal
-                key={currentConfigKey}
-                name={currentConfigKey}
-                isOpen={isConfigOpen}
-                onOpenChange={onConfigOpenChange}
-                updateServiceList={updateServiceList}
-            />
+            {isConfigOpen && (
+                <ConfigModal
+                    key={currentConfigKey}
+                    name={currentConfigKey}
+                    isOpen={isConfigOpen}
+                    onOpenChange={onConfigOpenChange}
+                    updateServiceList={updateServiceList}
+                />
+            )}
         </>
     );
 }

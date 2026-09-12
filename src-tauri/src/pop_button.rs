@@ -14,6 +14,9 @@
 // camp get no button - the global selection-translate hotkey still covers them,
 // since that path is allowed to synthesise Ctrl+C.
 
+#[path = "pop_button/selection.rs"]
+mod selection;
+
 // ------------------------------------------------------------------ placement
 //
 // 划词浮标、划词弹窗、截图弹窗三处摆放都走 place()。放在 imp 外面，单测不用起窗口。
@@ -147,16 +150,19 @@ mod place_tests {
 
 #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
 mod imp {
+    use super::selection::{
+        Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer, PendingGesture,
+        ReadContext, CLIP_GRACE_MS,
+    };
     use super::{place, Rect, Side};
     use crate::config::get as config_get;
     use crate::APP;
     use log::{debug, error, info, warn};
     use once_cell::sync::OnceCell;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::ffi::c_void;
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering::Relaxed};
+    use std::sync::atomic::{AtomicI32, AtomicU64, Ordering::{Relaxed, SeqCst}};
     use std::sync::mpsc::{channel, Receiver, Sender};
-    use std::sync::Mutex;
     use tauri::Manager;
     use windows::core::{w, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -166,7 +172,7 @@ mod imp {
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
     };
-    use windows::Win32::System::DataExchange::AddClipboardFormatListener;
+    use windows::Win32::System::DataExchange::{AddClipboardFormatListener, GetClipboardSequenceNumber};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::{
         GetCurrentProcessId, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
@@ -174,10 +180,10 @@ mod imp {
     };
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-        UIA_TextPatternId,
+        SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK, UIA_TextPatternId,
     };
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
-    use windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, VK_ESCAPE};
     use windows::Win32::UI::WindowsAndMessaging::*;
 
     // Window is BTN_LOGICAL points square. tao asks for that, but Windows
@@ -185,7 +191,6 @@ mod imp {
     // carries WS_CAPTION - which tao's undecorated windows do - so the real
     // size has to be forced on afterwards. BTN_PX holds the physical result.
     const BTN_LOGICAL: f64 = 18.0;
-    const CLICK_SLOP: i32 = 20;
     const DRAG_MIN: i32 = 6;
     const DISMISS_DIST: i32 = 60;
     // Space between the cursor and the button (and between a screenshot box and
@@ -194,9 +199,6 @@ mod imp {
     // corner is the one that stays clear.
     const GAP: i32 = 4;
     const DOUBLE_CLICK_SLOP: i32 = 4;
-    // How long after a selection gesture a clipboard update still counts as
-    // that selection rather than as a Ctrl+C the user typed.
-    const CLIP_GRACE_MS: u32 = 600;
     // The panel resizes itself to its content once the translation lands; this
     // is only the starting size, and what placement falls back to when the
     // real window size can't be read.
@@ -204,33 +206,40 @@ mod imp {
     const RESULT_LOGICAL_H: f64 = 100.0;
 
     enum Ev {
-        Select(i32, i32),
-        Clip(i32, i32),
-        Hide,
+        Select(Gesture),
+        Clip(ClipboardCandidate),
+        Cancel(u64),
+        Hide(u64),
+        Engage { owner: u64, request_id: u64 },
     }
 
     static HWND_RAW: OnceCell<isize> = OnceCell::new();
     static TX: OnceCell<Sender<Ev>> = OnceCell::new();
-    static PEEKED: Mutex<String> = Mutex::new(String::new());
-
-    static VISIBLE: AtomicBool = AtomicBool::new(false);
+    // The hook invalidates this immediately, even if the worker is still in a
+    // cross-process UIA call. Display ownership is separate so old Hide events
+    // cannot affect a button produced by a newer gesture.
+    static CURRENT_GESTURE: AtomicU64 = AtomicU64::new(1);
+    static VISIBLE_GESTURE: AtomicU64 = AtomicU64::new(0);
     static BTN_X: AtomicI32 = AtomicI32::new(0);
     static BTN_Y: AtomicI32 = AtomicI32::new(0);
     // Physical size of the button, worked out from the window DPI at startup.
     static BTN_PX: AtomicI32 = AtomicI32::new(18);
 
-    // Press tracking, written only from the hook callback.
-    static DOWN_X: AtomicI32 = AtomicI32::new(0);
-    static DOWN_Y: AtomicI32 = AtomicI32::new(0);
-    static LAST_UP_MS: AtomicU32 = AtomicU32::new(0);
-    static LAST_UP_X: AtomicI32 = AtomicI32::new(0);
-    static LAST_UP_Y: AtomicI32 = AtomicI32::new(0);
-    static IS_DOUBLE: AtomicBool = AtomicBool::new(false);
-    // Timestamp of the last selection gesture, set by the hook rather than by
-    // the worker: an app that copies on select can beat our UIA call to the
-    // punch, so the clipboard update may arrive before we know UIA failed.
-    // 0 means "no gesture is waiting for a clipboard update".
-    static PENDING_CLIP_MS: AtomicU32 = AtomicU32::new(0);
+    // All event producers run on the hook's message thread. Cell snapshots
+    // need no blocking lock, and remain immutable once sent to the worker.
+    #[derive(Clone, Copy)]
+    struct Press {
+        x: i32,
+        y: i32,
+        double: bool,
+    }
+
+    thread_local! {
+        static PRESS: Cell<Option<Press>> = Cell::new(None);
+        static LAST_UP: Cell<Option<(i32, i32, u32)>> = Cell::new(None);
+        // Arm at mouse-up, before the target app handles it and auto-copies.
+        static PENDING_SELECTION: Cell<Option<PendingGesture>> = Cell::new(None);
+    }
 
     // ---------------------------------------------------------------- startup
 
@@ -375,6 +384,22 @@ mod imp {
                     return;
                 }
             };
+            let keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), None, 0);
+            if let Err(e) = &keyboard_hook {
+                error!("PopButton: Escape cancellation hook failed: {}", e);
+            }
+            let foreground_hook = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(foreground_proc),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            if foreground_hook.0.is_null() {
+                error!("PopButton: foreground cancellation hook failed");
+            }
             install_clipboard_listener();
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
@@ -382,6 +407,12 @@ mod imp {
                 DispatchMessageW(&msg);
             }
             let _ = UnhookWindowsHookEx(hook);
+            if let Ok(hook) = keyboard_hook {
+                let _ = UnhookWindowsHookEx(hook);
+            }
+            if !foreground_hook.0.is_null() {
+                let _ = UnhookWinEvent(foreground_hook);
+            }
         }
     }
 
@@ -426,21 +457,69 @@ mod imp {
 
     unsafe extern "system" fn clip_proc(h: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
         if msg == WM_CLIPBOARDUPDATE {
-            // GetMessageTime and MSLLHOOKSTRUCT.time share the tick clock, and
-            // this runs on the same thread as the hook, so the two are directly
-            // comparable. Consuming the stamp keeps one gesture to one pop.
-            let started = PENDING_CLIP_MS.swap(0, Relaxed);
-            if started != 0 && (GetMessageTime() as u32).wrapping_sub(started) <= CLIP_GRACE_MS {
-                send(Ev::Clip(LAST_UP_X.load(Relaxed), LAST_UP_Y.load(Relaxed)));
-            }
+            // Capture ownership and the sequence here, not when the worker
+            // eventually reads the clipboard. The message timestamp uses the
+            // same tick clock as MSLLHOOKSTRUCT.time.
+            PENDING_SELECTION.with(|pending| {
+                let Some(mut captured) = pending.get() else { return };
+                let gesture = captured.gesture;
+                let at_ms = GetMessageTime() as u32;
+                if gesture.id != CURRENT_GESTURE.load(SeqCst)
+                    || at_ms.wrapping_sub(gesture.at_ms) > CLIP_GRACE_MS
+                {
+                    return;
+                }
+                let window = GetForegroundWindow().0 as isize;
+                if window != gesture.window {
+                    cancel_current();
+                    return;
+                }
+                let candidate = captured.capture_clipboard(window, at_ms, GetClipboardSequenceNumber());
+                pending.set(Some(captured));
+                if let Some(candidate) = candidate {
+                    send(Ev::Clip(candidate));
+                }
+            });
             return LRESULT(0);
         }
         DefWindowProcW(h, msg, w, l)
     }
 
-    // Low-level hooks are dropped by the OS if they take longer than
-    // LowLevelHooksTimeout (300ms by default), so this only touches atomics and
-    // occasionally pushes to the channel. Everything expensive is the worker's.
+    unsafe extern "system" fn foreground_proc(
+        _hook: HWINEVENTHOOK,
+        _event: u32,
+        hwnd: HWND,
+        _object: i32,
+        _child: i32,
+        _thread: u32,
+        at_ms: u32,
+    ) {
+        PENDING_SELECTION.with(|pending| {
+            if let Some(captured) = pending.get() {
+                let gesture = captured.gesture;
+                if gesture.id == CURRENT_GESTURE.load(SeqCst)
+                    && gesture.interrupted_by(hwnd.0 as isize, at_ms)
+                {
+                    cancel_current();
+                }
+            }
+        });
+    }
+
+    unsafe extern "system" fn keyboard_proc(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+        if code == HC_ACTION as i32
+            && matches!(w.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN)
+            && (*(l.0 as *const KBDLLHOOKSTRUCT)).vkCode == VK_ESCAPE.0 as u32
+        {
+            PRESS.with(|press| press.set(None));
+            cancel_current();
+        }
+        CallNextHookEx(None, code, w, l)
+    }
+
+    // Low-level hooks have a 300ms timeout. Only thread-local snapshots,
+    // atomics, cheap metadata and channel sends belong here; no UIA, text,
+    // configuration reads, logging or blocking locks.
     unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if code == HC_ACTION as i32 {
             let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
@@ -449,14 +528,13 @@ mod imp {
                 WM_LBUTTONDOWN => on_down(x, y, time),
                 WM_LBUTTONUP => on_up(x, y, time),
                 WM_MOUSEMOVE => {
-                    if VISIBLE.load(Relaxed) && farther_than(x, y, DISMISS_DIST) {
-                        dismiss();
+                    if VISIBLE_GESTURE.load(SeqCst) != 0 && farther_than(x, y, DISMISS_DIST) {
+                        cancel_current();
                     }
                 }
-                WM_MOUSEWHEEL => {
-                    if VISIBLE.load(Relaxed) {
-                        dismiss();
-                    }
+                WM_MOUSEWHEEL | WM_MOUSEHWHEEL | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                    PRESS.with(|press| press.set(None));
+                    cancel_current();
                 }
                 _ => {}
             }
@@ -465,31 +543,42 @@ mod imp {
     }
 
     fn on_down(x: i32, y: i32, time: u32) {
-        if VISIBLE.load(Relaxed) && farther_than(x, y, CLICK_SLOP) {
-            dismiss();
+        if VISIBLE_GESTURE.load(SeqCst) != 0 && over_button(x, y) {
+            // Clicking the nonactivating button must not cancel its own text
+            // or masquerade as the start of a fresh selection.
+            PRESS.with(|press| press.set(None));
+            return;
         }
+        cancel_current();
         // A low-level hook never sees WM_LBUTTONDBLCLK, so pair up the clicks
         // ourselves.
-        let elapsed = time.wrapping_sub(LAST_UP_MS.load(Relaxed));
-        let near = (x - LAST_UP_X.load(Relaxed)).abs() <= DOUBLE_CLICK_SLOP
-            && (y - LAST_UP_Y.load(Relaxed)).abs() <= DOUBLE_CLICK_SLOP;
-        IS_DOUBLE.store(near && elapsed <= unsafe { GetDoubleClickTime() }, Relaxed);
-        DOWN_X.store(x, Relaxed);
-        DOWN_Y.store(y, Relaxed);
+        let double = LAST_UP.with(|last| last.get().map_or(false, |(lx, ly, at)| {
+            (x - lx).abs() <= DOUBLE_CLICK_SLOP
+                && (y - ly).abs() <= DOUBLE_CLICK_SLOP
+                && time.wrapping_sub(at) <= unsafe { GetDoubleClickTime() }
+        }));
+        PRESS.with(|press| press.set(Some(Press { x, y, double })));
     }
 
     // A drag or a double click is only a *candidate*. Whether anything was
     // really selected is decided by the worker, which asks UIA for the text.
     fn on_up(x: i32, y: i32, time: u32) {
-        let dx = x - DOWN_X.load(Relaxed);
-        let dy = y - DOWN_Y.load(Relaxed);
+        let Some(press) = PRESS.with(|press| press.take()) else { return };
+        let dx = x - press.x;
+        let dy = y - press.y;
         let dragged = dx * dx + dy * dy > DRAG_MIN * DRAG_MIN;
-        LAST_UP_MS.store(time, Relaxed);
-        LAST_UP_X.store(x, Relaxed);
-        LAST_UP_Y.store(y, Relaxed);
-        if dragged || IS_DOUBLE.swap(false, Relaxed) {
-            PENDING_CLIP_MS.store(time, Relaxed);
-            send(Ev::Select(x, y));
+        LAST_UP.with(|last| last.set(Some((x, y, time))));
+        if dragged || press.double {
+            let gesture = Gesture {
+                id: CURRENT_GESTURE.fetch_add(1, SeqCst) + 1,
+                window: unsafe { GetForegroundWindow() }.0 as isize,
+                x,
+                y,
+                at_ms: time,
+                clipboard_sequence: unsafe { GetClipboardSequenceNumber() },
+            };
+            PENDING_SELECTION.with(|pending| pending.set(Some(PendingGesture::new(gesture))));
+            send(Ev::Select(gesture));
         }
     }
 
@@ -499,11 +588,23 @@ mod imp {
         dx * dx + dy * dy > limit * limit
     }
 
-    // Clearing VISIBLE here (not in the worker) stops one mouse sweep from
-    // queueing hundreds of Hide events.
-    fn dismiss() {
-        VISIBLE.store(false, Relaxed);
-        send(Ev::Hide);
+    fn over_button(x: i32, y: i32) -> bool {
+        let size = BTN_PX.load(Relaxed);
+        let left = BTN_X.load(Relaxed) - size / 2;
+        let top = BTN_Y.load(Relaxed) - size / 2;
+        x >= left && x < left + size && y >= top && y < top + size
+    }
+
+    fn cancel_current() {
+        let owner = CURRENT_GESTURE.fetch_add(1, SeqCst);
+        PENDING_SELECTION.with(|pending| pending.set(None));
+        send(Ev::Cancel(owner));
+        // Clear the gate here so one mouse sweep cannot queue hundreds of
+        // hides. The worker still checks the captured display owner.
+        let displayed = VISIBLE_GESTURE.swap(0, SeqCst);
+        if displayed != 0 {
+            send(Ev::Hide(displayed));
+        }
     }
 
     fn send(ev: Ev) {
@@ -519,78 +620,103 @@ mod imp {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
+        let mut candidates = Candidates::default();
+        let mut display = Display::default();
         while let Ok(ev) = rx.recv() {
             match ev {
-                Ev::Select(x, y) => on_select(x, y),
-                Ev::Clip(x, y) => on_clip(x, y),
-                Ev::Hide => hide(),
+                Ev::Select(gesture) => on_select(&mut candidates, &mut display, gesture),
+                Ev::Clip(clip) => on_clip(&mut candidates, &mut display, clip),
+                Ev::Cancel(owner) => {
+                    candidates.cancel(owner);
+                    hide_owned(&mut display, owner);
+                }
+                Ev::Hide(owner) => hide_owned(&mut display, owner),
+                Ev::Engage { owner, request_id } => engage(&mut candidates, &mut display, owner, request_id),
             }
         }
     }
 
     // Order matters: read the text while the source app still owns the focus,
     // and only then put a window on screen.
-    fn on_select(x: i32, y: i32) {
-        if !armed() {
+    fn on_select(candidates: &mut Candidates, display: &mut Display, gesture: Gesture) {
+        if !gesture.is_current(read_context()) {
             return;
         }
-        let foreground = unsafe { GetForegroundWindow() };
-        let gesture = LAST_UP_MS.load(Relaxed);
-        // No readable selection means this was a double click on a desktop
-        // icon, a window drag, or an app UIA cannot see into. The first two get
-        // nothing; the third may still turn up on the clipboard, so leave
-        // PENDING_CLIP_MS alone and let clip_proc decide.
-        let text = uia_selected_text(x, y);
-        // UIA calls cross process boundaries. Discard the answer if the user
-        // changed windows or completed another gesture while we were reading.
-        if unsafe { GetForegroundWindow() } != foreground
-            || LAST_UP_MS.load(Relaxed) != gesture
-            || !armed()
-        {
-            return;
+        candidates.begin(gesture);
+        let text = uia_selected_text(gesture);
+        let pending = candidates.complete_uia(gesture, text, read_context(), |candidate| {
+            offer(display, candidate);
+        });
+        if let Some(clip) = pending {
+            on_clip(candidates, display, clip);
         }
-        if text.is_empty() {
-            return;
-        }
-        PENDING_CLIP_MS.store(0, Relaxed);
-        offer(x, y, text);
     }
 
     // The app copied its own selection (a terminal, or anything set to copy on
     // select). Nothing was injected and nothing needs restoring - the text is
     // simply already there.
-    fn on_clip(x: i32, y: i32) {
-        if !armed() {
+    fn on_clip(candidates: &mut Candidates, display: &mut Display, clip: ClipboardCandidate) {
+        if !candidates.clipboard_ready(clip, read_context()) {
             return;
         }
         let text = clipboard_text();
-        if !text.is_empty() {
-            offer(x, y, text);
-        }
+        // Reading can yield to the source app: recheck the clipboard sequence,
+        // foreground, gesture and settings after the read as well.
+        candidates.complete_clipboard(clip, text, read_context(), |candidate| {
+            offer(display, candidate);
+        });
     }
 
     fn armed() -> bool {
         config_bool("pop_button_enable", false) && !foreground_is_ours() && !blacklisted()
     }
 
-    fn offer(x: i32, y: i32, text: String) {
-        if text.chars().count() < 2 {
+    fn read_context() -> ReadContext {
+        // Settings/process checks can take time. Check that they still refer
+        // to the same foreground and gesture when the snapshot is complete.
+        let gesture_id = CURRENT_GESTURE.load(SeqCst);
+        let window = unsafe { GetForegroundWindow() }.0 as isize;
+        let armed = armed();
+        let clipboard_sequence = unsafe { GetClipboardSequenceNumber() };
+        ReadContext {
+            gesture_id,
+            window,
+            clipboard_sequence,
+            armed: armed
+                && CURRENT_GESTURE.load(SeqCst) == gesture_id
+                && unsafe { GetForegroundWindow() }.0 as isize == window,
+        }
+    }
+
+    fn offer(display: &mut Display, candidate: Offer) {
+        if !candidate.is_current(read_context()) || candidate.text.chars().count() < 2 {
             return;
         }
-        if config_bool("pop_button_exclude_native", true) && is_native_language(&text) {
+        if config_bool("pop_button_exclude_native", true) && is_native_language(&candidate.text) {
             info!("PopButton: selection already in target language, ignoring");
             return;
         }
 
-        info!("PopButton: showing for {} chars", text.chars().count());
-        *PEEKED.lock().unwrap() = text;
+        let gesture = candidate.gesture;
         let px = BTN_PX.load(Relaxed);
         let (sx, sy) = corner(&config_string("pop_button_pos", "")).unwrap_or((Side::Before, Side::After));
-        let (x, y, _) = place(Rect::point(x, y), px, px, sx, sy, GAP, work_area(x, y));
-        show_at(x, y);
+        let (x, y, _) = place(Rect::point(gesture.x, gesture.y), px, px, sx, sy, GAP, work_area(gesture.x, gesture.y));
+        // Language detection and placement can outlive the gesture too. No
+        // cached text or window update occurs until this final validation.
+        if !candidate.is_current(read_context()) {
+            return;
+        }
+        info!("PopButton: showing gesture {} for {} chars", gesture.id, candidate.text.chars().count());
+        let clipboard = candidate.clipboard;
+        display.show(Displayed { gesture, text: candidate.text, x: x + px / 2, y: y + px / 2 });
+        show_at(x, y, gesture.id);
+        let context = read_context();
+        if !gesture.is_current(context) || clipboard.map_or(false, |clip| !clip.is_current(context)) {
+            hide_owned(display, gesture.id);
+        }
     }
 
-    fn show_at(x: i32, y: i32) {
+    fn show_at(x: i32, y: i32, owner: u64) {
         let h = match button_hwnd() {
             Some(v) => v,
             None => return,
@@ -612,7 +738,7 @@ mod imp {
             );
             BTN_X.store(x + px / 2, Relaxed);
             BTN_Y.store(y + px / 2, Relaxed);
-            VISIBLE.store(true, Relaxed);
+            VISIBLE_GESTURE.store(owner, SeqCst);
         }
     }
 
@@ -652,27 +778,52 @@ mod imp {
         })
     }
 
-    fn hide() {
+    fn hide_native(owner: u64) {
+        // Only the worker calls Win32 show/hide. Hook-side cancellation may
+        // already have cleared this gate, but cannot display another button.
+        let _ = VISIBLE_GESTURE.compare_exchange(owner, 0, SeqCst, SeqCst);
         if let Some(h) = button_hwnd() {
             unsafe {
                 let _ = ShowWindow(h, SW_HIDE);
             }
         }
-        VISIBLE.store(false, Relaxed);
+    }
+
+    fn hide_owned(display: &mut Display, owner: u64) {
+        if display.take(owner).is_some() {
+            hide_native(owner);
+        }
     }
 
     // --------------------------------------------------------- engage (button)
 
     pub fn translate() {
-        let (x, y) = (BTN_X.load(Relaxed), BTN_Y.load(Relaxed));
-        hide();
-        let text = std::mem::take(&mut *PEEKED.lock().unwrap());
-        if text.is_empty() {
-            warn!("PopButton: engaged with no cached selection");
+        let request_id = crate::screenshot::selection_request_id();
+        let owner = VISIBLE_GESTURE.load(SeqCst);
+        if owner != 0 {
+            send(Ev::Engage { owner, request_id });
+        }
+    }
+
+    fn engage(candidates: &mut Candidates, display: &mut Display, owner: u64, request_id: u64) {
+        let Some(shown) = display.take(owner) else { return };
+        hide_native(owner);
+        candidates.cancel(owner);
+        if !shown.gesture.is_current(read_context()) {
+            return;
+        }
+        // Prevent pending UIA/clipboard work and repeated click/hover invokes
+        // from translating this selection again. Do not invalidate a newer one.
+        if CURRENT_GESTURE.compare_exchange(owner, owner + 1, SeqCst, SeqCst).is_err() {
             return;
         }
         let (sx, sy) = corner(&config_string("pop_result_pos", "")).unwrap_or((Side::After, Side::After));
-        crate::screenshot::with_selection(|| show_result(Rect::point(x, y), sx, sy, 0, text, None));
+        crate::screenshot::with_selection(
+            request_id,
+            || CURRENT_GESTURE.load(SeqCst) == owner + 1
+                && unsafe { GetForegroundWindow() }.0 as isize == shown.gesture.window,
+            || show_result(Rect::point(shown.x, shown.y), sx, sy, 0, shown.text, None),
+        );
     }
 
     // 截图识别完由前端调进来。box_* 以选区为基准，cursor_* 以松手时的光标为基准。
@@ -785,14 +936,14 @@ mod imp {
 
     // IUIAutomation is neither Send nor Sync, so the instance lives and dies on
     // whichever thread built it.
-    fn uia_selected_text(x: i32, y: i32) -> String {
+    fn uia_selected_text(gesture: Gesture) -> String {
         UIA.with(|cell| {
             let mut slot = cell.borrow_mut();
             if slot.is_none() {
                 *slot = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL) }.ok();
             }
             match slot.as_ref() {
-                Some(auto) => unsafe { read_selection(auto, x, y) },
+                Some(auto) => unsafe { read_selection(auto, gesture) },
                 None => {
                     error!("PopButton: could not create the UIAutomation instance");
                     String::new()
@@ -801,8 +952,11 @@ mod imp {
         })
     }
 
-    unsafe fn read_selection(auto: &IUIAutomation, x: i32, y: i32) -> String {
-        let foreground = GetForegroundWindow();
+    unsafe fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> String {
+        let foreground = HWND(gesture.window as *mut c_void);
+        if GetForegroundWindow() != foreground || CURRENT_GESTURE.load(SeqCst) != gesture.id {
+            return String::new();
+        }
         let Ok(root) = auto.ElementFromHandle(foreground) else {
             debug!("PopButton: UIA foreground element unavailable");
             return String::new();
@@ -815,7 +969,7 @@ mod imp {
         // often owns the selection. Raw view retains otherwise filtered wrappers.
         // Prefer the gesture location over an unrelated focused input control.
         for (source, element) in [
-            ("pointer", auto.ElementFromPoint(POINT { x, y }).ok()),
+            ("pointer", auto.ElementFromPoint(POINT { x: gesture.x, y: gesture.y }).ok()),
             ("focus", auto.GetFocusedElement().ok()),
         ] {
             let Some(element) = element else { continue };
@@ -828,7 +982,7 @@ mod imp {
                 continue;
             };
             for (depth, element) in path.into_iter().enumerate() {
-                if GetForegroundWindow() != foreground {
+                if GetForegroundWindow() != foreground || CURRENT_GESTURE.load(SeqCst) != gesture.id {
                     return String::new();
                 }
                 if let Some(text) = selection_of(Some(element)) {

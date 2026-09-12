@@ -41,7 +41,7 @@ function WechatStatus() {
 export default function ServiceItem(props) {
     const { name, deleteService, setCurrentConfigKey, onConfigOpen, ...drag } = props;
     const { t } = useTranslation();
-    const [config, setConfig] = useConfig(recognizeConfigKey(name), {});
+    const [config, setConfig] = useConfig(recognizeConfigKey(name), {}, { initialize: false });
 
     // 列表存在 config.json 里，可能留着已经删掉的服务名（老版本的 google）。
     // 拿不到实现就整条不渲染，别让一个陈旧的 key 把整页炸掉 —— 配置窗是无边框

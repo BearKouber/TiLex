@@ -88,7 +88,7 @@ export const AI_PRESETS = [
 export const presetOf = (id) => AI_PRESETS.find((p) => p.id === id) ?? null;
 
 // 预设 → 配置弹窗默认值里要盖掉的那几项。model 不在里面，走 Config.jsx 的空
-// 默认值；剩下的（promptList / requestArguments / stream）同理。
+// 默认值；自定义要求与兼容参数由 instructions.js 统一归一化。
 export function presetToConfig(preset) {
     return {
         instanceName: preset.name,

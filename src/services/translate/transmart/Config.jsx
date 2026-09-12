@@ -54,8 +54,7 @@ export function Config(props) {
                     setIsLoading(true);
                     try {
                         await translate('Hello world', Language.auto, Language.zh_cn);
-                        setConfig(config, true);
-                        updateServiceList(instanceKey);
+                        await updateServiceList(instanceKey, config);
                         onClose();
                     } catch (err) {
                         const errMsg = err?.message || err?.toString() || JSON.stringify(err);
