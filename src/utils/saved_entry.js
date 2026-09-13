@@ -43,11 +43,17 @@ function candidate(item) {
 
 // Items stay in the service order captured when this request began. Equal
 // priorities keep the first candidate, regardless of response completion order.
-export function entrySnapshot(text, items) {
+export function entrySnapshot(text, items, targetKey = null) {
     let selected = null;
-    for (const item of items) {
-        const next = candidate(item);
-        if (next && (!selected || next.priority < selected.priority)) selected = next;
+    if (targetKey) {
+        const item = items.find((it) => it.key === targetKey);
+        if (item) selected = candidate(item);
+    }
+    if (!selected) {
+        for (const item of items) {
+            const next = candidate(item);
+            if (next && (!selected || next.priority < selected.priority)) selected = next;
+        }
     }
     return {
         text,
@@ -61,12 +67,13 @@ export function createSavedEntry(text, { add, update, onStatus }) {
     let items = [];
     const serviceOrder = new Map();
     let requested = false;
+    let preferredKey = null;
     let entryId = null;
     let queue = Promise.resolve();
     const persist = () => {
         onStatus('saving');
         queue = queue.then(async () => {
-            const snapshot = entrySnapshot(text, items);
+            const snapshot = entrySnapshot(text, items, preferredKey);
             if (entryId === null) entryId = await add(snapshot);
             else await update(entryId, snapshot);
             onStatus('ok');
@@ -90,7 +97,11 @@ export function createSavedEntry(text, { add, update, onStatus }) {
             items = items.map((item) => item.key === key ? { ...item, ...fields, key: item.key } : item);
             return requested ? persist() : queue;
         },
-        save() { requested = true; return persist(); },
+        save(key = null) {
+            if (key) preferredKey = key;
+            requested = true;
+            return persist();
+        },
     };
 }
 

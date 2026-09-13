@@ -108,6 +108,7 @@ const bindings = {
     setItems: () => {},
     setCollapsed: () => {},
     setSaved: () => {},
+    setSavedKey: () => {},
     setStatus: () => {},
     flushSync: (fn) => fn(),
 };

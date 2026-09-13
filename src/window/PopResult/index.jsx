@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom';
 import { writeText } from '@tauri-apps/api/clipboard';
 import { speak } from '../../utils/speak';
 import PulseLoader from 'react-spinners/PulseLoader';
-import { MdCheck, MdChevronRight, MdContentCopy, MdExpandMore, MdStarBorder, MdVolumeUp } from 'react-icons/md';
+import { MdCheck, MdChevronRight, MdContentCopy, MdExpandMore, MdStar, MdStarBorder, MdVolumeUp } from 'react-icons/md';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { createOcrEventGate, ocrErrorMessage } from '../../utils/ocr_request';
@@ -61,6 +61,7 @@ export default function PopResult() {
     const [lang, setLang] = useState('');
     const [items, setItems] = useState([]);
     const [saved, setSaved] = useState('');
+    const [savedKey, setSavedKey] = useState('');
     const [copied, setCopied] = useState('');
     // '' 正常 / 'loading' 截图识别中 / 其它 = 识别失败的原话
     const [status, setStatus] = useState('');
@@ -122,6 +123,7 @@ export default function PopResult() {
             setItems([]);
             setCollapsed({});
             setSaved('');
+            setSavedKey('');
             setStatus(text ? '' : 'loading');
         });
         awaitingText = false;
@@ -280,9 +282,10 @@ export default function PopResult() {
     }, []);
 
     // Save immediately; this selection's remaining results update the same row.
-    const collect = async () => {
+    const collect = async (key = null) => {
         if (!source || entryRef.current?.text !== source) return;
-        await entryRef.current.save();
+        if (key) setSavedKey(key);
+        await entryRef.current.save(key);
     };
     // 每个服务一个复制：原来底部那个「全部拼起来」的按钮，从外观上根本看不出
     // 复制的是哪一条。反馈沿用 saved 那一套，两个绿勾长得一样。
@@ -297,7 +300,7 @@ export default function PopResult() {
     return (
         <div
             ref={boxRef}
-            className='relative w-screen rounded-[8px] bg-content1 border-1 border-default-200 overflow-hidden'
+            className='relative w-screen rounded-[8px] bg-content1 border-1 border-default-200 overflow-hidden pb-[4px]'
             onMouseMove={(e) => {
                 if (armed) return;
                 if (!origin) origin = [e.clientX, e.clientY];
@@ -320,62 +323,65 @@ export default function PopResult() {
                     <polygon points='0,0 10,0 0,10' />
                 </svg>
             </div>
-            {/* 原文行：语种徽标 + 原文，右边挂和服务行同一套朗读 / 复制。
-                按钮不能落进拖拽区 —— data-tauri-drag-region 会把点击整个吞掉，
-                所以拖拽区收到文字那一段上，不再罩住整行。
-                min-w-0：flex item 默认不肯收缩到内容宽度以下，不加这条 truncate
-                就不生效，长原文会把两个按钮挤出面板。 */}
-            <div className='px-[8px] pt-[4px] flex items-center gap-[2px] text-[11px] text-default-400'>
-                {/* select-none：面板正好开在光标底下，点划词按钮那一下的 mouseup
-                    落进这一行，浏览器当成一次拖选，原文一出来就是蓝的。
-                    原文要拿走用右边那个复制按钮，不靠手选。
-                    译文那边不加 —— 那里是要能划着选的。 */}
-                <span
-                    className='truncate min-w-0 select-none'
-                    data-tauri-drag-region='true'
-                >
-                    {lang && (
-                        <span className='text-primary/60 mr-[4px]'>
-                            {LANG_BADGE[lang] ?? t(`languages.${lang}`).slice(0, 1)}
-                        </span>
-                    )}
-                    {source}
-                </span>
-                {source && (
-                    <>
-                        <button
-                            className='ml-auto shrink-0 hover:text-default-600'
-                            aria-label={t('config.wordbook.speak')}
-                            title={t('config.wordbook.speak')}
-                            onClick={() => speak(source)}
-                        >
-                            <MdVolumeUp className='text-[12px]' />
-                        </button>
-                        <button
-                            className={`shrink-0 ml-[4px] ${
-                                copied === SOURCE_KEY ? 'text-success' : 'hover:text-default-600'
-                            }`}
-                            aria-label={t('recognize.copy_text')}
-                            title={t('recognize.copy_text')}
-                            onClick={() => copyText(SOURCE_KEY, source)}
-                        >
-                            {copied === SOURCE_KEY ? (
-                                <MdCheck className='text-[12px]' />
-                            ) : (
-                                <MdContentCopy className='text-[12px]' />
-                            )}
-                        </button>
-                    </>
-                )}
-            </div>
             <div
                 // overflow-x-hidden 是必须的：CSS 里一轴设成非 visible 之后，
                 // 另一轴的 visible 会自动变成 auto，所以光写 overflow-y-auto
                 // 等于两个方向都能滚，长单词或宽元素就会拖出一条横向滚动条。
-                // 左右内边距挪到了每一行上，容器这里不留 —— 见表头那段注释。
-                className='overflow-y-auto overflow-x-hidden py-[2px]'
-                style={{ maxHeight: MAX_HEIGHT - 46 }}
+                // 原文行与服务行在同一个滚动容器中，共享滚动条，保证无论长短文本右侧均严格对齐；
+                // 原文行与服务行的操作按钮统一靠右对齐（ml-auto）。
+                className='overflow-y-auto overflow-x-hidden pb-[4px]'
+                style={{ maxHeight: MAX_HEIGHT - 6 }}
             >
+                {/* 原文行：语种徽标 + 原文，右侧悬停显现朗读 / 复制。
+                    按钮不能落进拖拽区 —— data-tauri-drag-region 会把点击整个吞掉，
+                    所以拖拽区收到文字那一段上，不再罩住整行。
+                    min-w-0：flex item 默认不肯收缩到内容宽度以下，不加这条 truncate
+                    就不生效，长原文会把两个按钮挤出面板。 */}
+                {source && (
+                    <div className='group/source sticky top-0 z-20 bg-content1 px-[8px] h-[24px] flex items-center gap-[2px] text-[11px] text-default-400'>
+                        {/* select-none：面板正好开在光标底下，点划词按钮那一下的 mouseup
+                            落进这一行，浏览器当成一次拖选，原文一出来就是蓝的。
+                            原文要拿走用右边那个复制按钮，不靠手选。
+                            译文那边不加 —— 那里是要能划着选的。 */}
+                        <span
+                            className='truncate min-w-0 select-none'
+                            data-tauri-drag-region='true'
+                        >
+                            {lang && (
+                                <span className='text-primary/60 mr-[4px]'>
+                                    {LANG_BADGE[lang] ?? t(`languages.${lang}`).slice(0, 1)}
+                                </span>
+                            )}
+                            {source}
+                        </span>
+                        <div className='ml-auto flex items-center gap-[4px]'>
+                            <button
+                                className='shrink-0 opacity-0 group-hover/source:opacity-100 hover:text-default-600 transition-opacity'
+                                aria-label={t('config.wordbook.speak')}
+                                title={t('config.wordbook.speak')}
+                                onClick={() => speak(source)}
+                            >
+                                <MdVolumeUp className='text-[12px]' />
+                            </button>
+                            <button
+                                className={`shrink-0 transition-opacity ${
+                                    copied === SOURCE_KEY
+                                        ? 'opacity-100 text-success'
+                                        : 'opacity-0 group-hover/source:opacity-100 hover:text-default-600'
+                                }`}
+                                aria-label={t('recognize.copy_text')}
+                                title={t('recognize.copy_text')}
+                                onClick={() => copyText(SOURCE_KEY, source)}
+                            >
+                                {copied === SOURCE_KEY ? (
+                                    <MdCheck className='text-[12px]' />
+                                ) : (
+                                    <MdContentCopy className='text-[12px]' />
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                )}
                 {status &&
                     (status === 'loading' ? (
                         <div className='px-[8px] py-[4px] flex items-center gap-[6px] text-[12px] text-default-400'>
@@ -393,32 +399,22 @@ export default function PopResult() {
                         key={it.key}
                         className='py-[2px]'
                     >
-                        {/* 表头行：折叠开关 + 服务名 + 这个服务自己的复制按钮。
-                            单服务时也渲染，两种渲染路径不如一种。
-
-                            sticky top-0：滚到下面时表头钉在滚动区顶部（也就是原文
-                            那一行下面），不用滚回去就能折叠上面那个服务。多个服务
-                            就是一个顶一个的分组表头。
-
-                            背景要铺满整行，否则正文会从缝里穿过去。所以左右内边距
-                            放在这一行和正文那一行上，**不放在滚动容器上** ——
-                            早先用的是容器 px-[8px] + 表头 -mx-[8px] 抵消，但负边距
-                            会连纵向滚动条那 5px 一起吃掉，多出来的宽度正好拖出一条
-                            横向滚动条。 */}
+                        {/* 表头行：折叠开关 + 服务名 + 仅鼠标移到表头行时显现控件。
+                            sticky：向下滚动时吸附在原文行正下方。 */}
                         <div
-                            className='sticky top-0 z-10 bg-content1 px-[8px] flex items-center gap-[2px] text-[10px] text-default-400 cursor-pointer select-none'
+                            className='group/service sticky z-10 bg-content1 px-[8px] h-[20px] flex items-center gap-[2px] text-[10px] text-default-400 cursor-pointer select-none'
+                            style={{ top: source ? '24px' : '0px' }}
                             onClick={() => toggle(it.key)}
                         >
                             {collapsed[it.key] ? <MdChevronRight /> : <MdExpandMore />}
                             <span className='truncate'>{it.label}</span>
                             {plainText(it.result) && (
-                                <>
-                                    {/* 朗读。ml-auto 挂在第一个按钮上，把这一组顶到最右。 */}
+                                <div className='ml-auto flex items-center gap-[4px]'>
+                                    {/* 朗读：悬停显现 */}
                                     <button
-                                        className='ml-auto shrink-0 hover:text-default-600'
+                                        className='shrink-0 opacity-0 group-hover/service:opacity-100 hover:text-default-600 transition-opacity'
                                         aria-label={t('config.wordbook.speak')}
                                         title={t('config.wordbook.speak')}
-                                        // 不挡住的话，点按钮会顺手把这一段折叠掉。
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             speak(plainText(it.result));
@@ -426,10 +422,15 @@ export default function PopResult() {
                                     >
                                         <MdVolumeUp className='text-[12px]' />
                                     </button>
+                                    {/* 复制：悬停显现，复制成功时为绿色对勾 */}
                                     <button
-                                        className={`shrink-0 ml-[4px] ${
-                                            copied === it.key ? 'text-success' : 'hover:text-default-600'
+                                        className={`shrink-0 transition-opacity ${
+                                            copied === it.key
+                                                ? 'opacity-100 text-success'
+                                                : 'opacity-0 group-hover/service:opacity-100 hover:text-default-600'
                                         }`}
+                                        aria-label={t('recognize.copy_text')}
+                                        title={t('recognize.copy_text')}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             copyText(it.key, plainText(it.result));
@@ -441,7 +442,27 @@ export default function PopResult() {
                                             <MdContentCopy className='text-[12px]' />
                                         )}
                                     </button>
-                                </>
+                                    {/* 收藏：未收藏时悬停显现，已收藏时常驻高亮金色星星 */}
+                                    <button
+                                        className={`shrink-0 transition-opacity ${
+                                            savedKey === it.key
+                                                ? 'opacity-100 text-warning'
+                                                : 'opacity-0 group-hover/service:opacity-100 hover:text-default-600'
+                                        }`}
+                                        aria-label={t('config.wordbook.title')}
+                                        title={t('config.wordbook.title')}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void collect(it.key);
+                                        }}
+                                    >
+                                        {savedKey === it.key ? (
+                                            <MdStar className='text-[13px]' />
+                                        ) : (
+                                            <MdStarBorder className='text-[13px]' />
+                                        )}
+                                    </button>
+                                </div>
                             )}
                         </div>
                         <div className='px-[8px]'>
@@ -461,27 +482,6 @@ export default function PopResult() {
                         </div>
                     </div>
                 ))}
-            </div>
-            {/* 底部只剩收藏：它是「把这条划词整个存进生词本」，本来就不属于
-                某一个服务，和上面每服务一个的复制正好分得开。 */}
-            <div className='flex justify-end gap-[2px] px-[6px] pb-[3px] pt-[1px]'>
-                {/* 收好之后一直停在对勾上，直到换一段划词才退回星星：
-                    原来 1.5 秒就复位，看上去像没存进去，很容易再点一次。 */}
-                <button
-                    disabled={saved === 'ok' || saved === 'saving' || !source}
-                    aria-label={t('config.wordbook.title')}
-                    title={t('config.wordbook.title')}
-                    className={
-                        saved === 'ok'
-                            ? 'text-success cursor-default'
-                            : saved === 'error'
-                              ? 'text-danger'
-                              : 'text-default-400 hover:text-default-600'
-                    }
-                    onClick={collect}
-                >
-                    {saved === 'ok' ? <MdCheck className='text-[13px]' /> : <MdStarBorder className='text-[13px]' />}
-                </button>
             </div>
         </div>
     );
