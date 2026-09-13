@@ -27,7 +27,7 @@
   <img width="800" src="https://github.com/user-attachments/assets/91a37bc0-3ecc-4967-a1cc-456fc3411800" alt="OCR 服务设置" />
 </p>
 <p align="center">
-  <img width="800" src="https://github.com/user-attachments/assets/98799949-97ea-46f7-b520-5ffc92c47b6a" alt="生词本" />
+  <img width="800" src="https://github.com/user-attachments/assets/feb71b24-fac4-4187-853f-ecfa5a193d4f" alt="生词本" />
 </p>
 <p align="center">
   <img width="800" src="https://github.com/user-attachments/assets/81bc6e7c-de4c-4808-a19b-3f6a85724a27" alt="关于" />
