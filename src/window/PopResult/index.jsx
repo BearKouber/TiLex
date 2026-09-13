@@ -1,5 +1,6 @@
 import { appWindow, currentMonitor, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import React, { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { writeText } from '@tauri-apps/api/clipboard';
 import { speak } from '../../utils/speak';
 import PulseLoader from 'react-spinners/PulseLoader';
@@ -8,6 +9,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { createOcrEventGate, ocrErrorMessage } from '../../utils/ocr_request';
 import { createBlurGuard } from '../../utils/pop_result_lifecycle';
+import { createPopResultSizing } from '../../utils/pop_result_sizing';
 import { traceOcr } from '../../utils/ocr_diagnostics';
 import { useTranslation } from 'react-i18next';
 
@@ -32,6 +34,8 @@ import { store } from '../../utils/store';
 const SOURCE_KEY = '#source';
 
 const WIDTH = 320;
+// Rust 按这个高度建 WebView 并一直保持（pop_button.rs 的 keep_view_at_max），
+// 窗口只是裁剪框，所以变高时下面早就画好了。两边要一起改。
 const MAX_HEIGHT = 400;
 
 // 原文那一行的语种徽标。常见的几种写死，其余退回 i18n 语言名的首字
@@ -41,9 +45,10 @@ const LANG_BADGE = { zh_cn: '中', zh_tw: '繁', en: '英', ja: '日', ko: '韩'
 // Module scope on purpose: the listeners are registered once and would
 // otherwise close over a stale render.
 let runID = 0;
-// Rust 摆放时面板在基准上方，就是面板底边的物理 y（内容变高时钉住它往上长）；
-// 在下方是 null（顶边不动往下长）。每次弹出由 pop_anchor 事件先于 new_text 送来。
-let pinBottom = null;
+// Rust 把面板缩成 1px 再显示（pop_button.rs show_result），由这边按新内容撑开。
+// pop_anchor 到新内容提交之间 DOM 还是上一次的结果，这时量出来的高度会把窗口
+// 撑回旧尺寸、闪一下旧画面，所以这段时间 measure 一律报 0（协调器会丢掉）。
+let awaitingText = false;
 // 关闭角的保险：面板以光标为基准弹出、或被屏幕边缘挤回来时，光标可能正落在
 // 关闭角附近，手还在动，顺势一蹭，刚弹出就闪没。所以指针得先离开面板里第一次
 // 出现的位置 ARM_PX 以上，关闭角才生效。
@@ -63,7 +68,7 @@ export default function PopResult() {
     const [collapsed, setCollapsed] = useState({});
     const { t } = useTranslation();
     const boxRef = useRef();
-    const heightRef = useRef(0);
+    const sizingRef = useRef(null);
     const entryRef = useRef(null);
     const blurRef = useRef(null);
 
@@ -110,12 +115,17 @@ export default function PopResult() {
         entryRef.current = null;
         const text = preprocess(raw);
         if (id !== runID) return;
-        setSource(text);
-        setLang('');
-        setItems([]);
-        setCollapsed({});
-        setSaved('');
-        setStatus(text ? '' : 'loading');
+        // 先把新内容同步提交进 DOM，再量高度，免得量到上一次的结果。
+        flushSync(() => {
+            setSource(text);
+            setLang('');
+            setItems([]);
+            setCollapsed({});
+            setSaved('');
+            setStatus(text ? '' : 'loading');
+        });
+        awaitingText = false;
+        sizingRef.current?.refresh();
         // 空文本 = 截图识别刚开的头，先把面板亮着转圈占位，正文等 OCR 那边认完
         // 再 emit 一次 new_text 进来。
         if (!text) return;
@@ -180,25 +190,35 @@ export default function PopResult() {
             if (gate.invalidate(e.payload.requestId)) {
                 runID++;
                 blur.invalidate();
+                sizingRef.current?.invalidate();
                 traceOcr('session-changed', { requestId: e.payload.requestId, runId: runID });
             }
         });
         const unlistenAnchor = listen('pop_anchor', (e) => {
-            pinBottom = e.payload;
+            awaitingText = true;
+            sizingRef.current?.setAnchor(e.payload);
         });
         const unlistenText = listen('new_text', (e) => void gate.accept(e.payload, run));
         // 截图识别失败走这条，不再退回框选覆盖窗。
-        const unlistenErr = listen('recognize_error', (e) => void gate.accept(e.payload, (message, requestId) => {
-            runID++;
-            entryRef.current = null;
-            setSource('');
-            setLang('');
-            setItems([]);
-            setSaved('');
-            const visibleMessage = ocrErrorMessage(message, t('config.recognize.failed'));
-            setStatus(visibleMessage);
-            traceOcr('error-displayed', { requestId, runId: runID, errorLength: visibleMessage.length });
-        }));
+        const unlistenErr = listen(
+            'recognize_error',
+            (e) =>
+                void gate.accept(e.payload, (message, requestId) => {
+                    runID++;
+                    entryRef.current = null;
+                    const visibleMessage = ocrErrorMessage(message, t('config.recognize.failed'));
+                    flushSync(() => {
+                        setSource('');
+                        setLang('');
+                        setItems([]);
+                        setSaved('');
+                        setStatus(visibleMessage);
+                    });
+                    awaitingText = false;
+                    sizingRef.current?.refresh();
+                    traceOcr('error-displayed', { requestId, runId: runID, errorLength: visibleMessage.length });
+                })
+        );
         // Switching away is the dismiss gesture. The grace period covers the
         // focus handover right after show(), which lands as a blur first.
         //
@@ -228,29 +248,35 @@ export default function PopResult() {
     // The window is sized to whatever the content turns out to be, so a two
     // word translation gets a two word panel. Rust only picks the position.
     useEffect(() => {
-        const fit = async () => {
-            const height = Math.ceil(boxRef.current?.offsetHeight ?? 0);
-            if (!height || height === heightRef.current) return;
-            heightRef.current = height;
-            await appWindow.setSize(new LogicalSize(WIDTH, height));
-            // Rust 摆位置时还不知道内容多高。面板在基准上方：钉住底边往上长，
-            // 顶部出屏就贴顶；在下方：顶边不动往下长，出屏就贴底往上推。
-            const monitor = await currentMonitor();
-            if (!monitor) return;
-            const position = await appWindow.outerPosition();
-            const tall = height * monitor.scaleFactor;
-            const y = Math.round(
-                pinBottom != null
-                    ? Math.max(monitor.position.y, pinBottom - tall)
-                    : Math.min(position.y, monitor.position.y + monitor.size.height - tall)
-            );
-            if (y !== position.y) {
-                await appWindow.setPosition(new PhysicalPosition(position.x, y));
-            }
-        };
-        const observer = new ResizeObserver(() => void fit());
+        const sizing = createPopResultSizing({
+            width: WIDTH,
+            measure: () => (awaitingText ? 0 : (boxRef.current?.offsetHeight ?? 0)),
+            setSize: (width, height) => appWindow.setSize(new LogicalSize(width, height)),
+            currentMonitor,
+            outerPosition: () => appWindow.outerPosition(),
+            setPosition: (x, y) => appWindow.setPosition(new PhysicalPosition(x, y)),
+            // 窗口每次改完尺寸都来一下。DWM 要等窗口里有新画面提交才把新尺寸送上屏，
+            // 而 WebView 固定按最大尺寸渲染、改窗口尺寸时并不重画，屏幕就一直停在
+            // 旧尺寸（拦腰截断），直到别的窗口（比如鼠标底下的网页）刷新了一帧。
+            // RedrawWindow 管不到 Chromium 的合成，只能让页面整块变一下逼它提交两帧。
+            repaint: () => {
+                const box = boxRef.current;
+                if (!box) return;
+                box.style.opacity = '0.99';
+                setTimeout(() => {
+                    box.style.opacity = '';
+                }, 100);
+            },
+        });
+        sizingRef.current = sizing;
+        // 首次 observe 自带一次回调，挂载时的尺寸也走这里。
+        const observer = new ResizeObserver(sizing.request);
         observer.observe(boxRef.current);
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            sizing.dispose();
+            sizingRef.current = null;
+        };
     }, []);
 
     // Save immediately; this selection's remaining results update the same row.

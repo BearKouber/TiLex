@@ -117,6 +117,7 @@
                     "exclude_native": "Skip Target Language",
                     "blacklist": "App Blacklist",
                     "position": "Icon Position",
+                    "distance": "Icon Distance",
                     "bottom_left": "Bottom Left of Cursor",
                     "bottom_right": "Bottom Right of Cursor",
                     "top_right": "Top Right of Cursor",
@@ -231,7 +232,15 @@
                 "empty": "Nothing collected yet",
                 "speak": "Speak",
                 "delete": "Delete",
-                "export": "Export as Markdown"
+                "export": "Export as Markdown",
+                "multi_select": "Select",
+                "select_all_results": "Select all results",
+                "select_entry": "Select {{text}}",
+                "done": "Done",
+                "selected_count": "{{count}} selected",
+                "confirm_delete": "Delete selected entries ({{count}})?",
+                "delete_count": "Delete {{count}}",
+                "delete_failed": "Could not delete entries. Please try again."
             },
             "history": {
                 "label": "History",

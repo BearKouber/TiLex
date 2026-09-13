@@ -91,6 +91,36 @@ pub fn place(anchor: Rect, w: i32, h: i32, sx: Side, sy: Side, gap: i32, bounds:
     (x, y, sy == Side::Before)
 }
 
+const DEFAULT_BUTTON_DISTANCE: i32 = 10;
+const DISMISS_DIST: u64 = 60;
+
+// Match the settings slider's Number.isInteger contract, including whole JSON
+// numbers such as 4.0 and large integers that do not fit in i64. Clamp before
+// converting so malformed or external configuration cannot shift the window.
+fn button_distance(value: Option<&serde_json::Value>) -> i32 {
+    value
+        .and_then(serde_json::Value::as_f64)
+        .filter(|n| n.is_finite() && n.fract() == 0.0)
+        .map(|n| n.clamp(0.0, 20.0) as i32)
+        .unwrap_or(DEFAULT_BUTTON_DISTANCE)
+}
+
+fn distance_squared(x: i32, y: i32, cx: i32, cy: i32) -> u64 {
+    let dx = (i64::from(x) - i64::from(cx)).unsigned_abs();
+    let dy = (i64::from(y) - i64::from(cy)).unsigned_abs();
+    (dx * dx).saturating_add(dy * dy)
+}
+
+fn dismissal_limit_squared(anchor: Rect, cx: i32, cy: i32) -> u64 {
+    // Compute once on the worker, after flipping/clamping. The source cursor
+    // and the whole approach to the icon must fit, with 10px of movement slack.
+    // Normal spacing keeps the existing 60px dismissal circle. The hook only
+    // compares squared integer distances against the published result.
+    let approach = (distance_squared(anchor.l, anchor.t, cx, cy) as f64).sqrt().ceil() as u64;
+    let radius = DISMISS_DIST.max(approach + 10);
+    radius.saturating_mul(radius)
+}
+
 #[cfg(test)]
 mod place_tests {
     use super::{place, Rect, Side::*};
@@ -148,13 +178,136 @@ mod place_tests {
     }
 }
 
+#[cfg(test)]
+mod distance_tests {
+    use super::{button_distance, dismissal_limit_squared, distance_squared, place, Rect, Side::*};
+    use serde_json::json;
+
+    const SCREEN: Rect = Rect { l: 0, t: 0, r: 1000, b: 800 };
+
+    #[test]
+    fn accepts_integer_distances_and_clamps_out_of_range_numbers() {
+        for gap in 0..=20 {
+            assert_eq!(button_distance(Some(&json!(gap))), gap);
+        }
+        for (value, expected) in [
+            (json!(-1), 0), (json!(21), 20), (json!(100), 20),
+            (json!(i64::MIN), 0), (json!(u64::MAX), 20),
+            (json!(4.0), 4), (json!(1e30), 20), (json!(-1e30), 0),
+        ] {
+            assert_eq!(button_distance(Some(&value)), expected);
+        }
+    }
+
+    #[test]
+    fn missing_and_malformed_distances_use_the_default_gap() {
+        assert_eq!(button_distance(None), 10);
+        for value in [
+            json!(null), json!(true), json!(false), json!("20"), json!(""),
+            json!([]), json!([20]), json!({"distance": 20}),
+            json!(4.5), json!(-0.5), json!(20.5),
+        ] {
+            assert_eq!(button_distance(Some(&value)), 10, "{value}");
+        }
+    }
+
+    #[test]
+    fn minimum_default_and_maximum_gaps_apply_on_both_axes_in_all_directions() {
+        let anchor = Rect::point(500, 400);
+        for gap in [0, 10, 20] {
+            for (sx, sy, x, y, above) in [
+                (After, After, 500 + gap, 400 + gap, false),
+                (Before, After, 482 - gap, 400 + gap, false),
+                (After, Before, 500 + gap, 382 - gap, true),
+                (Before, Before, 482 - gap, 382 - gap, true),
+            ] {
+                assert_eq!(place(anchor, 18, 18, sx, sy, gap, SCREEN), (x, y, above));
+            }
+        }
+    }
+
+    #[test]
+    fn maximum_gap_flips_at_screen_edges_and_negative_monitor_coordinates() {
+        for (anchor, sx, sy, expected) in [
+            (Rect::point(0, 0), Before, Before, (20, 20, false)),
+            (Rect::point(999, 0), After, Before, (961, 20, false)),
+            (Rect::point(0, 799), Before, After, (20, 761, true)),
+            (Rect::point(999, 799), After, After, (961, 761, true)),
+        ] {
+            assert_eq!(place(anchor, 18, 18, sx, sy, 20, SCREEN), expected);
+        }
+        let left_monitor = Rect { l: -1920, t: -200, r: 0, b: 880 };
+        assert_eq!(
+            place(Rect::point(-1, -199), 18, 18, After, Before, 20, left_monitor),
+            (-39, -179, false),
+        );
+    }
+
+    #[test]
+    fn normal_spacing_keeps_the_existing_dismissal_boundary() {
+        for size in [18, 23, 27, 36] {
+            for gap in [0, 4, 10] {
+                for (sx, sy) in [(Before, Before), (Before, After), (After, Before), (After, After)] {
+                    let anchor = Rect::point(500, 400);
+                    let (x, y, _) = place(anchor, size, size, sx, sy, gap, SCREEN);
+                    let (cx, cy) = (x + size / 2, y + size / 2);
+                    let limit = dismissal_limit_squared(anchor, cx, cy);
+                    assert_eq!(limit, 60 * 60);
+                    assert!(distance_squared(cx + 60, cy, cx, cy) <= limit);
+                    assert!(distance_squared(cx + 61, cy, cx, cy) > limit);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn maximum_gap_allows_approach_but_still_dismisses_movement_away() {
+        for anchor in [Rect::point(500, 400), Rect::point(0, 0), Rect::point(999, 799)] {
+            for size in [18, 23, 36] {
+                for (sx, sy) in [(Before, Before), (Before, After), (After, Before), (After, After)] {
+                    let (x, y, _) = place(anchor, size, size, sx, sy, 20, SCREEN);
+                    let (cx, cy) = (x + size / 2, y + size / 2);
+                    let limit = dismissal_limit_squared(anchor, cx, cy);
+                    // Exercise every point from the selection cursor to the
+                    // icon center, including the first move and hover target.
+                    for step in 0..=100 {
+                        let px = anchor.l + (cx - anchor.l) * step / 100;
+                        let py = anchor.t + (cy - anchor.t) * step / 100;
+                        assert!(distance_squared(px, py, cx, cy) <= limit);
+                    }
+                    let away_x = anchor.l - (cx - anchor.l).signum() * 20;
+                    let away_y = anchor.t - (cy - anchor.t).signum() * 20;
+                    assert!(distance_squared(away_x, away_y, cx, cy) > limit);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dismissal_limit_uses_the_actual_clamped_icon_center() {
+        let bounds = Rect { l: 0, t: 0, r: 50, b: 50 };
+        let anchor = Rect::point(25, 25);
+        let (x, y, _) = place(anchor, 36, 36, After, After, 20, bounds);
+        assert_eq!((x, y), (14, 14));
+        // Clamping brings the center within the standard dismissal circle,
+        // instead of the extended radius needed by a 36px icon at a 20px gap.
+        assert_eq!(dismissal_limit_squared(anchor, x + 18, y + 18), 60 * 60);
+    }
+
+    #[test]
+    fn distant_monitor_coordinates_do_not_overflow_the_hook_comparison() {
+        assert_eq!(distance_squared(-40000, -40000, 40000, 40000), 12_800_000_000);
+        assert_eq!(distance_squared(i32::MIN, i32::MIN, i32::MAX, i32::MAX), u64::MAX);
+    }
+}
+
 #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
 mod imp {
     use super::selection::{
         Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer, PendingGesture,
         ReadContext, CLIP_GRACE_MS,
     };
-    use super::{place, Rect, Side};
+    use super::{button_distance, dismissal_limit_squared, distance_squared, place, Rect, Side, DISMISS_DIST};
     use crate::config::get as config_get;
     use crate::APP;
     use log::{debug, error, info, warn};
@@ -192,18 +345,16 @@ mod imp {
     // size has to be forced on afterwards. BTN_PX holds the physical result.
     const BTN_LOGICAL: f64 = 18.0;
     const DRAG_MIN: i32 = 6;
-    const DISMISS_DIST: i32 = 60;
-    // Space between the cursor and the button (and between a screenshot box and
-    // the panel beside it). The button defaults to bottom-left of the cursor:
-    // the arrow and I-beam glyphs both extend down and to the right, so that
-    // corner is the one that stays clear.
+    // Fixed space between a screenshot box and the result panel beside it.
+    // Selection icons use pop_button_distance independently.
     const GAP: i32 = 4;
     const DOUBLE_CLICK_SLOP: i32 = 4;
     // The panel resizes itself to its content once the translation lands; this
-    // is only the starting size, and what placement falls back to when the
-    // real window size can't be read.
+    // is the size the WebView is created (and kept) at, and what placement falls
+    // back to when the real window size can't be read. H 必须等于 PopResult 的
+    // MAX_HEIGHT，见 keep_view_at_max。
     const RESULT_LOGICAL_W: f64 = 320.0;
-    const RESULT_LOGICAL_H: f64 = 100.0;
+    const RESULT_LOGICAL_H: f64 = 400.0;
 
     enum Ev {
         Select(Gesture),
@@ -222,6 +373,7 @@ mod imp {
     static VISIBLE_GESTURE: AtomicU64 = AtomicU64::new(0);
     static BTN_X: AtomicI32 = AtomicI32::new(0);
     static BTN_Y: AtomicI32 = AtomicI32::new(0);
+    static BTN_DISMISS_LIMIT_SQUARED: AtomicU64 = AtomicU64::new(DISMISS_DIST * DISMISS_DIST);
     // Physical size of the button, worked out from the window DPI at startup.
     static BTN_PX: AtomicI32 = AtomicI32::new(18);
 
@@ -361,9 +513,50 @@ mod imp {
             // the screen with no shadow at all.
             Ok(w) => {
                 let _ = window_shadows::set_shadow(&w, true);
+                if let Some(h) = result_hwnd(&w) {
+                    unsafe { keep_view_at_max(h) };
+                }
             }
             Err(e) => error!("PopButton: create result window failed: {}", e),
         }
+    }
+
+    // 窗口跟着内容伸缩，但里面的 WebView 一直保持创建时的最大尺寸，被窗口裁掉
+    // 的部分照样渲染好。否则每次变高，新露出来的那一截要等 Chromium 按新尺寸
+    // 出帧，透明窗口上就先闪一下透明框（偶尔干脆卡住不补）。
+    // wry 在 WM_SIZE 里把 WebView bounds 设成客户区大小，所以宽度没变、又不超过
+    // 已有高度的 WM_SIZE 在最外层吞掉；tao 那边只少了一个用不到的 Resized 事件。
+    // ponytail: 换到不同 DPI 的屏幕后宽度变了，放行一次，WebView 回到窗口大小，
+    // 之后每次长高都放行、直到重新长到最高 —— 这段时间靠 JS 的 repaint 兜底。
+    static RESULT_PROC: OnceCell<isize> = OnceCell::new();
+    static VIEW_W: AtomicI32 = AtomicI32::new(0);
+    static VIEW_H: AtomicI32 = AtomicI32::new(0);
+
+    unsafe fn keep_view_at_max(h: HWND) {
+        let mut rect = windows::Win32::Foundation::RECT::default();
+        if GetClientRect(h, &mut rect).is_err() {
+            return;
+        }
+        VIEW_W.store(rect.right - rect.left, Relaxed);
+        VIEW_H.store(rect.bottom - rect.top, Relaxed);
+        // tao/wry 都走 comctl 的 SetWindowSubclass；直接换 GWLP_WNDPROC 能保证
+        // 这一层排在它们所有人前面，不管谁先装。
+        let prev = SetWindowLongPtrW(h, GWLP_WNDPROC, result_proc as *const () as usize as isize);
+        let _ = RESULT_PROC.set(prev);
+    }
+
+    unsafe extern "system" fn result_proc(h: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+        if msg == WM_SIZE {
+            let cw = (l.0 & 0xffff) as i32;
+            let ch = ((l.0 >> 16) & 0xffff) as i32;
+            if cw == VIEW_W.load(Relaxed) && ch <= VIEW_H.load(Relaxed) {
+                return LRESULT(0);
+            }
+            VIEW_W.store(cw, Relaxed);
+            VIEW_H.store(ch, Relaxed);
+        }
+        let prev: WNDPROC = std::mem::transmute(*RESULT_PROC.get().unwrap_or(&0));
+        CallWindowProcW(prev, h, msg, w, l)
     }
 
     fn button_hwnd() -> Option<HWND> {
@@ -528,7 +721,7 @@ mod imp {
                 WM_LBUTTONDOWN => on_down(x, y, time),
                 WM_LBUTTONUP => on_up(x, y, time),
                 WM_MOUSEMOVE => {
-                    if VISIBLE_GESTURE.load(SeqCst) != 0 && farther_than(x, y, DISMISS_DIST) {
+                    if VISIBLE_GESTURE.load(SeqCst) != 0 && farther_than_button(x, y) {
                         cancel_current();
                     }
                 }
@@ -582,10 +775,9 @@ mod imp {
         }
     }
 
-    fn farther_than(x: i32, y: i32, limit: i32) -> bool {
-        let dx = x - BTN_X.load(Relaxed);
-        let dy = y - BTN_Y.load(Relaxed);
-        dx * dx + dy * dy > limit * limit
+    fn farther_than_button(x: i32, y: i32) -> bool {
+        distance_squared(x, y, BTN_X.load(Relaxed), BTN_Y.load(Relaxed))
+            > BTN_DISMISS_LIMIT_SQUARED.load(Relaxed)
     }
 
     fn over_button(x: i32, y: i32) -> bool {
@@ -700,7 +892,10 @@ mod imp {
         let gesture = candidate.gesture;
         let px = BTN_PX.load(Relaxed);
         let (sx, sy) = corner(&config_string("pop_button_pos", "")).unwrap_or((Side::Before, Side::After));
-        let (x, y, _) = place(Rect::point(gesture.x, gesture.y), px, px, sx, sy, GAP, work_area(gesture.x, gesture.y));
+        let anchor = Rect::point(gesture.x, gesture.y);
+        let gap = button_distance(config_get("pop_button_distance").as_ref());
+        let (x, y, _) = place(anchor, px, px, sx, sy, gap, work_area(gesture.x, gesture.y));
+        let dismiss_limit = dismissal_limit_squared(anchor, x + px / 2, y + px / 2);
         // Language detection and placement can outlive the gesture too. No
         // cached text or window update occurs until this final validation.
         if !candidate.is_current(read_context()) {
@@ -709,14 +904,14 @@ mod imp {
         info!("PopButton: showing gesture {} for {} chars", gesture.id, candidate.text.chars().count());
         let clipboard = candidate.clipboard;
         display.show(Displayed { gesture, text: candidate.text, x: x + px / 2, y: y + px / 2 });
-        show_at(x, y, gesture.id);
+        show_at(x, y, gesture.id, dismiss_limit);
         let context = read_context();
         if !gesture.is_current(context) || clipboard.map_or(false, |clip| !clip.is_current(context)) {
             hide_owned(display, gesture.id);
         }
     }
 
-    fn show_at(x: i32, y: i32, owner: u64) {
+    fn show_at(x: i32, y: i32, owner: u64, dismiss_limit: u64) {
         let h = match button_hwnd() {
             Some(v) => v,
             None => return,
@@ -738,6 +933,7 @@ mod imp {
             );
             BTN_X.store(x + px / 2, Relaxed);
             BTN_Y.store(y + px / 2, Relaxed);
+            BTN_DISMISS_LIMIT_SQUARED.store(dismiss_limit, Relaxed);
             VISIBLE_GESTURE.store(owner, SeqCst);
         }
     }
@@ -854,8 +1050,8 @@ mod imp {
             Some(v) => v,
             None => return,
         };
-        // 用面板此刻的真实大小（上一次内容撑出来的）来摆：内容高度没变时 JS 的
-        // fit() 不会再动窗口，所以这里摆的位置必须和窗口现在的尺寸对得上。
+        // 先用面板此刻的真实大小（上一次内容撑出来的）摆放，避免显示时错位。
+        // JS 收到新内容和锚点后会重新测量，同高度也会重新同步尺寸与边界位置。
         // ponytail: the size is in the DPI of whichever monitor the panel sat on
         // last, not of the one the cursor is on. Only off on the first pop after
         // moving to a screen with a different DPI.
@@ -871,7 +1067,14 @@ mod imp {
         // 只会贴边上推，可能压住划词处。要根治得按 MAX_HEIGHT 预判翻转，代价是
         // 屏幕下半区的面板会过早翻上去。
         let (x, y, above) = place(anchor, w, h, sx, sy, gap, bounds);
-        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        // 显示前先缩成 1px 高：新内容要等 JS 收到 new_text 才换上，按上次的大小亮出来，
+        // 新内容下面会先露出一两帧透明。位置和翻不翻照旧按上次的高度算，在上方时底边
+        // 钉在同一处；之后 JS 按内容把它撑开（长高不闪，见 keep_view_at_max）。
+        // 宽度必须原样用客户区宽度，宽度一变 keep_view_at_max 就会放 wry 把 WebView 缩回去。
+        if let Ok(inner) = window.inner_size() {
+            let _ = window.set_size(tauri::PhysicalSize::new(inner.width, 1));
+        }
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, if above { y + h - 1 } else { y }));
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(h) = result_hwnd(&window) {

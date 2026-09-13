@@ -117,6 +117,7 @@
                     "exclude_native": "跳过目标语言",
                     "blacklist": "应用黑名单",
                     "position": "浮标位置",
+                    "distance": "浮标距离",
                     "bottom_left": "光标左下",
                     "bottom_right": "光标右下",
                     "top_right": "光标右上",
@@ -231,7 +232,15 @@
                 "empty": "还没有收藏任何内容",
                 "speak": "朗读",
                 "delete": "删除",
-                "export": "导出为 Markdown"
+                "export": "导出为 Markdown",
+                "multi_select": "多选",
+                "select_all_results": "全选当前结果",
+                "select_entry": "选择 {{text}}",
+                "done": "完成",
+                "selected_count": "已选 {{count}} 条",
+                "confirm_delete": "删除选中的 {{count}} 条？",
+                "delete_count": "删除 {{count}} 条",
+                "delete_failed": "删除失败，请重试。"
             },
             "history": {
                 "label": "历史记录",

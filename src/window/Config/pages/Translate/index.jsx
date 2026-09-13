@@ -9,11 +9,18 @@ import { Button } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
 import React, { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { MdAdd, MdRemove } from 'react-icons/md';
 
 import { languageList } from '../../../../utils/language';
 import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
 import { osType } from '../../../../utils/env';
+import {
+    DEFAULT_POP_BUTTON_DISTANCE,
+    MAX_POP_BUTTON_DISTANCE,
+    MIN_POP_BUTTON_DISTANCE,
+    normalizePopButtonDistance,
+} from '../../../../utils/pop_button_distance';
 import { invoke } from '@tauri-apps/api';
 
 // 截图翻译的快捷键住在这一页，不在「服务设置」里 —— 服务设置只管有哪些引擎，
@@ -99,16 +106,30 @@ export default function Translate() {
     const [popExcludeNative, setPopExcludeNative] = useConfig('pop_button_exclude_native', true);
     const [popBlacklist, setPopBlacklist] = useConfig('pop_button_blacklist', '');
     const [popButtonPos, setPopButtonPos] = useConfig('pop_button_pos', POP_BUTTON_POS[0]);
+    const [popButtonDistance, setPopButtonDistance, getPopButtonDistance] = useConfig(
+        'pop_button_distance',
+        DEFAULT_POP_BUTTON_DISTANCE
+    );
     const [popResultPos, setPopResultPos] = useConfig('pop_result_pos', POP_RESULT_POS[0]);
     const [screenshotPos, setScreenshotPos] = useConfig('screenshot_pos', SCREENSHOT_POS[0]);
     const [hotkey, setHotkey] = useConfig('hotkey_screenshot', '');
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
+    const distance = normalizePopButtonDistance(popButtonDistance);
+    const [distanceDraft, setDistanceDraft] = useState(null);
 
     // 录制中的快捷键：null = 没在录，框里显示已存的值。recording 用 ref 不用 state：
     // 录完时先 blur，onBlur 读到的必须是「已录完」，state 在同一轮里还是旧值。
     const [draft, setDraft] = useState(null);
     const recording = useRef(false);
+
+    const saveDistance = async (value, immediate = false) => {
+        try {
+            await setPopButtonDistance(normalizePopButtonDistance(value), immediate);
+        } catch {
+            toast.error(t('config.save_failed'), { style: toastStyle });
+        }
+    };
 
     const saveHotkey = async (v) => {
         setHotkey(v);
@@ -349,6 +370,90 @@ export default function Translate() {
                             }}
                         />
                     )}
+                </div>
+                <div className='config-item'>
+                    <h3
+                        id='pop-button-distance-label'
+                        className='my-auto mx-0'
+                    >
+                        {t('config.translate.pop_button.distance')}
+                    </h3>
+                    <div
+                        role='group'
+                        aria-labelledby='pop-button-distance-label'
+                        className={`w-[130px] h-10 inline-flex items-center justify-between border-medium border-default rounded-medium bg-transparent px-1 transition-colors focus-within:border-default-400 focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-1 ${
+                            !popEnable ? 'opacity-disabled pointer-events-none' : ''
+                        }`}
+                    >
+                        <button
+                            type='button'
+                            aria-label='Decrease pop button distance'
+                            tabIndex={-1}
+                            disabled={!popEnable || distance <= MIN_POP_BUTTON_DISTANCE}
+                            className='w-7 h-7 flex items-center justify-center rounded-small text-default-600 hover:text-foreground hover:bg-default-100 active:bg-default-200 transition-colors disabled:opacity-30 disabled:pointer-events-none'
+                            onClick={() => {
+                                setDistanceDraft(null);
+                                void saveDistance(Math.max(MIN_POP_BUTTON_DISTANCE, distance - 1), true);
+                            }}
+                        >
+                            <MdRemove className='text-base' />
+                        </button>
+                        <div className='flex items-center justify-center flex-1 h-full'>
+                            <input
+                                aria-labelledby='pop-button-distance-label'
+                                type='text'
+                                inputMode='numeric'
+                                pattern='[0-9]*'
+                                disabled={!popEnable}
+                                value={distanceDraft ?? String(distance)}
+                                className='w-6 text-right bg-transparent border-none outline-none p-0 text-small tabular-nums font-normal text-foreground focus:ring-0 focus:outline-none'
+                                onChange={(e) => {
+                                    const val = e.target.value.trim();
+                                    setDistanceDraft(val);
+                                    if (val !== '' && /^\d+$/.test(val)) {
+                                        const n = Number(val);
+                                        if (n >= MIN_POP_BUTTON_DISTANCE && n <= MAX_POP_BUTTON_DISTANCE) {
+                                            void saveDistance(n);
+                                        }
+                                    }
+                                }}
+                                onBlur={() => {
+                                    setDistanceDraft(null);
+                                    void saveDistance(getPopButtonDistance(), true);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        e.currentTarget.blur();
+                                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+                                        e.preventDefault();
+                                        setDistanceDraft(null);
+                                        void saveDistance(Math.min(MAX_POP_BUTTON_DISTANCE, distance + 1), true);
+                                    } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+                                        e.preventDefault();
+                                        setDistanceDraft(null);
+                                        void saveDistance(Math.max(MIN_POP_BUTTON_DISTANCE, distance - 1), true);
+                                    }
+                                }}
+                            />
+                            <span className='ml-1 text-small text-default-400 select-none pointer-events-none'>
+                                px
+                            </span>
+                        </div>
+                        <button
+                            type='button'
+                            aria-label='Increase pop button distance'
+                            tabIndex={-1}
+                            disabled={!popEnable || distance >= MAX_POP_BUTTON_DISTANCE}
+                            className='w-7 h-7 flex items-center justify-center rounded-small text-default-600 hover:text-foreground hover:bg-default-100 active:bg-default-200 transition-colors disabled:opacity-30 disabled:pointer-events-none'
+                            onClick={() => {
+                                setDistanceDraft(null);
+                                void saveDistance(Math.min(MAX_POP_BUTTON_DISTANCE, distance + 1), true);
+                            }}
+                        >
+                            <MdAdd className='text-base' />
+                        </button>
+                    </div>
                 </div>
                 <div className='config-item'>
                     <h3 className='my-auto mx-0'>{t('config.translate.pop_button.blacklist')}</h3>
