@@ -27,13 +27,13 @@
   <img width="800" src="https://github.com/user-attachments/assets/920b8015-d6f7-4b76-bc37-ecd10d2f39c3" alt="OCR Service Settings" />
 </p>
 <p align="center">
-  <img width="800" src="https://github.com/user-attachments/assets/a2dab174-5ae3-43bf-8b9f-11af4bd73dd9" alt="Wordbook" />
+  <img width="800" src="https://github.com/user-attachments/assets/b14907c9-4699-450b-bc26-3a2601d0277e" alt="Wordbook" />
 </p>
 <p align="center">
-  <img width="800" src="https://github.com/user-attachments/assets/68d3f25f-9cd0-4dee-bf67-2084abccb104" alt="About" />
+  <img width="800" src="https://github.com/user-attachments/assets/5d783cac-1714-48be-84a5-ca441aff9964" alt="About" />
 </p>
 <p align="center">
-  <img width="320" src="https://github.com/user-attachments/assets/93b65e57-359e-4a29-a576-579c24617ea1" alt="Selection PopWindow" />
+  <img width="320" src="https://github.com/user-attachments/assets/7d500be1-49ff-4e4e-b4a0-bcbf2e139906" alt="Selection PopWindow" />
 </p>
 
 </details>

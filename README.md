@@ -27,13 +27,13 @@
   <img width="800" src="https://github.com/user-attachments/assets/91a37bc0-3ecc-4967-a1cc-456fc3411800" alt="OCR 服务设置" />
 </p>
 <p align="center">
-  <img width="800" src="https://github.com/user-attachments/assets/5998aa95-1d85-4ef3-8503-1f985dd73a64" alt="生词本" />
+  <img width="800" src="https://github.com/user-attachments/assets/98799949-97ea-46f7-b520-5ffc92c47b6a" alt="生词本" />
 </p>
 <p align="center">
-  <img width="800" src="https://github.com/user-attachments/assets/2367519c-3fc9-4ac5-88e6-e5b5210dee32" alt="关于" />
+  <img width="800" src="https://github.com/user-attachments/assets/81bc6e7c-de4c-4808-a19b-3f6a85724a27" alt="关于" />
 </p>
 <p align="center">
-  <img width="320" src="https://github.com/user-attachments/assets/0b01f1e1-22c5-4320-af69-61026459a5d8" alt="划词弹窗" />
+  <img width="320" src="https://github.com/user-attachments/assets/ec1a3e2a-4531-4a94-9244-1507a12bd199" alt="划词弹窗" />
 </p>
 
 </details>
