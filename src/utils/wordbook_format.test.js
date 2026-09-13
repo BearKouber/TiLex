@@ -1,6 +1,5 @@
 // node src/utils/wordbook_format.test.js
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Markdown from 'react-markdown';
@@ -335,27 +334,4 @@ assert.ok(matchEntry(sentence, 'all', '网络'));
 assert.ok(!matchEntry(sentence, 'all', 'zzz'));
 assert.ok(matchEntry({ ...word, detail: { explanations: {} } }, 'all', 'laten'));
 
-// Opt-in artifact generation for desktop editor review; ordinary tests never write.
-if (process.argv.includes('--write-sample')) {
-    const sample = buildMarkdown(
-        [
-            ...entries,
-            oldEntry,
-            { id: 20, type: 'sentence', text: 'Literal code and Markdown characters', translation: special },
-            { id: 21, type: 'word', text: 'literal_fields', detail: specialDetail },
-        ],
-        now
-    );
-    const destination = new URL(
-        '../../../.trellis/tasks/09-12-wordbook-export-layout/research/qa/export-sample.md',
-        import.meta.url
-    );
-    writeFileSync(destination, sample);
-    writeFileSync(
-        new URL('./export-sample.html', destination),
-        '<!doctype html><meta charset="utf-8"><title>TiLex Markdown export QA</title>' +
-            '<style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.65 system-ui;overflow-wrap:anywhere}h2{margin-top:2em}p{margin:.7em 0}blockquote{color:#666}</style>' +
-            render(sample).html
-    );
-}
 console.log('wordbook_format: hierarchy, shared normalization, save integration and real Markdown SSR passed');
