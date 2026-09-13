@@ -1,0 +1,43 @@
+# 推送 v* tag 时：跑单元测试 → 打包 NSIS/MSI → 用 .github/release-notes/<tag>.md 发布 Release
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - run: pnpm install
+
+      - name: Unit tests
+        shell: bash
+        run: node --test $(git ls-files 'src/**/*.test.js')
+
+      - run: pnpm tauri build
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "TiLex ${GITHUB_REF_NAME#v}" \
+            --notes-file ".github/release-notes/$GITHUB_REF_NAME.md" \
+            src-tauri/target/release/bundle/nsis/*.exe \
+            src-tauri/target/release/bundle/msi/*.msi
