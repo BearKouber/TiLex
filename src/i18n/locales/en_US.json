@@ -99,7 +99,6 @@
                 "title": "Translation Settings",
                 "source_language": "Source Language",
                 "target_language": "Target Language",
-                "auto_copy": "Auto Copy",
                 "source": "Source",
                 "target": "Target",
                 "source_target": "Source+Target",
@@ -107,8 +106,6 @@
                 "history_disable": "Disable History",
                 "incremental_translate": "Incremental Translation",
                 "dynamic_translate": "Dynamic Translation",
-                "delete_newline": "Delete Newline",
-                "code_split": "Split Code Identifiers",
                 "pop_button": {
                     "enable": "Floating Icon",
                     "off": "Off",
@@ -173,8 +170,6 @@
                 "label": "Recognize",
                 "title": "Recognition Settings",
                 "language": "Recognition Language",
-                "delete_newline": "Auto Delete Newline",
-                "auto_copy": "Auto Copy",
                 "close_on_blur": "Close window when focus lost",
                 "hide_window": "Hide Recognition Window"
             },
@@ -465,7 +460,6 @@
             "speak": "Speak",
             "copy": "Copy",
             "retry": "Try again",
-            "delete_newline": "Delete Newline",
             "translate_back": "Translation back to the original"
         },
         "recognize": {
@@ -473,7 +467,6 @@
             "translate": "Translate",
             "copy_img": "Copy Image",
             "copy_text": "Copy",
-            "delete_newline": "Delete Newline",
             "delete_space": "Delete Space",
             "hint": "Drag to select an area, Esc to cancel",
             "recognizing": "Recognizing…"

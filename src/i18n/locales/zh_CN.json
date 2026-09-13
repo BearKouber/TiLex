@@ -99,7 +99,6 @@
                 "title": "翻译设置",
                 "source_language": "源语言",
                 "target_language": "目标语言",
-                "auto_copy": "自动复制",
                 "source": "原文",
                 "target": "译文",
                 "source_target": "原文+译文",
@@ -107,8 +106,6 @@
                 "history_disable": "禁用历史记录",
                 "incremental_translate": "增量翻译",
                 "dynamic_translate": "动态翻译",
-                "delete_newline": "自动删除换行",
-                "code_split": "拆分代码标识符",
                 "pop_button": {
                     "enable": "划词浮标",
                     "off": "关闭",
@@ -173,8 +170,6 @@
                 "label": "文字识别",
                 "title": "文字识别",
                 "language": "识别语言",
-                "delete_newline": "自动删除换行",
-                "auto_copy": "自动复制",
                 "close_on_blur": "失去焦点时关闭窗口",
                 "hide_window": "隐藏识别窗口"
             },
@@ -465,7 +460,6 @@
             "speak": "朗读",
             "copy": "复制",
             "retry": "重试",
-            "delete_newline": "删除换行",
             "translate_back": "翻译回原文"
         },
         "recognize": {
@@ -473,7 +467,6 @@
             "translate": "翻译",
             "copy_img": "复制图片",
             "copy_text": "复制",
-            "delete_newline": "删除换行",
             "delete_space": "删除空格",
             "hint": "拖动选择区域，Esc 取消",
             "recognizing": "识别中…"

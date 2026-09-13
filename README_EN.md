@@ -40,12 +40,12 @@
 
 ## Features
 
-- **Select to Translate** — Select text to bring up a floating button; click to see results. Silent when the selection is already in your native language.
+- **Select to Translate** — Select text to bring up a floating button; click to see results. Silent when the selection is already in your native language. Close the popup with Esc, pin it to keep it open, or drag it by the top bar.
 - **Screenshot OCR** — Select any area on the screen to recognize text. Powered by local WeChat OCR (if installed) or offline [Umi-OCR](https://github.com/hiroi-sora/Umi-OCR).
-- **Multi-Engine Results** — Bing, Google, and Tencent Transmart work out of the box with no API keys. Baidu and DeepL can be used with your own keys.
-- **Any OpenAI-Compatible AI Service** — Built-in vendor presets. Just enter the URL and API key. Supports OpenAI, Anthropic, and Gemini protocol formats.
+- **Multi-Engine Results** — Bing, Google, and Tencent Transmart work out of the box with no API keys. Baidu and DeepL can be used with your own keys, and you can add any AI service.
+- **Any OpenAI-Compatible AI Service** — Built-in vendor presets. Just enter the URL and API key. Supports OpenAI, Anthropic, and Gemini protocol formats. One "Custom instructions" box sets the translation style; words and sentences can come with examples and usage notes.
 - **Model Speed Test & Selection** — Benchmark latency across all available models on your account in one run to pick the fastest one.
-- **Wordbook** — Save words from translation results into a local SQLite database with one click.
+- **Wordbook** — Save words from translation results into a local SQLite database with one click. Supports multi-select delete and Markdown export.
 
 ## Installation
 
@@ -57,9 +57,9 @@ Screenshot OCR requires WeChat installed and logged in at least once (engines an
 
 Runs in the system tray by default.
 
-**First Time Setup**: Translation Settings → Selection PopButton → Hover. Service Settings → Add Service. Add OCR service if needed.
+**First Time Setup**: Translation Settings → Floating Icon → Hover. Service Settings → Add Service. Add OCR service if needed.
 
-**Configure an AI Service**: Service Settings → Add Service → Add AI Service → choose a preset (or Custom) → enter API URL and key → click "Fetch Model List" → select model → Save.
+**Configure an AI Service**: Service Settings → Add Service → Add AI Service → choose a preset (or Custom) → enter API URL and key → click "Fetch Models" → select model → Save.
 
 **VS Code Selection Issue**: VS Code does not expose text selections to the system by default. Set `editor.accessibilitySupport` to `on` in VS Code settings.
 
