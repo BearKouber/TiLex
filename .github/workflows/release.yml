@@ -1,4 +1,4 @@
-# 推送 v* tag 时：跑单元测试 → 打包 NSIS/MSI → 用 .github/release-notes/<tag>.md 发布 Release
+# 推送 v* tag 时：打包 NSIS/MSI → 跑单元测试 → 用 .github/release-notes/<tag>.md 发布 Release
 name: Release
 
 on:
@@ -25,11 +25,12 @@ jobs:
 
       - run: pnpm install
 
+      - run: pnpm tauri build
+
+      # 放在 build 之后：pop_result_events.test.js 要读 ~/.cargo/registry/src 里的 tauri 源码
       - name: Unit tests
         shell: bash
         run: node --test $(git ls-files 'src/**/*.test.js')
-
-      - run: pnpm tauri build
 
       - name: Publish release
         shell: bash
