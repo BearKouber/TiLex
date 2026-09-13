@@ -5,6 +5,7 @@ import { writeText } from '@tauri-apps/api/clipboard';
 import { speak } from '../../utils/speak';
 import PulseLoader from 'react-spinners/PulseLoader';
 import { MdCheck, MdChevronRight, MdContentCopy, MdExpandMore, MdStar, MdStarBorder, MdVolumeUp } from 'react-icons/md';
+import { BsPinAngle, BsPinAngleFill } from 'react-icons/bs';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { createOcrEventGate, ocrErrorMessage } from '../../utils/ocr_request';
@@ -49,9 +50,7 @@ let runID = 0;
 // pop_anchor 到新内容提交之间 DOM 还是上一次的结果，这时量出来的高度会把窗口
 // 撑回旧尺寸、闪一下旧画面，所以这段时间 measure 一律报 0（协调器会丢掉）。
 let awaitingText = false;
-// 关闭角的保险：面板以光标为基准弹出、或被屏幕边缘挤回来时，光标可能正落在
-// 关闭角附近，手还在动，顺势一蹭，刚弹出就闪没。所以指针得先离开面板里第一次
-// 出现的位置 ARM_PX 以上，关闭角才生效。
+// 关闭角保险：离开初始点 ARM_PX 像素后激活触碰关闭
 const ARM_PX = 24;
 let origin = null;
 let armed = false;
@@ -67,6 +66,9 @@ export default function PopResult() {
     const [status, setStatus] = useState('');
     // 只记「谁被收起来了」：默认展开，换一段划词就整个清空。
     const [collapsed, setCollapsed] = useState({});
+    const [pinned, setPinned] = useState(false);
+    const pinnedRef = useRef(false);
+    pinnedRef.current = pinned;
     const { t } = useTranslation();
     const boxRef = useRef();
     const sizingRef = useRef(null);
@@ -109,6 +111,8 @@ export default function PopResult() {
     const run = async (raw, requestId) => {
         origin = null;
         armed = false;
+        setPinned(false);
+        pinnedRef.current = false;
         const id = ++runID;
         blurRef.current?.begin(id, requestId);
         traceOcr('focus-request', { runId: id, requestId, textLength: raw.length });
@@ -184,9 +188,19 @@ export default function PopResult() {
         const blur = createBlurGuard({
             isFocused: () => appWindow.isFocused(),
             hide: () => appWindow.hide(),
+            isPinned: () => pinnedRef.current,
             trace: traceOcr,
         });
         blurRef.current = blur;
+
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                blur.dismiss('escape');
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+
         const gate = createOcrEventGate((requestId) => invoke('screenshot_is_current', { requestId }));
         const unlistenSession = listen('screenshot_session', (e) => {
             if (gate.invalidate(e.payload.requestId)) {
@@ -207,6 +221,8 @@ export default function PopResult() {
             (e) =>
                 void gate.accept(e.payload, (message, requestId) => {
                     runID++;
+                    origin = null;
+                    armed = false;
                     entryRef.current = null;
                     const visibleMessage = ocrErrorMessage(message, t('config.recognize.failed'));
                     flushSync(() => {
@@ -234,6 +250,7 @@ export default function PopResult() {
         const unlistenBlur = appWindow.listen('tauri://blur', () => blur.blur());
         const unlistenFocus = appWindow.listen('tauri://focus', () => blur.focus());
         return () => {
+            window.removeEventListener('keydown', onKeyDown);
             gate.invalidate();
             blur.invalidate();
             blurRef.current = null;
@@ -307,13 +324,14 @@ export default function PopResult() {
                 else armed = Math.hypot(e.clientX - origin[0], e.clientY - origin[1]) > ARM_PX;
             }}
         >
-            {/* 左上角红三角：悬停或点击即关。弹出位置是用户选的，光标可能一出来就
-                在它旁边（比如向右下展开时正好压在左上角），所以要等 armed。 */}
+            {/* 左上角红三角：触碰/悬停或点击即关。移动超过 ARM_PX 激活 */}
             <div
                 className='absolute top-0 left-0 z-30 cursor-pointer w-[10px] h-[10px]'
                 title={t('common.close', { defaultValue: '关闭' })}
+                data-tauri-drag-region='false'
                 onClick={() => armed && blurRef.current?.dismiss('corner-click')}
                 onMouseEnter={() => armed && blurRef.current?.dismiss('corner-hover')}
+                onPointerEnter={() => armed && blurRef.current?.dismiss('corner-hover')}
             >
                 <svg
                     className='w-full h-full text-danger hover:text-danger-600 transition-colors'
@@ -332,68 +350,86 @@ export default function PopResult() {
                 className='overflow-y-auto overflow-x-hidden pb-[4px]'
                 style={{ maxHeight: MAX_HEIGHT - 6 }}
             >
-                {/* 原文行：语种徽标 + 原文，右侧悬停显现朗读 / 复制。
-                    按钮不能落进拖拽区 —— data-tauri-drag-region 会把点击整个吞掉，
-                    所以拖拽区收到文字那一段上，不再罩住整行。
-                    min-w-0：flex item 默认不肯收缩到内容宽度以下，不加这条 truncate
-                    就不生效，长原文会把两个按钮挤出面板。 */}
-                {source && (
-                    <div className='group/source sticky top-0 z-20 bg-content1 px-[8px] h-[24px] flex items-center gap-[2px] text-[11px] text-default-400'>
-                        {/* select-none：面板正好开在光标底下，点划词按钮那一下的 mouseup
-                            落进这一行，浏览器当成一次拖选，原文一出来就是蓝的。
-                            原文要拿走用右边那个复制按钮，不靠手选。
-                            译文那边不加 —— 那里是要能划着选的。 */}
-                        <span
-                            className='truncate min-w-0 select-none'
-                            data-tauri-drag-region='true'
-                        >
-                            {lang && (
-                                <span className='text-primary/60 mr-[4px]'>
-                                    {LANG_BADGE[lang] ?? t(`languages.${lang}`).slice(0, 1)}
-                                </span>
-                            )}
-                            {source}
-                        </span>
-                        <div className='ml-auto flex items-center gap-[4px]'>
-                            <button
-                                className='shrink-0 opacity-0 group-hover/source:opacity-100 hover:text-default-600 transition-opacity'
-                                aria-label={t('config.wordbook.speak')}
-                                title={t('config.wordbook.speak')}
-                                onClick={() => speak(source)}
+                {/* 顶栏操作区：始终保持 h-[24px] 吸顶，兼具整栏平滑拖拽与操作按钮 */}
+                <div className='group/source sticky top-0 z-20 bg-content1 px-[8px] h-[24px] flex items-center gap-[4px] text-[11px] text-default-400'>
+                    <div
+                        className='flex-1 min-w-0 flex items-center gap-[2px] cursor-default select-none'
+                        data-tauri-drag-region='true'
+                        onMouseDown={() => sizingRef.current?.clearAnchor()}
+                    >
+                        {source ? (
+                            <span
+                                className='truncate min-w-0 select-none'
+                                data-tauri-drag-region='true'
                             >
-                                <MdVolumeUp className='text-[12px]' />
-                            </button>
-                            <button
-                                className={`shrink-0 transition-opacity ${
-                                    copied === SOURCE_KEY
-                                        ? 'opacity-100 text-success'
-                                        : 'opacity-0 group-hover/source:opacity-100 hover:text-default-600'
-                                }`}
-                                aria-label={t('recognize.copy_text')}
-                                title={t('recognize.copy_text')}
-                                onClick={() => copyText(SOURCE_KEY, source)}
-                            >
-                                {copied === SOURCE_KEY ? (
-                                    <MdCheck className='text-[12px]' />
-                                ) : (
-                                    <MdContentCopy className='text-[12px]' />
+                                {lang && (
+                                    <span className='text-primary/60 mr-[4px]' data-tauri-drag-region='true'>
+                                        {LANG_BADGE[lang] ?? t(`languages.${lang}`).slice(0, 1)}
+                                    </span>
                                 )}
-                            </button>
-                        </div>
+                                {source}
+                            </span>
+                        ) : status === 'loading' ? (
+                            <div className='flex items-center gap-[6px] text-[11px] text-default-400' data-tauri-drag-region='true'>
+                                <PulseLoader size={3} color='#a1a1aa' />
+                                <span data-tauri-drag-region='true'>{t('recognize.recognizing')}</span>
+                            </div>
+                        ) : status ? (
+                            <span className='text-[11px] text-danger truncate' data-tauri-drag-region='true'>{status}</span>
+                        ) : null}
                     </div>
+                    <div
+                        className='ml-auto flex items-center gap-[4px] shrink-0'
+                        data-tauri-drag-region='false'
+                    >
+                        {source && (
+                            <>
+                                <button
+                                    className='shrink-0 opacity-0 group-hover/source:opacity-100 hover:text-default-600 transition-opacity'
+                                    aria-label={t('config.wordbook.speak')}
+                                    title={t('config.wordbook.speak')}
+                                    data-tauri-drag-region='false'
+                                    onClick={() => speak(source)}
+                                >
+                                    <MdVolumeUp className='text-[12px]' />
+                                </button>
+                                <button
+                                    className={`shrink-0 transition-opacity ${
+                                        copied === SOURCE_KEY
+                                            ? 'opacity-100 text-success'
+                                            : 'opacity-0 group-hover/source:opacity-100 hover:text-default-600'
+                                    }`}
+                                    aria-label={t('recognize.copy_text')}
+                                    title={t('recognize.copy_text')}
+                                    data-tauri-drag-region='false'
+                                    onClick={() => copyText(SOURCE_KEY, source)}
+                                >
+                                    {copied === SOURCE_KEY ? (
+                                        <MdCheck className='text-[12px]' />
+                                    ) : (
+                                        <MdContentCopy className='text-[12px]' />
+                                    )}
+                                </button>
+                            </>
+                        )}
+                        <button
+                            className={`shrink-0 transition-colors ${
+                                pinned
+                                    ? 'text-primary'
+                                    : 'text-default-400 hover:text-default-600'
+                            }`}
+                            aria-label={pinned ? t('common.unpin', { defaultValue: '取消钉住' }) : t('common.pin', { defaultValue: '钉住浮窗' })}
+                            title={pinned ? t('common.unpin', { defaultValue: '取消钉住' }) : t('common.pin', { defaultValue: '钉住浮窗' })}
+                            data-tauri-drag-region='false'
+                            onClick={() => setPinned((prev) => !prev)}
+                        >
+                            {pinned ? <BsPinAngleFill className='text-[12px]' /> : <BsPinAngle className='text-[12px]' />}
+                        </button>
+                    </div>
+                </div>
+                {status && status !== 'loading' && (
+                    <div className='px-[8px] py-[4px] text-[12px] text-danger break-words'>{status}</div>
                 )}
-                {status &&
-                    (status === 'loading' ? (
-                        <div className='px-[8px] py-[4px] flex items-center gap-[6px] text-[12px] text-default-400'>
-                            <PulseLoader
-                                size={4}
-                                color='#a1a1aa'
-                            />
-                            {t('recognize.recognizing')}
-                        </div>
-                    ) : (
-                        <div className='px-[8px] py-[4px] text-[12px] text-danger break-words'>{status}</div>
-                    ))}
                 {items.map((it) => (
                     <div
                         key={it.key}
@@ -403,7 +439,7 @@ export default function PopResult() {
                             sticky：向下滚动时吸附在原文行正下方。 */}
                         <div
                             className='group/service sticky z-10 bg-content1 px-[8px] h-[20px] flex items-center gap-[2px] text-[10px] text-default-400 cursor-pointer select-none'
-                            style={{ top: source ? '24px' : '0px' }}
+                            style={{ top: '24px' }}
                             onClick={() => toggle(it.key)}
                         >
                             {collapsed[it.key] ? <MdChevronRight /> : <MdExpandMore />}

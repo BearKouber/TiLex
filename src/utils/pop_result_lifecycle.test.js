@@ -80,4 +80,29 @@ assert.equal(hidden, 2, 'a focus event supersedes an older false focus reply in 
 time += 301;
 guard.blur();
 assert.equal(hidden, 3, 'refocus does not extend the original grace period or disable a later blur');
+
+// isPinned tests
+let pinned = true;
+const pinnedGuard = createBlurGuard({
+    now: () => time,
+    schedule: (callback, delay) => {
+        timers.set(++nextTimer, { callback, delay });
+        return nextTimer;
+    },
+    cancel: (id) => timers.delete(id),
+    isFocused: () => Promise.resolve(false),
+    hide: () => hidden++,
+    isPinned: () => pinned,
+});
+pinnedGuard.begin(8, 8);
+pinnedGuard.blur();
+assert.equal(timers.size, 0, 'pinned state ignores blur within grace period');
+time += 301;
+pinnedGuard.blur();
+assert.equal(hidden, 3, 'pinned state ignores blur after grace period');
+
+pinned = false;
+pinnedGuard.blur();
+assert.equal(hidden, 4, 'unpinning allows normal blur to dismiss');
+
 console.log('PopResult blur generation / focus / cleanup tests passed');

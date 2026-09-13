@@ -3,6 +3,7 @@
 export function createBlurGuard({
     isFocused,
     hide,
+    isPinned = () => false,
     trace = () => {},
     now = Date.now,
     schedule = setTimeout,
@@ -37,6 +38,10 @@ export function createBlurGuard({
             trace('focus-observed', context);
         },
         blur() {
+            if (isPinned()) {
+                trace('blur-ignored-pinned', context);
+                return;
+            }
             const own = generation;
             const remaining = 300 - (now() - shownAt);
             trace('blur', { ...context, grace: remaining >= 0 });
@@ -49,9 +54,11 @@ export function createBlurGuard({
                 async () => {
                     timer = undefined;
                     if (own !== generation) return;
+                    if (isPinned()) return;
                     try {
                         const focused = await isFocused();
                         if (own !== generation) return;
+                        if (isPinned()) return;
                         trace('focus-check', { ...context, focused });
                         if (!focused) dismiss('delayed-blur');
                     } catch {

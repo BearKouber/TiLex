@@ -170,4 +170,22 @@ for (const method of ['invalidate', 'dispose']) {
     assert.deepEqual(f.state.sizes, method === 'dispose' ? [] : [240]);
 }
 
+// clearAnchor：拖拽后清除 pinBottom，后续高度变化不再吸附原锚点。
+{
+    const f = fixture();
+    f.sizing.setAnchor(700);
+    f.state.height = 200;
+    f.sizing.request();
+    await settle();
+    assert.equal(f.state.position.y, 500);
+
+    // 用户拖动到 300 并清除锚点
+    f.sizing.clearAnchor();
+    f.state.position.y = 300;
+    f.state.height = 250;
+    f.sizing.request();
+    await settle();
+    assert.equal(f.state.position.y, 300, 'clearing anchor preserves the dragged top position instead of snapping to pinBottom');
+}
+
 console.log('PopResult sizing: serial, retry, anchor, position, lifecycle and repaint tests passed');

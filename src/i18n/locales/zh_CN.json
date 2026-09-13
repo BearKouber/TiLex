@@ -8,7 +8,10 @@
             "coming": "敬请期待…",
             "clear": "清空",
             "expand": "展开",
-            "collapse": "收起"
+            "collapse": "收起",
+            "close": "关闭",
+            "pin": "钉住浮窗",
+            "unpin": "取消钉住"
         },
         "languages": {
             "auto": "自动检测",

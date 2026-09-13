@@ -68,6 +68,9 @@ export function createPopResultSizing({ width, measure, setSize, currentMonitor,
             pinBottom = bottom;
             refresh();
         },
+        clearAnchor() {
+            pinBottom = null;
+        },
         invalidate,
         dispose() {
             invalidate();

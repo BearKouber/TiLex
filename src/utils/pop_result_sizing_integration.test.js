@@ -110,13 +110,14 @@ const bindings = {
     setSaved: () => {},
     setSavedKey: () => {},
     setStatus: () => {},
+    setPinned: () => {},
     flushSync: (fn) => fn(),
 };
 const setup = new Function(
     ...Object.keys(bindings),
     `
     const WIDTH = width;
-    let runID = 0, origin = null, armed = false, awaitingText = false;
+    let runID = 0, origin = null, armed = false, awaitingText = false, pinnedRef = { current: false };
     const blur = { invalidate() {} };
     const gate = createOcrEventGate(async () => true);
     const run = ${expressions.run};

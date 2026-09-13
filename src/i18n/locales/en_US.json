@@ -8,7 +8,10 @@
             "coming": "Coming soon…",
             "clear": "Clear",
             "expand": "Expand",
-            "collapse": "Collapse"
+            "collapse": "Collapse",
+            "close": "Close",
+            "pin": "Pin window",
+            "unpin": "Unpin window"
         },
         "languages": {
             "auto": "Auto Detect",
