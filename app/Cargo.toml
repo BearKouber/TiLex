@@ -1,0 +1,68 @@
+[package]
+name = "tilex"
+version = "0.1.0"
+description = "TiLex"
+authors = ["auroraascent"]
+license = "GPL-3.0-only"
+edition = "2024"
+publish = false
+
+# 独立 workspace，不和 src-tauri 共用 Cargo.lock（D10）。ocr-sidecar 在 B3 加进 members。
+[workspace]
+
+[dependencies]
+# 只开软件渲染（D11），GPU 渲染器根本不编进来。
+# compat-1-2 是 slint 强制要求的（缺了 lib.rs 里 compile_error!）。
+# raw-window-handle-06：从 Slint 窗口拿 HWND 设 DWM 圆角。
+# system-tray：Slint 自带托盘（design §2.12），菜单写在 .slint 里走 @tr。
+slint = { version = "1.17.1", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "compat-1-2",
+    "raw-window-handle-06",
+    "system-tray",
+] }
+raw-window-handle = "0.6"
+thiserror = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+lingua = { version = "1.8.0", optional = true, default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58.0", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build = "1.17.1"
+
+[features]
+# 本地语种识别。哪些语言被编进来只由这里决定（lingua 的 Language 变体随 feature 门控）。
+# detect-lite 是 detect-full 的子集，同时开时 Cargo 取并集，结果就是 full。
+default = ["detect-lite"]
+local-detect = ["lingua"]
+detect-lite = ["local-detect", "lingua/chinese", "lingua/japanese", "lingua/english", "lingua/korean"]
+detect-full = ["local-detect", "lingua/chinese", "lingua/japanese", "lingua/english", "lingua/korean", "lingua/french", "lingua/spanish", "lingua/german", "lingua/russian", "lingua/italian", "lingua/portuguese", "lingua/turkish", "lingua/arabic", "lingua/vietnamese", "lingua/thai", "lingua/indonesian", "lingua/malay", "lingua/hindi", "lingua/mongolian", "lingua/persian", "lingua/nynorsk", "lingua/bokmal", "lingua/ukrainian"]
+
+# D13 内存实测用，不进产物：cargo run --release --example lingua_mem --features detect-full -- high
+[[example]]
+name = "lingua_mem"
+required-features = ["local-detect"]
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

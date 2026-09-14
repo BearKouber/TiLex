@@ -1,0 +1,48 @@
+// 托盘：Slint 自带 SystemTrayIcon（design §2.12）。菜单项是回调，没有字符串 ID。
+// 注意：SystemTrayIcon 不和窗口共享 global，以后要用 global 得单独初始化。
+export component Tray inherits SystemTrayIcon {
+    icon: @image-url("icons/tray.png");
+    tooltip: "TiLex";
+
+    callback open-settings();
+    callback open-logs();
+    callback restart();
+    callback quit();
+
+    // 左键点图标也打开设置（沿用旧版）。
+    clicked => {
+        root.open-settings();
+    }
+
+    Menu {
+        MenuItem {
+            title: @tr("Settings");
+            activated => {
+                root.open-settings();
+            }
+        }
+
+        MenuItem {
+            title: @tr("View logs");
+            activated => {
+                root.open-logs();
+            }
+        }
+
+        MenuSeparator { }
+
+        MenuItem {
+            title: @tr("Restart");
+            activated => {
+                root.restart();
+            }
+        }
+
+        MenuItem {
+            title: @tr("Quit");
+            activated => {
+                root.quit();
+            }
+        }
+    }
+}

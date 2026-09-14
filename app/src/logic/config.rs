@@ -1,0 +1,492 @@
+//! 配置（design §2.1）：一个文件 `<数据目录>/config.json`，一个强类型结构体，内存里一份。
+//! 只有 UI 线程写：先改副本、写盘成功再替换内存；失败返回 `Err`，内存不变。
+//! 其他线程在请求开始时 `snapshot()` 拷一份，之后不再读全局。
+
+use std::fs::{self, File};
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, PoisonError, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::Error;
+
+/// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
+pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
+const FILE: &str = "config.json";
+/// 写盘超过这个时间记一条 warn（design §2.1：真出现卡顿再挪到后台线程）。
+const SLOW_WRITE: Duration = Duration::from_millis(50);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Config {
+    pub version: u32,
+    pub general: General,
+    pub translate: Translate,
+    pub selection: Selection,
+    pub screenshot: Screenshot,
+    /// 有序：数组顺序就是界面上的顺序。删一个服务就是删一个元素。
+    pub translate_services: Vec<Service>,
+    pub recognize_services: Vec<Service>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct General {
+    pub language: String,
+    pub theme: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Translate {
+    pub source: String,
+    pub target: String,
+    pub detect_engine: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Selection {
+    pub enabled: bool,
+    pub trigger: String,
+    pub exclude_native: bool,
+    pub force_copy: bool,
+    pub blacklist: String,
+    pub button_pos: String,
+    /// 浮标离选区的间距，物理像素，0–20（`normalize` 夹紧）。
+    pub button_distance: i64,
+    pub result_pos: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Screenshot {
+    pub hotkey: String,
+    pub result_pos: String,
+}
+
+/// 一个服务实例。`kind` 决定形状；各服务自己的字段随对应批次加进变体里。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Service {
+    Google(Basic),
+    Wechat(Basic),
+    /// 认不出的 kind（例如从新版降级回来）或字段对不上的：原样保留、原样写回，界面不显示。
+    /// 不因为认不出就丢掉用户的 API key。
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Basic {
+    pub id: String,
+    /// 启用判据是 `enabled != false`（旧规范的坑），缺省为 true。
+    pub enabled: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            general: General::default(),
+            translate: Translate::default(),
+            selection: Selection::default(),
+            screenshot: Screenshot::default(),
+            translate_services: vec![Service::Google(Basic {
+                id: "google".into(),
+                enabled: true,
+            })],
+            recognize_services: vec![Service::Wechat(Basic {
+                id: "wechat".into(),
+                enabled: true,
+            })],
+        }
+    }
+}
+
+impl Default for General {
+    fn default() -> Self {
+        Self {
+            language: LANGUAGES[0].into(),
+            theme: "system".into(),
+        }
+    }
+}
+
+impl Default for Translate {
+    fn default() -> Self {
+        Self {
+            source: "auto".into(),
+            target: "zh_cn".into(),
+            detect_engine: "local".into(),
+        }
+    }
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            trigger: "hover".into(),
+            exclude_native: true,
+            force_copy: false,
+            blacklist: String::new(),
+            button_pos: "BottomRight".into(),
+            button_distance: 10,
+            result_pos: "BottomRight".into(),
+        }
+    }
+}
+
+impl Default for Screenshot {
+    fn default() -> Self {
+        Self {
+            hotkey: String::new(),
+            result_pos: "BottomRight".into(),
+        }
+    }
+}
+
+impl Default for Basic {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+impl Config {
+    /// 反序列化和每次修改之后统一把取值拉回合法范围。
+    pub fn normalize(&mut self) {
+        if !LANGUAGES.contains(&self.general.language.as_str()) {
+            self.general.language = General::default().language;
+        }
+        self.selection.button_distance = self.selection.button_distance.clamp(0, 20);
+    }
+}
+
+/// 一份配置文件和它在内存里的副本。全局只有一份（`init`），测试里各建各的。
+pub struct Store {
+    path: PathBuf,
+    current: RwLock<Config>,
+}
+
+impl Store {
+    /// 读 `<dir>/config.json`。没有就写一份默认值；
+    /// 读出来解析不了就改名成 `config.json.bad-<秒>` 备份（不覆盖原文件），用默认值启动，
+    /// 并把备份路径返回给界面提示一次。
+    pub fn open(dir: &Path) -> Result<(Store, Option<PathBuf>), Error> {
+        fs::create_dir_all(dir)?;
+        let path = dir.join(FILE);
+        let (config, backup) = match fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<Config>(&bytes) {
+                Ok(mut config) => {
+                    config.normalize();
+                    (config, None)
+                }
+                Err(e) => {
+                    let secs = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let backup = dir.join(format!("{FILE}.bad-{secs}"));
+                    // 改名失败就不能继续：之后的保存会覆盖掉这份读不出来的文件。
+                    fs::rename(&path, &backup)?;
+                    // 只记类别和位置：serde 的 invalid type 错误会带上字段值（可能是 API key）。
+                    log::warn!(
+                        "Config: unreadable ({:?} at {}:{}), moved aside, using defaults",
+                        e.classify(),
+                        e.line(),
+                        e.column()
+                    );
+                    let config = Config::default();
+                    write_atomic(&path, &config)?;
+                    (config, Some(backup))
+                }
+            },
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                log::info!("Config: no file, writing defaults");
+                let config = Config::default();
+                write_atomic(&path, &config)?;
+                (config, None)
+            }
+            Err(e) => return Err(e.into()),
+        };
+        Ok((
+            Store {
+                path,
+                current: RwLock::new(config),
+            },
+            backup,
+        ))
+    }
+
+    /// 当前配置的一份拷贝。
+    pub fn snapshot(&self) -> Config {
+        // 锁中毒也照读：内存里永远是一份完整的配置（只整份替换），不存在改了一半的状态。
+        self.current
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// 改副本 → 写盘 → 成功才替换内存。失败时内存不变，调用方把错误显示给用户并恢复控件。
+    pub fn update(&self, change: impl FnOnce(&mut Config)) -> Result<(), Error> {
+        let mut next = self.snapshot();
+        change(&mut next);
+        next.normalize();
+        write_atomic(&self.path, &next)?;
+        *self.current.write().unwrap_or_else(PoisonError::into_inner) = next;
+        Ok(())
+    }
+}
+
+/// 序列化 → 写 `config.json.tmp` 并落盘 → 改名覆盖（std 的 rename 在 Windows 上会替换已存在的文件）。
+fn write_atomic(path: &Path, config: &Config) -> Result<(), Error> {
+    let started = Instant::now();
+    let bytes = serde_json::to_vec_pretty(config)?;
+    let tmp = path.with_extension("json.tmp");
+    let result = File::create(&tmp)
+        .and_then(|mut f| f.write_all(&bytes).and_then(|()| f.sync_all()))
+        .and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp); // ignore: 临时文件删不掉只是留个残渣，下次写会覆盖它
+    }
+    let took = started.elapsed();
+    if took > SLOW_WRITE {
+        log::warn!("Config: slow write {} ms", took.as_millis());
+    }
+    Ok(result?)
+}
+
+static STORE: OnceLock<Store> = OnceLock::new();
+
+/// 启动时调一次。返回损坏文件的备份路径（有的话），给设置窗口提示。
+pub fn init(dir: &Path) -> Result<Option<PathBuf>, Error> {
+    let (store, backup) = Store::open(dir)?;
+    STORE
+        .set(store)
+        .map_err(|_| Error::Platform("config already initialized".into()))?;
+    Ok(backup)
+}
+
+/// 全局配置的拷贝。没初始化时返回默认值。
+pub fn snapshot() -> Config {
+    STORE.get().map(Store::snapshot).unwrap_or_default()
+}
+
+/// 修改全局配置，见 [`Store::update`]。
+pub fn update(change: impl FnOnce(&mut Config)) -> Result<(), Error> {
+    STORE
+        .get()
+        .ok_or_else(|| Error::Platform("config not initialized".into()))?
+        .update(change)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tilex-config-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn disk(dir: &Path) -> Config {
+        serde_json::from_slice(&fs::read(dir.join(FILE)).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn missing_file_writes_defaults() {
+        let dir = temp_dir("missing");
+        let (store, backup) = Store::open(&dir).unwrap();
+        assert!(backup.is_none());
+        assert_eq!(store.snapshot(), Config::default());
+        assert_eq!(disk(&dir), Config::default());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    // 旧 config.rs::save_failure_rolls_back_cache_and_does_not_publish_success 的新版。
+    #[test]
+    fn write_failure_keeps_memory_and_allows_retry() {
+        let dir = temp_dir("rollback");
+        let (store, _) = Store::open(&dir).unwrap();
+        store.update(|c| c.selection.enabled = true).unwrap();
+
+        // 保存路径上放一个目录：改名必然失败。
+        fs::remove_file(dir.join(FILE)).unwrap();
+        fs::create_dir(dir.join(FILE)).unwrap();
+        let failed = store.update(|c| {
+            c.selection.enabled = false;
+            c.general.language = "en".into();
+        });
+        let message = failed.unwrap_err().to_string();
+        assert!(!message.trim().is_empty());
+        let current = store.snapshot();
+        assert!(current.selection.enabled);
+        assert_eq!(current.general.language, "zh_CN");
+        assert!(!dir.join("config.json.tmp").exists(), "临时文件要清掉");
+
+        fs::remove_dir(dir.join(FILE)).unwrap();
+        store.update(|c| c.general.language = "en".into()).unwrap();
+        assert_eq!(disk(&dir).general.language, "en");
+        assert!(disk(&dir).selection.enabled);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    // B0 验收"配置文件设为只读后改设置 → 报错且内存不变"。
+    // 只在 Windows 成立：Unix 上改名覆盖只看目录权限，只读文件照样被替换。
+    #[test]
+    fn read_only_file_is_an_error_on_windows() {
+        if !cfg!(windows) {
+            return;
+        }
+        let dir = temp_dir("readonly");
+        let (store, _) = Store::open(&dir).unwrap();
+        let path = dir.join(FILE);
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&path, perms.clone()).unwrap();
+
+        assert!(store.update(|c| c.general.language = "en".into()).is_err());
+        assert_eq!(store.snapshot().general.language, "zh_CN");
+        assert_eq!(disk(&dir).general.language, "zh_CN");
+
+        #[allow(
+            clippy::permissions_set_readonly_false,
+            reason = "测试收尾，恢复可写好删除"
+        )]
+        perms.set_readonly(false);
+        fs::set_permissions(&path, perms).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    // 旧 config.rs::reload_replaces_snapshot_and_preserves_cache_on_invalid_json 的新版：
+    // 读不出来的文件改名保留，不覆盖。
+    #[test]
+    fn corrupt_file_is_moved_aside_not_overwritten() {
+        let dir = temp_dir("corrupt");
+        fs::write(dir.join(FILE), b"{\"general\": ").unwrap();
+        let (store, backup) = Store::open(&dir).unwrap();
+        let backup = backup.unwrap();
+        assert_eq!(fs::read(&backup).unwrap(), b"{\"general\": ");
+        assert!(
+            backup
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("config.json.bad-")
+        );
+        assert_eq!(store.snapshot(), Config::default());
+        assert_eq!(disk(&dir), Config::default());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn empty_file_counts_as_corrupt() {
+        let dir = temp_dir("empty");
+        fs::write(dir.join(FILE), b"").unwrap();
+        let (_, backup) = Store::open(&dir).unwrap();
+        assert!(backup.unwrap().exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn missing_fields_use_defaults() {
+        let config: Config =
+            serde_json::from_value(json!({"selection": {"enabled": true}})).unwrap();
+        assert!(config.selection.enabled);
+        assert_eq!(config.selection.button_distance, 10);
+        assert_eq!(config.general, General::default());
+        assert_eq!(
+            config.translate_services,
+            Config::default().translate_services
+        );
+    }
+
+    #[test]
+    fn normalize_pulls_values_into_range() {
+        let mut config = Config::default();
+        for (value, expected) in [
+            (0, 0),
+            (4, 4),
+            (10, 10),
+            (20, 20),
+            (-1, 0),
+            (-100, 0),
+            (21, 20),
+            (1000, 20),
+        ] {
+            config.selection.button_distance = value;
+            config.normalize();
+            assert_eq!(
+                config.selection.button_distance, expected,
+                "distance {value}"
+            );
+        }
+        config.general.language = "fr".into();
+        config.normalize();
+        assert_eq!(config.general.language, "zh_CN");
+        config.general.language = "en".into();
+        config.normalize();
+        assert_eq!(config.general.language, "en");
+    }
+
+    #[test]
+    fn update_normalizes() {
+        let dir = temp_dir("update-normalize");
+        let (store, _) = Store::open(&dir).unwrap();
+        store.update(|c| c.selection.button_distance = 99).unwrap();
+        assert_eq!(store.snapshot().selection.button_distance, 20);
+        assert_eq!(disk(&dir).selection.button_distance, 20);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unknown_service_kind_round_trips() {
+        let future = json!({
+            "id": "ai@k3x9", "kind": "future_ai", "enabled": false,
+            "api_key": "sk-secret", "nested": {"a": [1, 2]}
+        });
+        let known = json!({"id": "google", "kind": "google", "enabled": true});
+        let broken_known = json!({"id": "wechat", "kind": "wechat", "enabled": "yes"});
+        let input =
+            json!({"translate_services": [known, future], "recognize_services": [broken_known]});
+
+        let config: Config = serde_json::from_value(input).unwrap();
+        assert_eq!(
+            config.translate_services[0],
+            Service::Google(Basic {
+                id: "google".into(),
+                enabled: true
+            })
+        );
+        assert!(matches!(config.translate_services[1], Service::Unknown(_)));
+        assert!(matches!(config.recognize_services[0], Service::Unknown(_)));
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["translate_services"][0], known);
+        assert_eq!(out["translate_services"][1], future);
+        assert_eq!(out["recognize_services"][0], broken_known);
+    }
+
+    #[test]
+    fn known_service_without_enabled_is_enabled() {
+        let service: Service =
+            serde_json::from_value(json!({"id": "g", "kind": "google"})).unwrap();
+        assert_eq!(
+            service,
+            Service::Google(Basic {
+                id: "g".into(),
+                enabled: true
+            })
+        );
+    }
+}

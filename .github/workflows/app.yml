@@ -1,0 +1,83 @@
+# 新版（app/，Slint 原生）：改动 app/** 时在 Windows + macOS 上 fmt → clippy → test → build，上传 zip。
+# 旧版的发版流程在 release.yml，两者互不影响。
+name: App
+
+on:
+  push:
+    paths: ['app/**', '.github/workflows/app.yml']
+  pull_request:
+    paths: ['app/**', '.github/workflows/app.yml']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest 是 Apple 芯片，本机编出来就是 aarch64-apple-darwin（design §11 第 8 条）。
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - run: cargo fmt --check
+      - run: cargo clippy -p tilex --all-targets --features detect-full -- -D warnings
+      # R-10：测试用 --release 跑；source_rules.rs / unicode_paths.rs 在这里面。
+      - run: cargo test -p tilex --release --features detect-full
+      - run: cargo build -p tilex --release --features detect-full
+
+      # B3 起 zip 里再加 tilex-ocr.exe 和 wcocr.dll。
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path target/release/tilex.exe -DestinationPath ../tilex-windows-x64.zip
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          app=target/TiLex.app
+          rm -rf "$app"
+          mkdir -p "$app/Contents/MacOS"
+          cp target/release/tilex "$app/Contents/MacOS/tilex"
+          # LSUIElement：只在菜单栏，不显示 Dock 图标。
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleIdentifier</key><string>com.tilex.app</string>
+            <key>CFBundleName</key><string>TiLex</string>
+            <key>CFBundleExecutable</key><string>tilex</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${version}</string>
+            <key>CFBundleVersion</key><string>${version}</string>
+            <key>LSMinimumSystemVersion</key><string>13.0</string>
+            <key>LSUIElement</key><true/>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --force --sign - "$app"
+          ditto -c -k --keepParent "$app" ../tilex-macos-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tilex-${{ runner.os }}
+          path: tilex-*.zip
+          if-no-files-found: error

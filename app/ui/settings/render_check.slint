@@ -1,0 +1,127 @@
+// D11 软件渲染验证页，B0 期间兼做设置窗口（界面语言切换）。B2 换成真正的设置窗口。
+// 编号的样例文字是渲染验证内容，故意不走 @tr。
+import { Button, CheckBox, ComboBox, LineEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component RenderCheck inherits Window {
+    title: @tr("TiLex Settings");
+    preferred-width: 560px;
+    // 运行时由 Rust 用 StyledText::from_markdown 生成，验证 B1 结果卡片要走的那条路。
+    in property <styled-text> runtime-sample;
+    // 配置文件损坏时被改名成的备份文件名；非空就在顶部提示（只在启动那次打开的窗口里有）。
+    in property <string> bad-config;
+    // 保存失败的原因；非空就显示。
+    in property <string> save-error;
+    // 顺序必须和 logic::config::LANGUAGES 一致。语言名用各自的语言写，不翻译。
+    property <[string]> languages: ["中文", "English"];
+    callback language-selected(int);
+
+    // Rust 设置/恢复下拉框用。index 和显示文字一起设：在 selected 回调里把 index 改回原值时，
+    // ComboBox 的 changed current-index 看到的是同一个值，不会自己更新显示文字。
+    public function show-language(index: int) {
+        language-box.current-index = index;
+        language-box.current-value = root.languages[index];
+    }
+
+    VerticalBox {
+        alignment: start;
+        if root.bad-config != "": Text {
+            text: @tr("The settings file could not be read. It was renamed to {} and default settings are used.", root.bad-config);
+            color: #c92a2a;
+            wrap: word-wrap;
+        }
+
+        HorizontalBox {
+            Text {
+                text: @tr("Interface language");
+                vertical-alignment: center;
+            }
+
+            language-box := ComboBox {
+                model: root.languages;
+                selected(value) => {
+                    root.language-selected(self.current-index);
+                }
+            }
+        }
+
+        if root.save-error != "": Text {
+            text: @tr("Could not save settings: {}", root.save-error);
+            color: #c92a2a;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "1. 中文：划词翻译，截图识别，生词本导出。";
+            font-size: 16px;
+        }
+
+        Text {
+            text: "2. 中英混排：TiLex 用 Slint 1.17 的 software renderer 渲染 DeepSeek 返回的 JSON。";
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "3. Emoji：😀🎉📚✅ 以及 👍🏽 👨‍👩‍👧";
+            font-size: 20px;
+        }
+
+        Text {
+            text: "4. StyledText（编译期 @markdown）：";
+        }
+
+        StyledText {
+            text: @markdown("He decided to <font color=\"#d9480f\">**abandon**</font> the plan. 他决定<font color=\"#1971c2\">放弃</font>这个计划。");
+        }
+
+        Text {
+            text: "4b. StyledText（运行时 from_markdown）：";
+        }
+
+        StyledText {
+            text: root.runtime-sample;
+        }
+
+        Text {
+            text: "5. 控件（fluent）：";
+        }
+
+        HorizontalBox {
+            Button {
+                text: "保存 Save";
+            }
+
+            CheckBox {
+                text: "开启划词";
+                checked: true;
+            }
+
+            LineEdit {
+                placeholder-text: "输入 Input…";
+            }
+        }
+    }
+}
+
+// 圆角验证：无边框窗口，Rust 侧对它的 HWND 设 DWMWA_WINDOW_CORNER_PREFERENCE = ROUND。
+export component RoundCheck inherits Window {
+    no-frame: true;
+    width: 260px;
+    height: 120px;
+    // 深色底：Win11 的圆角半径只有约 8px，浅灰底上肉眼看不出来。
+    background: #3b82f6;
+    in property <string> status;
+
+    VerticalBox {
+        Text {
+            text: "6. 无边框窗口圆角";
+            font-size: 15px;
+            color: white;
+        }
+
+        Text {
+            text: root.status;
+            wrap: word-wrap;
+            color: white;
+        }
+    }
+}

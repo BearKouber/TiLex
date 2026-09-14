@@ -1,0 +1,31 @@
+# TiLex 界面文案。msgid 就是 .slint 里 @tr("...") 的英文原文（无上下文）。
+# tests/source_rules.rs 检查每条 @tr 在这里都有非空 msgstr。
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "View logs"
+msgstr "查看日志"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "TiLex Settings"
+msgstr "TiLex 设置"
+
+msgid "Interface language"
+msgstr "界面语言"
+
+msgid "The settings file could not be read. It was renamed to {} and default settings are used."
+msgstr "设置文件读不出来，已改名为 {}，现在用的是默认设置。"
+
+msgid "Could not save settings: {}"
+msgstr "设置保存失败：{}"
