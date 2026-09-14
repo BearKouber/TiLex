@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
-import { parseDetail, wordSummary } from '../../../../utils/wordbook_format';
+import { isWord, parseDetail, wordSummary } from '../../../../utils/wordbook_format';
 import {
     removeFromWordbook,
     softDeleteWordbookEntries,
@@ -85,6 +85,9 @@ export default function Wordbook() {
     // 初次载入和筛选仍默认首项；删除后的顺延由 removeFromWordbook 决定。
     const selected = list.find((e) => e.id === selectedId) ?? list[0] ?? null;
     const display = selected ? entryDisplay(selected) : null;
+    const isSentence = selected
+        ? selected.type === 'sentence' || display?.kind === 'sentence' || !isWord(selected.text)
+        : false;
 
     const checkedVisibleIds = list.filter((entry) => checkedIds.has(entry.id)).map((entry) => entry.id);
     const allChecked = list.length > 0 && checkedVisibleIds.length === list.length;
@@ -328,6 +331,60 @@ export default function Wordbook() {
                 <CardBody className='p-[20px] overflow-y-auto overflow-x-hidden'>
                     {selected === null ? (
                         <div className='m-auto text-default-400'>{t('config.wordbook.empty')}</div>
+                    ) : isSentence ? (
+                        <div className='flex flex-col gap-[16px]'>
+                            <div className='flex items-center justify-between gap-[12px] border-b-1 border-default-100 pb-[10px]'>
+                                <span className='rounded-full bg-default-100 px-[8px] py-[2px] text-[11px] font-medium text-default-500'>
+                                    {t('config.wordbook.sentence')}
+                                </span>
+                                <div className='flex shrink-0 gap-[4px]'>
+                                    <Button
+                                        isIconOnly
+                                        size='sm'
+                                        variant='light'
+                                        aria-label={t('config.wordbook.speak')}
+                                        onPress={() => speak(selected.text)}
+                                    >
+                                        <MdVolumeUp className='text-[18px]' />
+                                    </Button>
+                                    <Button
+                                        isIconOnly
+                                        size='sm'
+                                        variant='light'
+                                        color='danger'
+                                        aria-label={t('config.wordbook.delete')}
+                                        isDisabled={removing}
+                                        onPress={() => remove([selected.id])}
+                                    >
+                                        <MdDeleteOutline className='text-[18px]' />
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className='flex flex-col gap-[6px]'>
+                                <span className='text-[11px] font-medium text-default-400'>
+                                    {t('config.wordbook.source')}
+                                </span>
+                                <h2 className='select-text whitespace-pre-wrap break-words text-[15px] font-normal leading-relaxed text-foreground [overflow-wrap:anywhere]'>
+                                    {selected.text}
+                                </h2>
+                            </div>
+
+                            {(display?.translation || selected.translation) && (
+                                <div className='flex flex-col gap-[6px] rounded-medium border-1 border-default-100 bg-default-50/70 p-[14px] dark:bg-default-100/40'>
+                                    <span className='text-[11px] font-medium text-primary'>
+                                        {t('config.wordbook.translation')}
+                                    </span>
+                                    <div className='select-text whitespace-pre-wrap break-words text-[14px] font-normal leading-relaxed text-foreground/90 [overflow-wrap:anywhere]'>
+                                        {display?.translation || selected.translation}
+                                    </div>
+                                </div>
+                            )}
+
+                            {display && (
+                                <TranslationResult display={{ ...display, translation: '' }} />
+                            )}
+                        </div>
                     ) : (
                         <>
                             <div className='flex items-start justify-between gap-[12px]'>
