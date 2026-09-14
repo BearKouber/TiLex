@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normalizeResult } from './translation_result.js';
+import { normalizeResult, SENTENCE_CATEGORIES } from './translation_result.js';
 
 const word = {
     kind: 'word',
@@ -81,4 +81,29 @@ for (const invalid of [
 ])
     assert.equal(normalizeResult(invalid), null, JSON.stringify(invalid));
 assert.deepEqual(normalizeResult({ ...legacy, examples: word.examples, notes: word.notes }).examples, word.examples);
+
+// Sentence tags: valid ones survive normalization; an invalid one drops alone.
+const base = { kind: 'sentence', translation: 'Complete.' };
+const tagged = normalizeResult({ ...base, category: ' zh03 ', difficulty: '2', difficulty_reason: ' 主谓分离 ' });
+assert.equal(tagged.category, 'ZH03');
+assert.equal(tagged.difficulty, 2);
+assert.equal(tagged.difficulty_reason, '主谓分离');
+assert.deepEqual(normalizeResult(tagged), tagged);
+assert.equal(Object.keys(SENTENCE_CATEGORIES).length, 11);
+assert.deepEqual(Object.keys(SENTENCE_CATEGORIES).slice(5, 7), ['EN06', 'ZH01']);
+for (const category of ['EN07', 'ZH06', '', 3, null, {}, 'toString', '定语从句类']) {
+    const result = normalizeResult({ ...base, category, difficulty: 1 });
+    assert.equal(result.translation, 'Complete.', String(category));
+    assert.equal('category' in result, false, String(category));
+    assert.equal(result.difficulty, 1);
+}
+for (const difficulty of [0, 4, 1.5, -1, '', 'hard', true, null, [2], {}]) {
+    const result = normalizeResult({ ...base, category: 'EN01', difficulty, difficulty_reason: 'why' });
+    assert.equal(result.category, 'EN01', JSON.stringify(difficulty));
+    assert.equal('difficulty' in result, false, JSON.stringify(difficulty));
+    assert.equal('difficulty_reason' in result, false, 'reason needs a valid difficulty');
+}
+assert.equal('difficulty_reason' in normalizeResult({ ...base, difficulty: 3, difficulty_reason: ' ' }), false);
+assert.equal('difficulty_reason' in normalizeResult({ ...base, difficulty: 3, difficulty_reason: 7 }), false);
+assert.equal('category' in normalizeResult({ ...word, category: 'EN01' }), false, 'words carry no sentence tags');
 console.log('translation result contract tests passed');

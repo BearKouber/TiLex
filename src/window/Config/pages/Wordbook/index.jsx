@@ -30,6 +30,7 @@ import { speak } from '../../../../utils/speak';
 import { useToastStyle } from '../../../../hooks';
 import { listen } from '@tauri-apps/api/event';
 import { entryDisplay } from '../../../../utils/saved_entry';
+import { SENTENCE_CATEGORIES } from '../../../../utils/translation_result';
 import TranslationResult from '../../../../components/TranslationResult';
 
 // 生词本页面。数据全在 wordbook.db 的 entries 表（结构见 docs/整合方案.md §4.1）。
@@ -88,6 +89,15 @@ export default function Wordbook() {
     const isSentence = selected
         ? selected.type === 'sentence' || display?.kind === 'sentence' || !isWord(selected.text)
         : false;
+    // AI 打的分类/难度，如「定语从句类 · ★★ 主谓被逗号隔开」；旧记录和谷歌译文为空，不显示。
+    const sentenceTag = display
+        ? [
+              SENTENCE_CATEGORIES[display.category]?.name,
+              display.difficulty && `${'★'.repeat(display.difficulty)} ${display.difficulty_reason}`.trim(),
+          ]
+              .filter(Boolean)
+              .join(' · ')
+        : '';
 
     const checkedVisibleIds = list.filter((entry) => checkedIds.has(entry.id)).map((entry) => entry.id);
     const allChecked = list.length > 0 && checkedVisibleIds.length === list.length;
@@ -332,11 +342,12 @@ export default function Wordbook() {
                     {selected === null ? (
                         <div className='m-auto text-default-400'>{t('config.wordbook.empty')}</div>
                     ) : isSentence ? (
-                        <div className='flex flex-col gap-[16px]'>
-                            <div className='flex items-center justify-between gap-[12px] border-b-1 border-default-100 pb-[10px]'>
-                                <span className='rounded-full bg-default-100 px-[8px] py-[2px] text-[11px] font-medium text-default-500'>
-                                    {t('config.wordbook.sentence')}
-                                </span>
+                        <div className='flex flex-col min-w-0 max-w-full select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere]'>
+                            {/* 顶部：原句 + 发音/删除按钮 */}
+                            <div className='flex items-start justify-between gap-[12px]'>
+                                <h2 className='min-w-0 text-[16px] font-normal leading-relaxed select-text whitespace-pre-wrap break-words text-foreground [overflow-wrap:anywhere]'>
+                                    {selected.text}
+                                </h2>
                                 <div className='flex shrink-0 gap-[4px]'>
                                     <Button
                                         isIconOnly
@@ -361,28 +372,87 @@ export default function Wordbook() {
                                 </div>
                             </div>
 
-                            <div className='flex flex-col gap-[6px]'>
-                                <span className='text-[11px] font-medium text-default-400'>
-                                    {t('config.wordbook.source')}
-                                </span>
-                                <h2 className='select-text whitespace-pre-wrap break-words text-[15px] font-normal leading-relaxed text-foreground [overflow-wrap:anywhere]'>
-                                    {selected.text}
-                                </h2>
-                            </div>
-
+                            {/* 译文：上句下译，不加标题 */}
                             {(display?.translation || selected.translation) && (
-                                <div className='flex flex-col gap-[6px] rounded-medium border-1 border-default-100 bg-default-50/70 p-[14px] dark:bg-default-100/40'>
-                                    <span className='text-[11px] font-medium text-primary'>
-                                        {t('config.wordbook.translation')}
-                                    </span>
-                                    <div className='select-text whitespace-pre-wrap break-words text-[14px] font-normal leading-relaxed text-foreground/90 [overflow-wrap:anywhere]'>
-                                        {display?.translation || selected.translation}
-                                    </div>
+                                <div className='mt-[12px] text-[14px] leading-relaxed text-foreground select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere]'>
+                                    {display?.translation || selected.translation}
                                 </div>
                             )}
 
-                            {display && (
-                                <TranslationResult display={{ ...display, translation: '' }} />
+                            {/* 难度/分类标签（上方带分割线） */}
+                            {sentenceTag && (
+                                <div className='border-t-1 border-default-100 pt-[12px] mt-[14px] text-[12px] text-default-400 select-text'>
+                                    {sentenceTag}
+                                </div>
+                            )}
+
+                            {/* 核心句型与主干（样式 1：自然点阵清单，标题格式同例句与用法） */}
+                            {display?.syntax_breakdown && (
+                                <section className='mt-[16px] space-y-[6px]'>
+                                    <h3 className='text-[12px] font-medium text-default-500'>
+                                        {t('config.wordbook.syntax_core', '核心句型与主干')}
+                                    </h3>
+                                    <div className='flex flex-col gap-[6px] text-[14px] leading-relaxed'>
+                                        {display.syntax_breakdown.main_clause && (
+                                            <div className='select-text'>
+                                                <span className='text-default-500 mr-[6px]'>• 核心句型：</span>
+                                                <span className='text-foreground'>{display.syntax_breakdown.main_clause}</span>
+                                            </div>
+                                        )}
+                                        {display.syntax_breakdown.clauses_and_modifiers && (
+                                            <div className='select-text'>
+                                                <span className='text-default-500 mr-[6px]'>• 修饰成分：</span>
+                                                <span className='text-default-600 dark:text-default-400'>
+                                                    {display.syntax_breakdown.clauses_and_modifiers}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {display.nuance_note && (
+                                            <div className='select-text'>
+                                                <span className='text-default-500 mr-[6px]'>• 语境说明：</span>
+                                                <span className='text-default-600 dark:text-default-400'>
+                                                    {display.nuance_note}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* 重点术语（标题格式同例句与用法） */}
+                            {display?.key_vocabulary?.length > 0 && (
+                                <section className='mt-[16px] space-y-[6px]'>
+                                    <h3 className='text-[12px] font-medium text-default-500'>
+                                        {t('config.wordbook.key_vocabulary', '重点术语')}
+                                    </h3>
+                                    <div className='flex flex-wrap gap-[8px]'>
+                                        {display.key_vocabulary.map((item, index) => (
+                                            <span
+                                                key={index}
+                                                className='rounded-full border-1 border-default-200 px-[8px] py-[2px] text-[12px]'
+                                            >
+                                                <span className='text-foreground mr-[6px] font-normal'>{item.word}</span>
+                                                <span className='text-default-500 font-normal'>{item.meaning_in_context}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* 长难句自带的例句与笔记 (如果有) */}
+                            {(display?.examples?.length > 0 || display?.notes?.length > 0) && (
+                                <TranslationResult
+                                    display={{
+                                        ...display,
+                                        translation: '',
+                                        pronunciations: [],
+                                        explanations: [],
+                                        associations: [],
+                                        syntax_breakdown: null,
+                                        nuance_note: '',
+                                        key_vocabulary: [],
+                                    }}
+                                />
                             )}
                         </div>
                     ) : (
@@ -391,7 +461,7 @@ export default function Wordbook() {
                                 <h2 className='min-w-0 text-[18px] select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere]'>
                                     {selected.text}
                                 </h2>
-                                <div className='flex gap-[4px] shrink-0'>
+                                <div className='flex shrink-0 gap-[4px]'>
                                     <Button
                                         isIconOnly
                                         size='sm'

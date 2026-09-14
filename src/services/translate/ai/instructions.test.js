@@ -8,12 +8,14 @@ import {
     DEFAULT_REQUEST_ARGUMENTS,
     LEGACY_DEFAULT_PROMPTS,
     INTERNAL_PROMPT,
+    PROMPT_VERSION,
 } from './instructions.js';
 import { FORMATS } from './protocol.js';
+import { SENTENCE_CATEGORIES } from '../../../utils/translation_result.js';
 
 assert.equal(
     DEFAULT_CUSTOM_INSTRUCTIONS,
-    '使用所选目标语言，准确、自然、简洁地表达原意。结合上下文理解多义词，专业内容优先使用通行术语。单词和短语突出常用释义与搭配；句子保留原意和语气。必要时提供简短例句或解释，避免无关扩展。'
+    '使用所选目标语言，准确、自然、简洁地表达原意。结合上下文理解多义词，专业内容优先使用通行术语。单词和短语突出常用释义与搭配；句子保留原意和语气，长难句提供核心句型主干、修饰成分与重点术语拆解。必要时提供简短例句或解释，避免无关扩展。'
 );
 assert.equal(normalizeAiConfig({}).customInstructions, DEFAULT_CUSTOM_INSTRUCTIONS);
 assert.equal(normalizeAiConfig({ customInstructions: '' }).customInstructions, '');
@@ -104,6 +106,12 @@ for (const requestArguments of ['not JSON', 'null', '[]', '5', null, [], 3]) {
 }
 assert.equal(normalizeAiConfig({ requestArguments: '{}' }).legacyArgumentsInvalid, false);
 assert.deepEqual(normalizeAiConfig({ requestArguments: '{}' }).requestArguments, {});
+
+// Every category code the validator accepts is offered to the model, and vice versa.
+assert.deepEqual([...new Set(INTERNAL_PROMPT.match(/\b(?:EN|ZH)\d\d\b/g))], Object.keys(SENTENCE_CATEGORIES));
+assert.equal(PROMPT_VERSION, 2);
+assert.equal(buildAiRequest('项目组在实现过程中发现了新的问题', 'auto', 'en', old).kind, 'sentence');
+assert.equal(buildAiRequest('实现', 'auto', 'en', old).kind, 'word');
 
 const effective = effectiveAiConfig(migrated);
 assert.deepEqual(effectiveAiConfig(effective), effective);

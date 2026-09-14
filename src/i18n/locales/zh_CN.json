@@ -237,9 +237,7 @@
                 "selected_count": "已选 {{count}} 条",
                 "confirm_delete": "删除选中的 {{count}} 条？",
                 "delete_count": "删除 {{count}} 条",
-                "delete_failed": "删除失败，请重试。",
-                "source": "原文",
-                "translation": "译文"
+                "delete_failed": "删除失败，请重试。"
             },
             "history": {
                 "label": "历史记录",

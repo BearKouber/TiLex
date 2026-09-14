@@ -7,6 +7,7 @@ import ts from 'typescript';
 import * as format from './wordbook_format.js';
 import * as selection from './wordbook_selection.js';
 import * as savedEntry from './saved_entry.js';
+import * as translationResult from './translation_result.js';
 
 const source = readFileSync(new URL('../window/Config/pages/Wordbook/index.jsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, {
@@ -37,10 +38,10 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-async function mount() {
+async function mount(initial = seed) {
     const slots = [];
     let cursor = 0;
-    let rows = [...seed];
+    let rows = [...initial];
     let executeWait;
     let selectWait;
     let changed;
@@ -107,6 +108,7 @@ async function mount() {
         '../../../../utils/wordbook_format': format,
         '../../../../utils/wordbook_selection': selection,
         '../../../../utils/saved_entry': savedEntry,
+        '../../../../utils/translation_result': translationResult,
         '../../../../components/TranslationResult': 'TranslationResult',
         '../../../../utils/wordbook_export': { exportMarkdown: async () => null },
         '../../../../utils/speak': { speak: () => {} },
@@ -412,6 +414,25 @@ lateLoad.resolve(seed);
 await settle();
 assert.equal(late.detail(), 'entry 2');
 assert.equal(late.find('Listbox').children[0].props.textValue, 'arrived before delete');
+
+// Sentence card: source over translation with no 译文 label; the tag line only with AI tags.
+const sentenceTexts = async (detail) => {
+    const card = await mount([{ id: 1, type: 'sentence', text: 'A tagged sentence.', translation: 'flat', detail: JSON.stringify(detail) }]);
+    return card.nodes().map((node) => node.props.children).filter((child) => typeof child === 'string');
+};
+const taggedTexts = await sentenceTexts({
+    kind: 'sentence',
+    translation: '译文正文',
+    category: 'EN01',
+    difficulty: 2,
+    difficulty_reason: '主谓被逗号隔开',
+});
+assert.ok(taggedTexts.includes('定语从句类 · ★★ 主谓被逗号隔开'));
+assert.ok(taggedTexts.includes('译文正文'));
+assert.ok(!taggedTexts.includes('config.wordbook.translation'));
+const plainTexts = await sentenceTexts(null);
+assert.ok(plainTexts.includes('flat'));
+assert.ok(!plainTexts.some((text) => text.includes('★') || text.includes('config.wordbook.translation')));
 
 console.log(
     'wordbook_interactions: production single/batch handlers, pending selection/filter changes, cancellation, failure/retry and stale loads passed'

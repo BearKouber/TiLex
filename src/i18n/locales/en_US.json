@@ -237,9 +237,7 @@
                 "selected_count": "{{count}} selected",
                 "confirm_delete": "Delete selected entries ({{count}})?",
                 "delete_count": "Delete {{count}}",
-                "delete_failed": "Could not delete entries. Please try again.",
-                "source": "Source",
-                "translation": "Translation"
+                "delete_failed": "Could not delete entries. Please try again."
             },
             "history": {
                 "label": "History",

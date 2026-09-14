@@ -69,7 +69,7 @@ function nodes(tree, type) {
     return [...(tree.type === type ? [tree] : []), ...(tree.children ?? []).flatMap((child) => nodes(child, type))];
 }
 function visibleText(node) {
-    if (node.type === 'text') return node.value.replaceAll('\u00a0', ' ').replaceAll('\u200b', '');
+    if (node.type === 'text' || node.type === 'inlineCode') return node.value.replaceAll('\u00a0', ' ').replaceAll('\u200b', '');
     if (node.type === 'break') return '\n';
     const separator = ['root', 'list', 'listItem'].includes(node.type) ? '\n\n' : '';
     return (node.children ?? []).map(visibleText).join(separator);
@@ -93,16 +93,27 @@ assert.deepEqual(nodes(rendered.tree, 'heading').map(visibleText), [
     '我的生词本',
     '单词',
     'A',
+    '📖 archive',
     'F',
+    '📖 follow',
+    'M',
+    '📖 幂等',
     '#',
+    '📖 99 bottles',
     '长难句',
-    '1',
-    '2',
+    '未分类',
+    '1. Network latency impacts...',
+    '2. Please follow the instructions and...',
 ]);
-assert.ok(md.includes('**follow**\n\n'));
-assert.ok(rendered.text.includes('/ˈfɑːloʊ/\n/ˈfɒləʊ/'));
-assert.ok(rendered.text.includes('v. 跟随；听从\nn. 关注'));
-assert.ok(rendered.text.includes('搭配：follow up · as follows · follow suit'));
+assert.ok(md.includes('#### 📖 **follow**\n\n'));
+assert.ok(md.includes('`/ˈfɑːloʊ/` · `/ˈfɒləʊ/`'));
+assert.ok(rendered.text.includes('跟随；听从'));
+assert.ok(md.includes('> **常用搭配**：follow up · as follows · follow suit'));
+assert.ok(!md.includes('[!NOTE]') && !md.includes('[!TIP]') && !md.includes('**译文**'));
+// Whole-field italics still parse when the text ends with CJK punctuation.
+const emphasized = nodes(rendered.tree, 'emphasis').map(visibleText);
+for (const text of ['按照说明操作。', sentenceDetail.translation, '网络延迟影响协作。', entries[1].text])
+    assert.ok(emphasized.includes(text), text);
 assert.equal(count(rendered.text, '听从'), 1, 'flattened dictionary meanings must not repeat');
 assert.ok(!md.includes('<details>') && !md.includes('<a id=') && !md.includes('查看原句'));
 assert.ok(rendered.text.includes('重复执行仍产生同样结果'));
@@ -119,11 +130,10 @@ for (const detail of [dictionary, sentenceDetail]) {
 }
 assert.equal(count(rendered.text, sentenceDetail.translation), 1);
 for (const expected of [
-    '主干：latency impacts collaboration',
-    '修饰：Network 修饰 latency',
-    '语义说明：impact 在这里作及物动词。',
-    '上下文词汇',
-    'latency：网络延迟',
+    '核心句型：latency impacts collaboration',
+    '修饰成分：Network 修饰 latency',
+    '语境说明：impact 在这里作及物动词。',
+    '重点术语：latency (网络延迟)',
 ])
     assert.ok(rendered.text.includes(expected));
 
@@ -137,7 +147,7 @@ const oldEntry = {
     translation: '/legacy/\nn. 旧释义\nold association',
 };
 const legacyText = render(buildMarkdown([oldEntry], now)).text;
-assert.ok(legacyText.includes('搭配：old association'));
+assert.ok(legacyText.includes('old association'));
 assert.equal(count(legacyText, '旧释义'), 1);
 assert.equal(count(legacyText, 'old association'), 1);
 assert.deepEqual(entryDisplay(oldEntry).associations, ['old association']);
@@ -239,35 +249,46 @@ const cases = [
         },
     ],
 ];
+// Code spans (pronunciations, terms) and the word heading take one-line raw text instead.
+const oneLineSpecial = normalizedSpecial.replace(/\s*\n\s*/g, ' ');
 for (const [name, entry] of cases) {
     const output = render(buildMarkdown([{ id: 1, ...entry }], now));
-    const expectedOccurrences =
-        name === 'structured word fields'
-            ? 12
-            : name === 'structured sentence fields'
-              ? 4
-              : name === 'legacy sentence fields'
-                ? 5
-                : 1;
+    const expectedOccurrences = {
+        'original word': 0,
+        'structured word fields': 5,
+        'structured sentence fields': 4,
+        'legacy sentence fields': 3,
+    }[name] ?? 1;
     assert.equal(count(output.text, normalizedSpecial), expectedOccurrences, name);
-    for (const type of [
-        'html',
-        'link',
-        'linkReference',
-        'image',
-        'imageReference',
-        'code',
-        'inlineCode',
-        'thematicBreak',
-    ]) {
+    if (name === 'original word') assert.ok(output.text.includes('📖 ' + oneLineSpecial), name);
+    // Italic wrapping survives punctuation at both edges of the literal text.
+    if (['original sentence', 'structured word fields', 'structured sentence fields'].includes(name)) {
+        assert.ok(nodes(output.tree, 'emphasis').some((node) => visibleText(node) === normalizedSpecial), name);
+    }
+
+    // Unescaped dynamic markdown must never leak into raw html, links, or code blocks.
+    for (const type of ['link', 'linkReference', 'image', 'imageReference', 'code']) {
         assert.equal(nodes(output.tree, type).length, 0, `${name}: source generated ${type}`);
     }
-    assert.equal(nodes(output.tree, 'blockquote').length, 1, name); // Fixed export metadata only.
-    assert.equal(nodes(output.tree, 'list').length, name.startsWith('structured') ? 1 : 0, name);
-    assert.ok(
-        !output.html.includes('<vector>') && !output.html.includes('<a ') && !output.html.includes('<code>'),
-        name
-    );
+    // Formatter-owned structural elements
+    const expectedThematicBreak = entry.type === 'sentence' ? 1 : 0;
+    assert.equal(nodes(output.tree, 'thematicBreak').length, expectedThematicBreak, `${name}: thematicBreak`);
+
+    // Export header, plus the association or translation quote.
+    const expectedBlockquote = name === 'structured word fields' || name === 'structured sentence fields' ? 2 : 1;
+    assert.equal(nodes(output.tree, 'blockquote').length, expectedBlockquote, `${name}: blockquote`);
+
+    // Word: trait + pronunciation. Legacy sentence: one term; its multi-line trunk stays text.
+    const expectedInlineCode = { 'structured word fields': 2, 'legacy sentence fields': 1 }[name] ?? 0;
+    assert.equal(nodes(output.tree, 'inlineCode').length, expectedInlineCode, `${name}: inlineCode`);
+    if (expectedInlineCode) {
+        assert.ok(nodes(output.tree, 'inlineCode').some((node) => node.value.includes(oneLineSpecial.replaceAll('`', '').trim())));
+    }
+
+    assert.ok(!output.html.includes('<vector>') && !output.html.includes('<a '), name);
+    if (expectedInlineCode === 0) {
+        assert.ok(!output.html.includes('<code>'), name);
+    }
     assert.ok(output.html.includes('&lt;vector&gt;') && output.html.includes('&amp;lt;'), name);
 }
 const relationText = render(
@@ -279,11 +300,96 @@ const relationText = render(
         now
     )
 ).text;
-assert.equal(count(relationText, normalizedSpecial), 4, 'word/sentence originals and both relation fields');
+assert.equal(count(relationText, normalizedSpecial), 3, 'sentence original and both relation fields');
+assert.ok(relationText.includes('📖 ' + oneLineSpecial), 'word heading keeps the text on one line');
 for (const source of ['  leading  and   repeated  ', '\nleading blank\n\ntrailing blank\n', 'line\r\n    code\rline']) {
     assert.equal(render(markdownText(source)).text, source.replace(/\r\n?/g, '\n'));
 }
 assert.equal(render(markdownText('\tfirst\n  \tsecond')).text, '    first\n    second');
+
+// AC6 words: English first-letter and Chinese pinyin share A–Z; English before Chinese
+// inside a letter; kana words and other scripts go to the final # bucket.
+const wordHeadings = (texts) =>
+    nodes(render(buildMarkdown(texts.map((text, i) => ({ id: i + 1, type: 'word', text })), now)).tree, 'heading')
+        .map(visibleText)
+        .slice(2)
+        .map((heading) => heading.replace('📖 ', ''));
+assert.deepEqual(wordHeadings(['实现', '日本語です', 'banana', '安装', 'apple', '爱', 'Zebra', '中国', '7-zip', 'すし', '阿']), [
+    'A', 'apple', '阿', '爱', '安装', 'B', 'banana', 'S', '实现', 'Z', 'Zebra', '中国', '#', '7-zip', 'すし', '日本語です',
+]);
+// Each pinyin initial, including the first characters of the table (吖) and around each boundary.
+const buckets = {
+    A: '吖啊阿安奥', B: '八把不白', C: '擦嚓从错', D: '哒大的对', E: '妸饿额恩二', F: '发方飞夫',
+    G: '旮个该国', H: '哈好会火', J: '丌机家就', K: '咔卡可快', L: '垃了来路旅', M: '妈吗们木幂',
+    N: '拏那女你', O: '噢哦欧', P: '妑怕盘平', Q: '七起去全', R: '呥然人日', S: '仨三上是实',
+    T: '他天同', W: '屲瓦我无为', X: '夕下想行', Y: '丫一有语', Z: '帀在中重做',
+};
+for (const [letter, chars] of Object.entries(buckets)) {
+    for (const char of chars) assert.deepEqual(wordHeadings([char]), [letter, char], char);
+}
+
+// AC6/AC9 sentences: category table order, then 未分类; difficulty ascending (none last),
+// newer first on ties; numbering continues across groups.
+const tagged = (id, text, category, difficulty, created_at, extra = {}) => ({
+    id,
+    type: 'sentence',
+    text,
+    translation: `${text} 译`,
+    created_at,
+    detail: { kind: 'sentence', translation: `${text} 译`, category, difficulty, ...extra },
+});
+const sentenceMd = buildMarkdown(
+    [
+        tagged(1, 'EN02 hard.', 'EN02', 2, 100, { difficulty_reason: '主谓被逗号隔开' }),
+        tagged(2, 'EN02 easy old.', 'EN02', 1, 50),
+        tagged(3, 'EN02 easy new.', 'EN02', 1, 200),
+        tagged(4, 'EN02 unrated.', 'EN02', undefined, 300),
+        tagged(5, 'EN01 sentence.', 'en01', 3, 10),
+        tagged(6, '在数字化转型的背景下，企业需要持续投入。', 'ZH02', 2, 10),
+        { id: 7, type: 'sentence', text: 'Google only sentence.', translation: '谷歌译文。', detail: null, created_at: 5 },
+        {
+            id: 8,
+            type: 'sentence',
+            text: 'Legacy sentence.',
+            translation: '旧译文。',
+            created_at: 9,
+            detail: { syntax_breakdown: { main_clause: '旧的长解析\n第二行', clauses_and_modifiers: '' } },
+        },
+        tagged(9, 'Bad tags.', 'EN07', 7, 1),
+    ],
+    now
+);
+const sentenceView = render(sentenceMd);
+assert.deepEqual(nodes(sentenceView.tree, 'heading').map(visibleText).slice(2), [
+    '英文 · 01 定语从句类',
+    '1. EN01 sentence.',
+    '英文 · 02 状语从句类',
+    '2. EN02 easy new.',
+    '3. EN02 easy old.',
+    '4. EN02 hard.',
+    '5. EN02 unrated.',
+    '中文 · 02 长状语阻隔类',
+    '6. 在数字化转型的背景下，企业需要持续投入。',
+    '未分类',
+    '7. Legacy sentence.',
+    '8. Google only sentence.',
+    '9. Bad tags.',
+]);
+assert.ok(sentenceView.text.includes('难度：★★ 主谓被逗号隔开'));
+assert.ok(sentenceView.text.includes('难度：★★★'));
+assert.equal(count(sentenceView.text, '难度：'), 5, 'unrated, legacy, Google and invalid tags show no difficulty');
+// AC7: a Google plain sentence has only its heading, source and translation.
+const section = (markdown, heading) => markdown.slice(markdown.indexOf(heading), markdown.indexOf('---', markdown.indexOf(heading)));
+assert.equal(
+    section(sentenceMd, '#### 8.'),
+    '#### 8. *Google only sentence&#46;*\n\n*Google only sentence&#46;*\n\n> *谷歌译文。*\n\n'
+);
+// Old multi-line trunk stays readable text, and no empty section titles appear.
+const legacySection = section(sentenceMd, '#### 7.');
+assert.ok(legacySection.includes('**核心句型**：旧的长解析  \n第二行'));
+for (const label of ['修饰成分', '语境说明', '重点术语', '例句', '补充说明', '难度', '生词']) {
+    assert.ok(!legacySection.includes(label), label);
+}
 
 // Production save selection feeds export: late supplemented AI replaces one complete
 // Google result on its original row, even when a newer selection is already saved.
@@ -319,6 +425,10 @@ assert.equal(extractJson('抱歉我不能'), null);
 assert.equal(extractJson('{坏掉的}'), null);
 for (const word of ['hello', 'give up', '  book  ']) assert.ok(isWord(word));
 for (const sentence of ['Hello.', 'I love you', '这是一个句子。']) assert.ok(!isWord(sentence));
+// AC8: Chinese has no spaces; punctuation or more than 10 Han characters means a sentence.
+for (const word of ['实现', '画蛇添足', '中华人民共和国', '十个汉字刚好不算句子']) assert.ok(isWord(word), word);
+for (const sentence of ['项目上线后，性能明显提升', '安装、配置', '注意：先备份', '在数字化转型背景下企业需要持续投入'])
+    assert.ok(!isWord(sentence), sentence);
 assert.equal(parseDetail(null), null);
 assert.equal(parseDetail('{oops'), null);
 assert.deepEqual(parseDetail('{"a":1}'), { a: 1 });

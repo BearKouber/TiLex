@@ -34,9 +34,12 @@ function candidate(item) {
     const service = typeof item.key === 'string'
         ? item.key.split('@')[0]
         : item.serviceName ?? item.meta?.serviceName;
+    // Sentence analysis and tags count too (normalizeResult keeps them only when
+    // nonempty); otherwise a plain Google translation listed first would win the tie.
     const supplementedAi = service === 'ai' && detail?.schemaVersion === 1 &&
         (detail.kind === 'word' || detail.kind === 'sentence') &&
-        (detail.examples.length > 0 || detail.notes.length > 0);
+        (detail.examples.length > 0 || detail.notes.length > 0 || ['syntax_breakdown', 'nuance_note',
+            'key_vocabulary', 'category', 'difficulty'].some((field) => field in detail));
     const dictionary = detail && detail.kind !== 'sentence';
     return { translation, detail, priority: supplementedAi ? 0 : dictionary ? 1 : 2 };
 }
@@ -146,6 +149,9 @@ export function entryDisplay(entry) {
         associations,
         examples: detail?.examples ?? [],
         notes: detail?.notes ?? [],
+        category: detail?.category ?? null,
+        difficulty: detail?.difficulty ?? null,
+        difficulty_reason: detail?.difficulty_reason ?? '',
         ...legacyAnalysis(raw),
     };
 }

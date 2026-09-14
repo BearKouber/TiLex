@@ -95,6 +95,15 @@ test('priority trusts the request service and selects one complete candidate', (
     assert.deepEqual(entrySnapshot('source', [ai, google]).detail, sentence);
     assert.deepEqual(entrySnapshot('source', [google, { ...ai, error: 'failed' }]).detail, dictionary);
     assert.deepEqual(entrySnapshot('source', [google, { ...ai, result: { ...sentence, examples: [], notes: [] } }]).detail, dictionary);
+    // An AI sentence with only analysis or tags still beats a plain Google translation listed first.
+    const bare = { ...sentence, examples: [], notes: [] };
+    for (const extra of [{ category: 'EN01' }, { difficulty: 2 }, { nuance_note: 'Tone.' },
+        { syntax_breakdown: { main_clause: 'Main' } }, { key_vocabulary: [{ word: 'term', meaning_in_context: '术语' }] }]) {
+        const result = { ...bare, ...extra };
+        assert.equal(entrySnapshot('source', [{ key: 'google@one', result: 'plain' }, { ...ai, result }]).detail.kind,
+            'sentence', JSON.stringify(extra));
+    }
+    assert.equal(entrySnapshot('source', [{ key: 'google@one', result: 'plain' }, { ...ai, result: bare }]).detail, null);
     assert.deepEqual(entrySnapshot('source', [google, { key: 'plugin@one', result: { ...sentence, serviceName: 'ai' } }]).detail, dictionary);
     assert.deepEqual(entrySnapshot('source', [google, { serviceName: 'ai', result: sentence }]).detail, sentence);
     assert.deepEqual(entrySnapshot('source', [google, { meta: { serviceName: 'ai' }, result: sentence }]).detail, sentence);
@@ -154,6 +163,23 @@ test('legacy analysis remains safe and old word associations recover only from a
     const legacy = { pronunciations: dictionary.pronunciations, explanations: dictionary.explanations };
     assert.deepEqual(entryDisplay({ detail: legacy, translation: resultText(dictionary) }).associations, dictionary.associations);
     assert.deepEqual(entryDisplay({ detail: legacy, translation: 'unrelated translation\nnot a collocation' }).associations, []);
+});
+
+test('sentence tags reach the display; old, plain and word records have empty tags', () => {
+    const tagged = entryDisplay({ translation: 'x', detail: {
+        ...sentence, category: 'en02', difficulty: 2, difficulty_reason: '主谓被逗号隔开',
+    } });
+    assert.equal(tagged.category, 'EN02');
+    assert.equal(tagged.difficulty, 2);
+    assert.equal(tagged.difficulty_reason, '主谓被逗号隔开');
+    const broken = entryDisplay({ translation: 'x', detail: { ...sentence, category: 'EN09', difficulty: 9 } });
+    assert.equal(broken.translation, sentence.translation);
+    for (const detail of [sentence, word, null, '{bad', { syntax_breakdown: { main_clause: 'Old' } }]) {
+        const display = entryDisplay({ translation: 'plain', detail });
+        assert.equal(display.category, null);
+        assert.equal(display.difficulty, null);
+        assert.equal(display.difficulty_reason, '');
+    }
 });
 
 test('deleted saved rows receive updates only and cannot be reinserted by late AI', async () => {
