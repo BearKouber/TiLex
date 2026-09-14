@@ -7,9 +7,10 @@ import { Dropdown } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Button } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
+import { Tooltip } from '@nextui-org/react';
 import React, { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { MdAdd, MdRemove } from 'react-icons/md';
+import { MdAdd, MdErrorOutline, MdRemove } from 'react-icons/md';
 
 import { languageList } from '../../../../utils/language';
 import { useConfig } from '../../../../hooks/useConfig';
@@ -104,6 +105,7 @@ export default function Translate() {
     const [popEnable, setPopEnable] = useConfig('pop_button_enable', false);
     const [popTrigger, setPopTrigger] = useConfig('pop_button_trigger', 'hover');
     const [popExcludeNative, setPopExcludeNative] = useConfig('pop_button_exclude_native', true);
+    const [popForceCopy, setPopForceCopy] = useConfig('pop_button_force_copy', false);
     const [popBlacklist, setPopBlacklist] = useConfig('pop_button_blacklist', '');
     const [popButtonPos, setPopButtonPos] = useConfig('pop_button_pos', POP_BUTTON_POS[0]);
     const [popButtonDistance, setPopButtonDistance, getPopButtonDistance] = useConfig(
@@ -325,6 +327,45 @@ export default function Translate() {
                             >
                                 {SCREENSHOT_POS.map((key) => (
                                     <DropdownItem key={key}>{t(`config.translate.screenshot.${key}`)}</DropdownItem>
+                                ))}
+                            </DropdownMenu>
+                        </Dropdown>
+                    )}
+                </div>
+                <div className='config-item'>
+                    <div className='flex items-center gap-1'>
+                        <h3 className='my-auto mx-0'>{t('config.translate.pop_button.force_copy')}</h3>
+                        <Tooltip
+                            content={
+                                <div className='max-w-[260px] whitespace-pre-line text-small'>
+                                    {t('config.translate.pop_button.force_copy_tip')}
+                                </div>
+                            }
+                        >
+                            <span
+                                tabIndex={0}
+                                aria-label={t('config.translate.pop_button.force_copy')}
+                                className='flex text-default-500'
+                            >
+                                <MdErrorOutline className='text-base' />
+                            </span>
+                        </Tooltip>
+                    </div>
+                    {popForceCopy !== null && (
+                        <Dropdown isDisabled={!popEnable}>
+                            <DropdownTrigger>
+                                <Button variant='bordered'>
+                                    {t(`config.translate.pop_button.${popForceCopy ? 'on' : 'off'}`)}
+                                </Button>
+                            </DropdownTrigger>
+                            <DropdownMenu
+                                aria-label='enhanced selection'
+                                onAction={(key) => {
+                                    setPopForceCopy(key === 'on');
+                                }}
+                            >
+                                {['on', 'off'].map((key) => (
+                                    <DropdownItem key={key}>{t(`config.translate.pop_button.${key}`)}</DropdownItem>
                                 ))}
                             </DropdownMenu>
                         </Dropdown>

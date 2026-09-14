@@ -116,6 +116,8 @@
                     "blacklist": "App Blacklist",
                     "position": "Icon Position",
                     "distance": "Icon Distance",
+                    "force_copy": "Enhanced Selection",
+                    "force_copy_tip": "Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy.",
                     "bottom_left": "Bottom Left of Cursor",
                     "bottom_right": "Bottom Right of Cursor",
                     "top_right": "Top Right of Cursor",

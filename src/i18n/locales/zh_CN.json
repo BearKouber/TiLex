@@ -116,6 +116,8 @@
                     "blacklist": "应用黑名单",
                     "position": "浮标位置",
                     "distance": "浮标距离",
+                    "force_copy": "增强选中识别",
+                    "force_copy_tip": "部分程序（如微信聊天记录）无法直接读取选中文字。开启后，TiLex 会在这些程序中模拟一次复制来获取文字，随后自动恢复剪贴板原有内容。\n注意：剪贴板管理工具和 Win+V 历史中可能会留下这次复制的记录。",
                     "bottom_left": "光标左下",
                     "bottom_right": "光标右下",
                     "top_right": "光标右上",

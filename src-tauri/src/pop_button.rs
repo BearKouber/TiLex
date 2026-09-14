@@ -7,15 +7,21 @@
 // all: a mouse gesture on its own is not evidence, so the button only appears
 // once we are actually holding the selected text.
 //
-// When UIA reads nothing there is one more chance: some apps (terminals, and
-// anything configured to copy on select) put the selection on the clipboard
-// themselves. We listen for that instead of synthesising Ctrl+C, and only
-// accept an update that lands right after a selection gesture. Apps in neither
-// camp get no button - the global selection-translate hotkey still covers them,
-// since that path is allowed to synthesise Ctrl+C.
+// When UIA reads nothing there are two more chances, in this order:
+// 1. Enhanced selection (pop_button_force_copy, off by default): if no element
+//    on either UIA chain has a TextPattern at all - apps that draw their own
+//    text, like WeChat chat bubbles - synthesise one Ctrl+C and restore the
+//    clipboard afterwards. See force_copy.rs for the exact conditions.
+// 2. Some apps (terminals, and anything configured to copy on select) put the
+//    selection on the clipboard themselves. We listen for that, and only accept
+//    an update that lands right after a selection gesture.
+// Apps in none of these camps get no button.
 
 #[path = "pop_button/selection.rs"]
 mod selection;
+#[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+#[path = "pop_button/force_copy.rs"]
+mod force_copy;
 
 // ------------------------------------------------------------------ placement
 //
@@ -307,6 +313,7 @@ mod imp {
         Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer, PendingGesture,
         ReadContext, CLIP_GRACE_MS,
     };
+    use super::force_copy;
     use super::{button_distance, dismissal_limit_squared, distance_squared, place, Rect, Side, DISMISS_DIST};
     use crate::config::get as config_get;
     use crate::APP;
@@ -835,13 +842,33 @@ mod imp {
             return;
         }
         candidates.begin(gesture);
-        let text = uia_selected_text(gesture);
+        let (mut text, saw_text_pattern) = uia_selected_text(gesture);
+        if text.is_empty() && force_copy_allowed(gesture, saw_text_pattern) {
+            text = force_copy::copy_selection(|| gesture.is_current(read_context()));
+        }
+        // Forced-copy text goes in as a UIA answer: the restore has already
+        // moved the clipboard sequence, which the clipboard path would reject.
         let pending = candidates.complete_uia(gesture, text, read_context(), |candidate| {
             offer(display, candidate);
         });
         if let Some(clip) = pending {
             on_clip(candidates, display, clip);
         }
+    }
+
+    // The switch is read first, so with it off nothing else is queried.
+    fn force_copy_allowed(gesture: Gesture, saw_text_pattern: bool) -> bool {
+        let enabled = config_bool("pop_button_force_copy", false);
+        enabled
+            && force_copy::eligible(&force_copy::Inputs {
+                enabled,
+                saw_text_pattern,
+                clipboard_changed: unsafe { GetClipboardSequenceNumber() } != gesture.clipboard_sequence,
+                modifiers_down: force_copy::modifiers_down(),
+                excluded_app: foreground_process_name()
+                    .map_or(false, |name| matches_blacklist(&name, force_copy::NO_FORCE_COPY)),
+            })
+            && gesture.is_current(read_context())
     }
 
     // The app copied its own selection (a terminal, or anything set to copy on
@@ -1139,7 +1166,10 @@ mod imp {
 
     // IUIAutomation is neither Send nor Sync, so the instance lives and dies on
     // whichever thread built it.
-    fn uia_selected_text(gesture: Gesture) -> String {
+    // Returns the selected text, and whether any element on either chain has a
+    // TextPattern. Only "no TextPattern anywhere" lets force copy run, so every
+    // case where we cannot tell reports true.
+    fn uia_selected_text(gesture: Gesture) -> (String, bool) {
         UIA.with(|cell| {
             let mut slot = cell.borrow_mut();
             if slot.is_none() {
@@ -1149,25 +1179,27 @@ mod imp {
                 Some(auto) => unsafe { read_selection(auto, gesture) },
                 None => {
                     error!("PopButton: could not create the UIAutomation instance");
-                    String::new()
+                    (String::new(), true)
                 }
             }
         })
     }
 
-    unsafe fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> String {
+    unsafe fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
         let foreground = HWND(gesture.window as *mut c_void);
         if GetForegroundWindow() != foreground || CURRENT_GESTURE.load(SeqCst) != gesture.id {
-            return String::new();
+            return (String::new(), true);
         }
         let Ok(root) = auto.ElementFromHandle(foreground) else {
             debug!("PopButton: UIA foreground element unavailable");
-            return String::new();
+            return (String::new(), true);
         };
         let Ok(walker) = auto.RawViewWalker() else {
             debug!("PopButton: UIA raw tree walker unavailable");
-            return String::new();
+            return (String::new(), true);
         };
+        // A chain we cannot get or scope to the foreground counts as no pattern.
+        let mut saw_text_pattern = false;
         // A text leaf need not implement TextPattern: its enclosing document
         // often owns the selection. Raw view retains otherwise filtered wrappers.
         // Prefer the gesture location over an unrelated focused input control.
@@ -1186,17 +1218,22 @@ mod imp {
             };
             for (depth, element) in path.into_iter().enumerate() {
                 if GetForegroundWindow() != foreground || CURRENT_GESTURE.load(SeqCst) != gesture.id {
-                    return String::new();
+                    return (String::new(), true);
                 }
-                if let Some(text) = selection_of(Some(element)) {
-                    debug!("PopButton: UIA selection via {} at ancestor depth {} ({} chars)",
-                        source, depth, text.chars().count());
-                    return text;
+                match selection_of(element) {
+                    UiaRead::Text(text) => {
+                        debug!("PopButton: UIA selection via {} at ancestor depth {} ({} chars)",
+                            source, depth, text.chars().count());
+                        return (text, true);
+                    }
+                    UiaRead::EmptySelection => saw_text_pattern = true,
+                    UiaRead::NoPattern => {}
                 }
             }
         }
-        debug!("PopButton: UIA no selected text in foreground ancestor chains");
-        String::new()
+        debug!("PopButton: UIA no selected text in foreground ancestor chains (TextPattern seen: {})",
+            saw_text_pattern);
+        (String::new(), saw_text_pattern)
     }
 
     // Validate the entire chain before reading any selection: matching process
@@ -1221,9 +1258,25 @@ mod imp {
         None
     }
 
-    unsafe fn selection_of(element: Option<IUIAutomationElement>) -> Option<String> {
-        let pattern: IUIAutomationTextPattern =
-            element?.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
+    // A TextPattern with nothing selected is an answer ("nothing selected"),
+    // not the same as an element that cannot report a selection at all.
+    enum UiaRead {
+        Text(String),
+        EmptySelection,
+        NoPattern,
+    }
+
+    unsafe fn selection_of(element: IUIAutomationElement) -> UiaRead {
+        let Ok(pattern) = element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) else {
+            return UiaRead::NoPattern;
+        };
+        match selected_text(&pattern) {
+            Some(text) => UiaRead::Text(text),
+            None => UiaRead::EmptySelection,
+        }
+    }
+
+    unsafe fn selected_text(pattern: &IUIAutomationTextPattern) -> Option<String> {
         let ranges = pattern.GetSelection().ok()?;
         let mut out = String::new();
         for i in 0..ranges.Length().ok()? {
@@ -1501,6 +1554,16 @@ mod imp {
             assert!(!matches_blacklist("code.exe", ""));
             // must not match on a substring
             assert!(!matches_blacklist("vscode.exe", "code"));
+        }
+
+        #[test]
+        fn no_force_copy_list_uses_blacklist_matching() {
+            let list = crate::pop_button::force_copy::NO_FORCE_COPY;
+            for name in ["WindowsTerminal.exe", "mintty.exe", "wezterm-gui.exe", "pwsh.exe", "termius.exe", "explorer.exe"] {
+                assert!(matches_blacklist(name, list), "{name}");
+            }
+            assert!(!matches_blacklist("Weixin.exe", list));
+            assert!(!matches_blacklist("chrome.exe", list));
         }
     }
 }
