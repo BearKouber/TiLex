@@ -141,3 +141,41 @@ pub fn stop_speaking() {
 pub fn system_proxy(url: &str) -> Option<String> {
     imp::system_proxy(url)
 }
+
+/// (x, y) 所在显示器的工作区（物理像素，可为负坐标）和缩放比（DPI / 96）。
+pub fn monitor_at(x: i32, y: i32) -> Option<(geometry::Rect, f32)> {
+    imp::monitor_at(x, y)
+}
+
+/// 把结果浮窗交给平台层（UI 线程调）。应用无边框样式（WS_POPUP / WS_EX_TOOLWINDOW / WS_EX_TOPMOST）、
+/// 设置 Win11 小圆角并初始 DWM cloak 隐藏。
+/// 调用前窗口必须已经 `show()` 过一次；原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。
+pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
+    imp::attach_result_window(window)
+}
+
+/// 在指定的屏幕矩形位置（物理像素）显示结果浮窗（UI 线程调）。
+/// 尚未 attach 时什么都不做。为避免跨 DPI 显示器抖动，内部先移动位置再带尺寸摆放；
+/// 随后解除 cloak、强拉到前台抢焦点。显示前记录当时的前台窗口（若不是浮窗自己），供隐藏时切回原程序。
+pub fn show_result_window(rect: geometry::Rect) {
+    imp::show_result_window(rect)
+}
+
+/// 调整结果浮窗在屏幕上的物理像素矩形位置与尺寸（UI 线程调，内容撑大或拖拽贴边时调）。
+/// 尚未 attach 时什么都不做。仅调整位置尺寸（SWP_NOACTIVATE），不影响当前焦点。
+pub fn move_result_window(rect: geometry::Rect) {
+    imp::move_result_window(rect)
+}
+
+/// 隐藏结果浮窗（UI 线程调，DWM cloak）。
+/// 尚未 attach 时什么都不做。只有当前台仍是浮窗自己时（如 Esc / 叉号关闭），才将焦点还给显示前记录的原窗口；
+/// 若因失焦而隐藏，焦点已在别处，不抢还焦点。
+pub fn hide_result_window() {
+    imp::hide_result_window()
+}
+
+/// 查询结果浮窗当前是否拥有系统前台焦点（UI 线程或计时器调）。
+/// 浮窗尚未 attach 时返回 `None`；拥有焦点返回 `Some(true)`，失去焦点返回 `Some(false)`。
+pub fn result_window_focused() -> Option<bool> {
+    imp::result_window_focused()
+}

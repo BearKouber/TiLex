@@ -26,6 +26,12 @@ use crate::error::Error;
 mod selection;
 pub use selection::{attach_selection_button, engage_selection, start_selection};
 
+mod result_window;
+pub use result_window::{
+    attach_result_window, hide_result_window, monitor_at, move_result_window,
+    result_window_focused, show_result_window,
+};
+
 mod tts;
 pub use tts::{speak, stop_speaking};
 
@@ -133,7 +139,15 @@ pub fn round_corners(window: &slint::Window) -> Result<(), Error> {
 
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
     let hwnd = hwnd(window)?;
-    // SAFETY: hwnd 来自活着的 Slint 窗口；其余调用无指针参数。
+    if force_foreground(hwnd) {
+        Ok(())
+    } else {
+        Err(Error::Platform("SetForegroundWindow refused".into()))
+    }
+}
+
+pub(super) fn force_foreground(hwnd: HWND) -> bool {
+    // SAFETY: hwnd 来自活着的窗口；其余调用无指针参数。
     unsafe {
         if IsIconic(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE); // ignore: 返回值是"之前是否可见"，不是错误
@@ -152,15 +166,11 @@ pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
         if attached {
             let _ = AttachThreadInput(me, fg_thread, false); // ignore: 摘不掉也只是两个输入队列继续共享到对方线程退出
         }
-        if ok {
-            Ok(())
-        } else {
-            Err(Error::Platform("SetForegroundWindow refused".into()))
-        }
+        ok
     }
 }
 
-fn hwnd(window: &slint::Window) -> Result<HWND, Error> {
+pub(super) fn hwnd(window: &slint::Window) -> Result<HWND, Error> {
     let handle = window.window_handle();
     let raw = handle
         .window_handle()

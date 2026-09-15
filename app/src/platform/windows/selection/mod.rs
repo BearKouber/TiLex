@@ -29,9 +29,6 @@ use windows::Win32::Graphics::Dwm::{
     DWM_WINDOW_CORNER_PREFERENCE, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUNDSMALL,
     DwmSetWindowAttribute,
 };
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
@@ -47,14 +44,12 @@ use windows::Win32::UI::Accessibility::{
     CUIAutomation, HWINEVENTHOOK, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
     SetWinEventHook, UIA_TextPatternId,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, VK_ESCAPE};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, EVENT_SYSTEM_FOREGROUND,
-    GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetMessageTime, GetMessageW, GetSystemMetrics,
-    GetWindowLongPtrW, GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST,
-    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetMessageTime, GetMessageW, GetWindowLongPtrW,
+    GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG,
+    MSLLHOOKSTRUCT, RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL,
     WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WINEVENT_OUTOFCONTEXT, WM_CLIPBOARDUPDATE,
     WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
@@ -267,42 +262,9 @@ fn hide_native(owner: u64) {
 /// (x, y) 所在显示器的工作区（不含任务栏），以及那块显示器上浮标的物理边长。
 /// MONITOR_DEFAULTTONEAREST 总会给一个显示器；拿不到信息只是理论上的事，那时退回整个虚拟桌面。
 fn monitor_at(x: i32, y: i32) -> (Rect, i32) {
-    // SAFETY: 结构体按文档初始化 cbSize；无其他指针。
-    unsafe {
-        let monitor = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
-        let (mut dx, mut dy) = (96u32, 96u32);
-        if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy).is_err() {
-            dx = 96;
-        }
-        let px = (BUTTON_LOGICAL * f64::from(dx) / 96.0).round() as i32;
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if GetMonitorInfoW(monitor, &mut info).as_bool() {
-            let r = info.rcWork;
-            return (
-                Rect {
-                    l: r.left,
-                    t: r.top,
-                    r: r.right,
-                    b: r.bottom,
-                },
-                px,
-            );
-        }
-        let (l, t) = (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-        );
-        let virtual_screen = Rect {
-            l,
-            t,
-            r: l + GetSystemMetrics(SM_CXVIRTUALSCREEN),
-            b: t + GetSystemMetrics(SM_CYVIRTUALSCREEN),
-        };
-        (virtual_screen, px)
-    }
+    let (work, scale) = super::result_window::work_area(x, y);
+    let px = (BUTTON_LOGICAL * f64::from(scale)).round() as i32;
+    (work, px)
 }
 
 // ---------------------------------------------------------------- 钩子线程

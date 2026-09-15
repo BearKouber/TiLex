@@ -29,3 +29,12 @@ msgstr "设置文件读不出来，已改名为 {}，现在用的是默认设置
 
 msgid "Could not save settings: {}"
 msgstr "设置保存失败：{}"
+
+msgid "Google"
+msgstr "Google"
+
+msgid "AI"
+msgstr "AI"
+
+msgid "Translating…"
+msgstr "翻译中…"

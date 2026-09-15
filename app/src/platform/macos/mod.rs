@@ -116,3 +116,21 @@ pub fn speak(
 }
 
 pub fn stop_speaking() {}
+
+pub fn monitor_at(_x: i32, _y: i32) -> Option<(super::geometry::Rect, f32)> {
+    None
+}
+
+pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn show_result_window(_rect: super::geometry::Rect) {}
+
+pub fn move_result_window(_rect: super::geometry::Rect) {}
+
+pub fn hide_result_window() {}
+
+pub fn result_window_focused() -> Option<bool> {
+    None
+}

@@ -1,7 +1,6 @@
 //! 划词浮标窗口。启动时建好（D12），在屏幕外 `show()` 一次，拿到原生窗口后交给平台层
 //! （`platform::attach_selection_button`），之后显示、隐藏、位置都由平台层管，这里再也不调它的 `show()`/`hide()`。
 
-use std::cell::Cell;
 use std::time::Duration;
 
 use slint::{CloseRequestResponse, ComponentHandle, PhysicalPosition};
@@ -11,11 +10,6 @@ use crate::logic::config;
 use crate::platform::geometry::Side;
 use crate::platform::{self, EngagedSelection, SelectionSettings};
 use crate::slint_ui::PopButton;
-
-thread_local! {
-    /// 正在建浮标。`ui::select_backend` 装的 winit 属性钩子只在这时加 `with_active(false)`。
-    pub(super) static CREATING: Cell<bool> = const { Cell::new(false) };
-}
 
 /// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词（macOS 在 B6），或监听没起来（已记日志）。
 /// 调用方持有返回值到退出。
@@ -31,9 +25,9 @@ pub fn create() -> Result<Option<PopButton>, Error> {
             return Ok(None);
         }
     }
-    CREATING.set(true);
+    super::CREATING_INACTIVE.set(true);
     let button = PopButton::new();
-    CREATING.set(false);
+    super::CREATING_INACTIVE.set(false);
     let button = button?;
     button.on_hovered(|| engage_if(true));
     button.on_clicked(|| engage_if(false));
@@ -82,30 +76,32 @@ fn settings() -> SelectionSettings {
         enabled: s.enabled,
         blacklist: s.blacklist,
         force_copy: s.force_copy,
-        corner: corner(&s.button_pos),
+        corner: corner(&s.button_pos).unwrap_or((Side::Before, Side::After)),
         gap: s.button_distance.clamp(0, 20) as i32,
     }
 }
 
-fn corner(pos: &str) -> (Side, Side) {
+pub(crate) fn corner(pos: &str) -> Option<(Side, Side)> {
     match pos {
-        "BottomRight" => (Side::After, Side::After),
-        "BottomLeft" => (Side::Before, Side::After),
-        "TopRight" => (Side::After, Side::Before),
-        "TopLeft" => (Side::Before, Side::Before),
-        // 不认识的按配置默认值 BottomLeft
-        _ => (Side::Before, Side::After),
+        "BottomRight" => Some((Side::After, Side::After)),
+        "BottomLeft" => Some((Side::Before, Side::After)),
+        "TopRight" => Some((Side::After, Side::Before)),
+        "TopLeft" => Some((Side::Before, Side::Before)),
+        // 不认识的返回 None，由调用方提供默认值
+        _ => None,
     }
 }
 
 /// 排除母语（`selection.exclude_native`）的挂钩点，在取词 worker 线程上调用；返回 `false` 就不出浮标。
-/// phase C：在这里接 logic 的语种识别（旧版 `is_native_language`：先按书写系统粗判，再用 lingua 细分）。
-/// 现在一律放行。
-fn accept(_text: &str) -> bool {
-    true
+fn accept(text: &str) -> bool {
+    let cfg = config::snapshot();
+    if !cfg.selection.exclude_native {
+        return true;
+    }
+    !crate::logic::lang_detect::is_native_language(text, &cfg.translate.target)
 }
 
-/// 用户悬停/点击了浮标（取词 worker 线程）。phase C 在这里把文字交给结果浮窗。
+/// 用户悬停/点击了浮标（取词 worker 线程）。把文字交给结果浮窗。
 fn engaged(selection: EngagedSelection) {
     log::info!(
         "PopButton: engaged, {} chars, button at ({}, {})",
@@ -113,4 +109,11 @@ fn engaged(selection: EngagedSelection) {
         selection.x,
         selection.y
     );
+    let text = selection.text;
+    let (x, y) = (selection.x, selection.y);
+    if let Err(e) = slint::invoke_from_event_loop(move || {
+        super::pop_result::show(&text, x, y);
+    }) {
+        log::warn!("PopButton: invoke pop_result::show failed: {e}");
+    }
 }

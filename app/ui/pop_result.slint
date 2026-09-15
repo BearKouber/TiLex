@@ -1,0 +1,218 @@
+import { Theme } from "common/theme.slint";
+import { Palette, ScrollView, Spinner } from "std-widgets.slint";
+
+export struct ResultRow {
+    service-id: string,
+    kind: string,
+    label: string,
+    collapsed: bool,
+    loading: bool,
+    text: string,
+    error: string,
+}
+
+export component PopResult inherits Window {
+    title: "TiLex PopResult";
+    no-frame: true;
+    always-on-top: true;
+    width: 320px; // 与 logic::placement::RESULT_WIDTH 一致
+    background: Theme.window-bg;
+    forward-focus: focus-scope;
+
+    in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
+    in property <string> source-text;
+    in property <bool> is-pinned;
+    in property <[ResultRow]> rows;
+
+    callback close-requested();
+    callback pin-toggled();
+    callback drag-started();
+    callback dragged(length, length);
+    callback toggle-collapse(int);
+
+    out property <length> content-height: header.height + 1px + rows-layout.preferred-height;
+
+    focus-scope := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.close-requested();
+                return accept;
+            }
+            reject
+        }
+
+        content-layout := VerticalLayout {
+            // Header
+            header := Rectangle {
+                height: 28px;
+                background: Theme.header-bg;
+
+                header-drag := TouchArea {
+                    moved => {
+                        if self.pressed {
+                            root.dragged(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                        }
+                    }
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                            root.drag-started();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    spacing: 4px;
+                    alignment: space-between;
+
+                    // Close corner (20x20 hit area)
+                    close-box := Rectangle {
+                        width: 20px;
+                        height: 20px;
+
+                        close-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.close-requested();
+                            }
+                        }
+
+                        Image {
+                            source: @image-url("icons/x.svg");
+                            colorize: close-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+                            width: 12px;
+                            height: 12px;
+                            x: 4px;
+                            y: 4px;
+                        }
+                    }
+
+                    // Source text
+                    Text {
+                        text: root.source-text;
+                        overflow: elide;
+                        color: Theme.text-primary;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    // Pin button
+                    pin-box := Rectangle {
+                        width: 20px;
+                        height: 20px;
+
+                        pin-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.pin-toggled();
+                            }
+                        }
+
+                        Image {
+                            source: @image-url("icons/pin.svg");
+                            colorize: root.is-pinned ? Theme.accent : (pin-touch.has-hover ? Theme.text-primary : Theme.text-secondary);
+                            width: 13px;
+                            height: 13px;
+                            x: 3.5px;
+                            y: 3.5px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+
+            // Scrollable content
+            ScrollView {
+                rows-layout := VerticalLayout {
+                    padding: 4px;
+                    spacing: 4px;
+
+                    for row[idx] in root.rows : VerticalLayout {
+                        spacing: 2px;
+
+                        // Service header
+                        row-header := Rectangle {
+                            height: 26px;
+                            border-radius: 4px;
+                            background: row-touch.has-hover ? Theme.hover-bg : Colors.transparent;
+
+                            row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.toggle-collapse(idx);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                alignment: space-between;
+
+                                Text {
+                                    text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
+                                    color: Theme.text-secondary;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Image {
+                                    source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
+                                    colorize: Theme.text-secondary;
+                                    width: 14px;
+                                    height: 14px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Service result / status
+                        if !row.collapsed : Rectangle {
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                padding-top: 2px;
+                                padding-bottom: 6px;
+
+                                if row.loading : HorizontalLayout {
+                                    spacing: 6px;
+                                    Spinner {
+                                        indeterminate: true;
+                                        width: 14px;
+                                        height: 14px;
+                                    }
+                                    Text {
+                                        text: @tr("Translating…");
+                                        color: Theme.text-muted;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                if !row.loading && row.error != "" : Text {
+                                    text: row.error;
+                                    color: Theme.error;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+
+                                if !row.loading && row.error == "" : Text {
+                                    text: row.text;
+                                    color: Theme.text-primary;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
