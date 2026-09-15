@@ -266,22 +266,25 @@ fn write(formats: &[(u32, Vec<u8>)]) -> bool {
     true
 }
 
-fn set(format: u32, bytes: &[u8]) {
+/// 写进剪贴板成功返回 true。恢复旧内容、打标记时失败只能认，不看返回值；用户主动复制要看（`write_text`）。
+fn set(format: u32, bytes: &[u8]) -> bool {
     // SAFETY: 新分配的内存按长度拷贝；SetClipboardData 成功后内存归系统，失败还是我们的，自己释放。
     unsafe {
         let Ok(mem) = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)) else {
-            return;
+            return false;
         };
         let ptr = GlobalLock(mem) as *mut u8;
         if ptr.is_null() {
             let _ = GlobalFree(mem); // ignore: 释放失败只是漏这一块
-            return;
+            return false;
         }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
         let _ = GlobalUnlock(mem); // ignore: 返回值是"还锁着吗"，不是错误
         if SetClipboardData(format, HANDLE(mem.0)).is_err() {
             let _ = GlobalFree(mem); // ignore: 释放失败只是漏这一块
+            return false;
         }
+        true
     }
 }
 
@@ -299,8 +302,8 @@ pub(crate) fn write_text(text: &str) -> bool {
         .chain([0])
         .flat_map(|c| c.to_ne_bytes())
         .collect();
-    set(CF_UNICODETEXT, &bytes);
-    true
+    // 剪贴板已清空，写失败要报出去，不然复制按钮亮绿勾、剪贴板却是空的
+    set(CF_UNICODETEXT, &bytes)
 }
 
 fn send_ctrl_c() -> bool {

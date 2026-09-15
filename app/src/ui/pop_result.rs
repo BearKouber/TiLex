@@ -175,10 +175,11 @@ fn on_focus_changed(focused: bool) {
     }
 }
 
-/// 隐藏结果浮窗并作废在途结果。
+/// 隐藏结果浮窗并作废在途结果；朗读也停，否则看不见的窗口还在出声、没按钮可停。
 pub fn hide() {
     GUARD.with(|g| g.borrow_mut().invalidate());
     translate::invalidate();
+    platform::stop_speaking();
     platform::hide_result_window();
 }
 
