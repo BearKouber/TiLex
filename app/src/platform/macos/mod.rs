@@ -134,3 +134,8 @@ pub fn hide_result_window() {}
 pub fn result_window_focused() -> Option<bool> {
     None
 }
+
+// B6：`pbcopy` 子进程
+pub fn copy_text(_text: &str) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}

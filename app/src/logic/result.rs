@@ -79,6 +79,18 @@ pub fn is_han(c: char) -> bool {
         | 0x20000..=0x2FA1F | 0x30000..=0x323AF)
 }
 
+/// 含汉字（`is_han`）或假名（U+3040–U+30FF）→ `Chinese`，否则 `English`。
+pub fn voice_for(text: &str) -> crate::platform::Voice {
+    if text
+        .chars()
+        .any(|c| is_han(c) || matches!(c as u32, 0x3040..=0x30FF))
+    {
+        crate::platform::Voice::Chinese
+    } else {
+        crate::platform::Voice::English
+    }
+}
+
 /// 词句分流：按空白分词 ≤ 2 且末尾不是句末标点 → 词。
 /// 中文没有空格：带中文逗号/顿号/分号/冒号，或汉字超过 10 个，就算句子。
 pub fn is_word(text: &str) -> bool {
@@ -1090,5 +1102,16 @@ mod tests {
                 (None, None, "")
             );
         }
+    }
+
+    #[test]
+    fn voice_for_matches_script() {
+        use crate::platform::Voice;
+        assert_eq!(voice_for("Hello world"), Voice::English);
+        assert_eq!(voice_for("你好世界"), Voice::Chinese);
+        assert_eq!(voice_for("こんにちは"), Voice::Chinese);
+        assert_eq!(voice_for("カタカナ"), Voice::Chinese);
+        assert_eq!(voice_for("Hello 世界"), Voice::Chinese);
+        assert_eq!(voice_for(""), Voice::English);
     }
 }

@@ -19,8 +19,8 @@ use crate::logic::popup_state::{Blur, BlurGuard};
 use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
-use crate::slint_ui::{PopResult, ResultRow};
-use crate::ui::pop_button;
+use crate::slint_ui::{EntryView, PopResult, ResultRow};
+use crate::ui::{entry_view, pop_button};
 
 thread_local! {
     static POP_RESULT: RefCell<Option<PopResult>> = const { RefCell::new(None) };
@@ -28,6 +28,7 @@ thread_local! {
     static CURRENT_QUERY: RefCell<Option<Query>> = const { RefCell::new(None) };
     static PIN: Cell<Option<Pin>> = const { Cell::new(None) };
     static MODEL: RefCell<Option<Rc<VecModel<ResultRow>>>> = const { RefCell::new(None) };
+    static SPEAK_TOKEN: Cell<u64> = const { Cell::new(0) };
 }
 
 /// 创建结果浮窗并完成初始设置。在屏幕外 show 一次并重试 attach 原生窗口。
@@ -39,6 +40,30 @@ pub fn create() -> Result<(), Error> {
 
     result.on_close_requested(move || {
         hide();
+    });
+
+    let weak_speak = result.as_weak();
+    result.on_speak_clicked(move |key| {
+        let Some(ui) = weak_speak.upgrade() else {
+            return;
+        };
+        handle_speak(&ui, key);
+    });
+
+    let weak_copy = result.as_weak();
+    result.on_copy_clicked(move |key| {
+        let Some(ui) = weak_copy.upgrade() else {
+            return;
+        };
+        handle_copy(&ui, key);
+    });
+
+    let weak_save = result.as_weak();
+    result.on_save_clicked(move |row| {
+        let Some(ui) = weak_save.upgrade() else {
+            return;
+        };
+        handle_save(&ui, row);
     });
 
     let weak_pin = result.as_weak();
@@ -188,6 +213,12 @@ pub fn show(text: &str, x: i32, y: i32) {
 
         ui.set_source_text(query.text.as_str().into());
         ui.set_is_pinned(false);
+        platform::stop_speaking();
+        SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
+        ui.set_speaking_key(-2);
+        ui.set_copied_key(-2);
+        ui.set_saved_row(-1);
+        ui.set_lang_badge("".into());
 
         let row_items: Vec<ResultRow> = query
             .rows
@@ -200,6 +231,7 @@ pub fn show(text: &str, x: i32, y: i32) {
                 loading: true,
                 text: "".into(),
                 error: "".into(),
+                display: EntryView::default(),
             })
             .collect();
         let model = Rc::new(VecModel::from(row_items));
@@ -240,8 +272,13 @@ fn on_translate_update(id: u64, update: Update) {
     }
 
     match update {
-        Update::Detected(_) => {
-            // 本任务忽略语种徽标更新（下个任务做）
+        Update::Detected(code) => {
+            let badge = lang_badge(code);
+            POP_RESULT.with(|r| {
+                if let Some(ui) = r.borrow().as_ref() {
+                    ui.set_lang_badge(badge.into());
+                }
+            });
         }
         Update::Done { row, result } => {
             MODEL.with(|m| {
@@ -254,10 +291,12 @@ fn on_translate_update(id: u64, update: Update) {
                     match result {
                         Ok(shown) => {
                             r.text = shown.text.as_str().into();
+                            r.display = entry_view::to_view(&shown.display, &shown.text);
                             r.error = "".into();
                         }
                         Err(e) => {
                             r.text = "".into();
+                            r.display = EntryView::default();
                             r.error = e.to_string().into();
                         }
                     }
@@ -300,6 +339,135 @@ fn reposition() {
     });
 }
 
+/// 按钮编码对应的文字：`-1` = 原文，`>= 0` = 该行结果。空文字当没有。
+fn text_for(key: i32) -> Option<String> {
+    let text = if key == -1 {
+        CURRENT_QUERY.with(|q| q.borrow().as_ref().map(|query| query.text.clone()))
+    } else {
+        let row = usize::try_from(key).ok()?;
+        MODEL.with(|m| {
+            m.borrow()
+                .as_ref()
+                .and_then(|model| model.row_data(row))
+                .map(|r| r.text.to_string())
+        })
+    };
+    text.filter(|t| !t.is_empty())
+}
+
+fn handle_speak(ui: &PopResult, key: i32) {
+    let Some(text) = text_for(key) else { return };
+
+    let current_key = ui.get_speaking_key();
+    if current_key == key {
+        platform::stop_speaking();
+        SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
+        ui.set_speaking_key(-2);
+    } else {
+        let next_token = SPEAK_TOKEN.with(|t| {
+            let val = t.get().wrapping_add(1);
+            t.set(val);
+            val
+        });
+        let weak_ui = ui.as_weak();
+        let voice = crate::logic::result::voice_for(&text);
+        let res = platform::speak(&text, voice, move || {
+            if let Err(e) = slint::invoke_from_event_loop(move || {
+                let matches_token = SPEAK_TOKEN.with(|t| t.get() == next_token);
+                if matches_token && let Some(ui) = weak_ui.upgrade() {
+                    ui.set_speaking_key(-2);
+                }
+            }) {
+                log::warn!("PopResult: speak done invoke failed: {e}");
+            }
+        });
+        match res {
+            Ok(()) => {
+                ui.set_speaking_key(key);
+            }
+            Err(e) => {
+                log::warn!("PopResult: speak failed: {e}");
+            }
+        }
+    }
+}
+
+fn handle_copy(ui: &PopResult, key: i32) {
+    let Some(text) = text_for(key) else { return };
+
+    match platform::copy_text(&text) {
+        Ok(()) => {
+            ui.set_copied_key(key);
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(Duration::from_millis(1500), move || {
+                if let Some(ui) = weak.upgrade()
+                    && ui.get_copied_key() == key
+                {
+                    ui.set_copied_key(-2);
+                }
+            });
+        }
+        Err(e) => {
+            log::warn!("PopResult: copy text failed: {e}");
+        }
+    }
+}
+
+fn handle_save(ui: &PopResult, row: i32) {
+    if row < 0 {
+        return;
+    }
+    let row_idx = row as usize;
+    let weak_ui = ui.as_weak();
+    CURRENT_QUERY.with(|q| {
+        let binding = q.borrow();
+        let Some(query) = binding.as_ref() else {
+            return;
+        };
+        let query_id = query.id;
+        query.save(Some(row_idx), move |ok| {
+            let weak = weak_ui.clone();
+            if let Err(e) = slint::invoke_from_event_loop(move || {
+                let is_current = CURRENT_QUERY
+                    .with(|q| q.borrow().as_ref().is_some_and(|cur| cur.id == query_id));
+                if !is_current {
+                    return;
+                }
+                let Some(ui) = weak.upgrade() else { return };
+                if ok {
+                    ui.set_saved_row(row);
+                } else {
+                    log::warn!("PopResult: save to wordbook failed");
+                    if ui.get_saved_row() == row {
+                        ui.set_saved_row(-1);
+                    }
+                }
+            }) {
+                log::warn!("PopResult: save invoke from event loop failed: {e}");
+            }
+        });
+    });
+}
+
+/// 语种识别代码转徽标文字。
+/// `zh_cn`→中、`zh_tw`→繁、`en`→英、`ja`→日、`ko`→韩；
+/// 其他取 `_` 前的部分转大写（`fr`→FR、`pt_pt`→PT）；`None`（检测失败）→ 空，不伪造徽标。
+fn lang_badge(code: Option<&str>) -> String {
+    match code {
+        None => String::new(),
+        Some("zh_cn") => "中".into(),
+        Some("zh_tw") => "繁".into(),
+        Some("en") => "英".into(),
+        Some("ja") => "日".into(),
+        Some("ko") => "韩".into(),
+        Some(other) => other
+            .split('_')
+            .next()
+            .unwrap_or(other)
+            .to_ascii_uppercase(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +491,17 @@ mod tests {
             Some((Side::Before, Side::Before))
         );
         assert_eq!(pop_button::corner("unknown"), None);
+    }
+
+    #[test]
+    fn lang_badge_mapping() {
+        assert_eq!(lang_badge(Some("zh_cn")), "中");
+        assert_eq!(lang_badge(Some("zh_tw")), "繁");
+        assert_eq!(lang_badge(Some("en")), "英");
+        assert_eq!(lang_badge(Some("ja")), "日");
+        assert_eq!(lang_badge(Some("ko")), "韩");
+        assert_eq!(lang_badge(Some("fr")), "FR");
+        assert_eq!(lang_badge(Some("pt_pt")), "PT");
+        assert_eq!(lang_badge(None), "");
     }
 }

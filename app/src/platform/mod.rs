@@ -179,3 +179,8 @@ pub fn hide_result_window() {
 pub fn result_window_focused() -> Option<bool> {
     imp::result_window_focused()
 }
+
+/// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。
+pub fn copy_text(text: &str) -> Result<(), Error> {
+    imp::copy_text(text)
+}

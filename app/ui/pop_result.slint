@@ -1,3 +1,4 @@
+import { EntryBody, EntryView } from "common/entry_view.slint";
 import { Theme } from "common/theme.slint";
 import { Palette, ScrollView, Spinner } from "std-widgets.slint";
 
@@ -9,6 +10,38 @@ export struct ResultRow {
     loading: bool,
     text: string,
     error: string,
+    display: EntryView,
+}
+
+// 20×20 热区的图标按钮：常显，平时淡色、悬停变深，active 时换 active-icon / active-color。
+component IconButton {
+    in property <image> icon;
+    in property <image> active-icon: root.icon;
+    in property <bool> active;
+    in property <color> active-color;
+    in property <string> label;
+    callback clicked();
+
+    width: 20px;
+    height: 20px;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Image {
+        source: root.active ? root.active-icon : root.icon;
+        colorize: root.active ? root.active-color : (touch.has-hover ? Theme.text-primary : Theme.text-muted);
+        width: 14px;
+        height: 14px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
 }
 
 export component PopResult inherits Window {
@@ -23,12 +56,19 @@ export component PopResult inherits Window {
     in property <string> source-text;
     in property <bool> is-pinned;
     in property <[ResultRow]> rows;
+    in property <string> lang-badge: "";
+    in property <int> speaking-key: -2;
+    in property <int> copied-key: -2;
+    in property <int> saved-row: -1;
 
     callback close-requested();
     callback pin-toggled();
     callback drag-started();
     callback dragged(length, length);
     callback toggle-collapse(int);
+    callback speak-clicked(int);
+    callback copy-clicked(int);
+    callback save-clicked(int);
 
     out property <length> content-height: header.height + 1px + rows-layout.preferred-height;
 
@@ -88,6 +128,15 @@ export component PopResult inherits Window {
                         }
                     }
 
+                    // Language badge (12px, accent, only when not empty)
+                    if root.lang-badge != "" : Text {
+                        text: root.lang-badge;
+                        color: Theme.accent;
+                        font-size: 12px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
                     // Source text
                     Text {
                         text: root.source-text;
@@ -96,6 +145,33 @@ export component PopResult inherits Window {
                         font-size: 12px;
                         vertical-alignment: center;
                         horizontal-stretch: 1;
+                    }
+
+                    // Source actions: Speak & Copy (only when source-text != "")
+                    if root.source-text != "" : HorizontalLayout {
+                        spacing: 2px;
+
+                        IconButton {
+                            icon: @image-url("icons/volume-2.svg");
+                            active-icon: @image-url("icons/square.svg");
+                            active: root.speaking-key == -1;
+                            active-color: Theme.accent;
+                            label: self.active ? @tr("Stop") : @tr("Speak");
+                            clicked => {
+                                root.speak-clicked(-1);
+                            }
+                        }
+
+                        IconButton {
+                            icon: @image-url("icons/copy.svg");
+                            active-icon: @image-url("icons/check.svg");
+                            active: root.copied-key == -1;
+                            active-color: Theme.success;
+                            label: @tr("Copy");
+                            clicked => {
+                                root.copy-clicked(-1);
+                            }
+                        }
                     }
 
                     // Pin button
@@ -152,8 +228,18 @@ export component PopResult inherits Window {
                             HorizontalLayout {
                                 padding-left: 6px;
                                 padding-right: 6px;
-                                alignment: space-between;
+                                spacing: 4px;
 
+                                // 折叠箭头（左）
+                                Image {
+                                    source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
+                                    colorize: Theme.text-secondary;
+                                    width: 14px;
+                                    height: 14px;
+                                    vertical-alignment: center;
+                                }
+
+                                // 服务名
                                 Text {
                                     text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
                                     color: Theme.text-secondary;
@@ -162,12 +248,46 @@ export component PopResult inherits Window {
                                     vertical-alignment: center;
                                 }
 
-                                Image {
-                                    source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                                    colorize: Theme.text-secondary;
-                                    width: 14px;
-                                    height: 14px;
-                                    vertical-alignment: center;
+                                // 弹性空白
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+
+                                // 朗读、复制、收藏（右）
+                                if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
+                                    spacing: 2px;
+
+                                    IconButton {
+                                        icon: @image-url("icons/volume-2.svg");
+                                        active-icon: @image-url("icons/square.svg");
+                                        active: root.speaking-key == idx;
+                                        active-color: Theme.accent;
+                                        label: self.active ? @tr("Stop") : @tr("Speak");
+                                        clicked => {
+                                            root.speak-clicked(idx);
+                                        }
+                                    }
+
+                                    IconButton {
+                                        icon: @image-url("icons/copy.svg");
+                                        active-icon: @image-url("icons/check.svg");
+                                        active: root.copied-key == idx;
+                                        active-color: Theme.success;
+                                        label: @tr("Copy");
+                                        clicked => {
+                                            root.copy-clicked(idx);
+                                        }
+                                    }
+
+                                    IconButton {
+                                        icon: @image-url("icons/star.svg");
+                                        active: root.saved-row == idx;
+                                        active-color: Theme.gold;
+                                        label: @tr("Add to wordbook");
+                                        clicked => {
+                                            root.save-clicked(idx);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -202,11 +322,9 @@ export component PopResult inherits Window {
                                     wrap: word-wrap;
                                 }
 
-                                if !row.loading && row.error == "" : Text {
-                                    text: row.text;
-                                    color: Theme.text-primary;
-                                    font-size: 13px;
-                                    wrap: word-wrap;
+                                if !row.loading && row.error == "" : EntryBody {
+                                    entry: row.display;
+                                    horizontal-stretch: 1;
                                 }
                             }
                         }

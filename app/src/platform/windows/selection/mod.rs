@@ -13,6 +13,7 @@
 //! 因为 winit 在 Slint show/hide 时会整个重写窗口样式（B1 实测，见 platform-windows.md）。
 
 mod force_copy;
+pub(crate) use force_copy::write_text;
 mod state;
 
 use std::cell::{Cell, RefCell};

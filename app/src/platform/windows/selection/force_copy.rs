@@ -285,6 +285,24 @@ fn set(format: u32, bytes: &[u8]) {
     }
 }
 
+/// 将文本写入系统剪贴板（CF_UNICODETEXT），不加排除历史标记（用户主动复制进入历史）。
+pub(crate) fn write_text(text: &str) -> bool {
+    let Some(_open) = open() else {
+        return false;
+    };
+    // SAFETY: open() 成功保证剪贴板已打开。
+    if unsafe { EmptyClipboard() }.is_err() {
+        return false;
+    }
+    let bytes: Vec<u8> = text
+        .encode_utf16()
+        .chain([0])
+        .flat_map(|c| c.to_ne_bytes())
+        .collect();
+    set(CF_UNICODETEXT, &bytes);
+    true
+}
+
 fn send_ctrl_c() -> bool {
     let key = |vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS| INPUT {
         r#type: INPUT_KEYBOARD,
@@ -445,6 +463,17 @@ mod tests {
         assert!(!before.restore(copied));
         assert_eq!(read_text().unwrap(), "user copy");
 
+        let now = unsafe { GetClipboardSequenceNumber() };
+        assert!(original.restore(now));
+    }
+
+    #[test]
+    #[ignore]
+    fn write_text_round_trip() {
+        let original = Snapshot::take().expect("take the user's clipboard");
+        let sample = "Hello 世界 🚀 TiLex 测试";
+        assert!(write_text(sample));
+        assert_eq!(read_text().as_deref(), Some(sample));
         let now = unsafe { GetClipboardSequenceNumber() };
         assert!(original.restore(now));
     }

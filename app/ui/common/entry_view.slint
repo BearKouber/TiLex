@@ -1,0 +1,171 @@
+import { Theme } from "theme.slint";
+
+export struct EntryExplain {
+    part: string,
+    text: string,
+}
+
+export struct EntryExample {
+    text: string,
+    translation: string,
+}
+
+export struct EntryVocab {
+    word: string,
+    meaning: string,
+}
+
+export struct EntryView {
+    pronunciations: string,
+    translation: string,
+    explanations: [EntryExplain],
+    associations: string,
+    examples: [EntryExample],
+    notes: [string],
+    main-clause: string,
+    clauses: string,
+    nuance: string,
+    vocabulary: [EntryVocab],
+}
+
+export component EntryBody {
+    in property <EntryView> entry;
+
+    VerticalLayout {
+        spacing: 6px;
+
+        // 1. 音标：11px，次要色
+        if root.entry.pronunciations != "" : Text {
+            text: root.entry.pronunciations;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // 2. 主译文：13px，主文字色
+        if root.entry.translation != "" : Text {
+            text: root.entry.translation;
+            font-size: 13px;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+
+        // 3. 释义：每条一行，词性（10px，淡色，有才显示）+ 释义文字（13px）
+        if root.entry.explanations.length > 0 : VerticalLayout {
+            spacing: 2px;
+            for item in root.entry.explanations : HorizontalLayout {
+                spacing: 6px;
+                if item.part != "" : Text {
+                    text: item.part;
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: top;
+                }
+                Text {
+                    text: item.text;
+                    font-size: 13px;
+                    color: Theme.text-primary;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
+        // 4. 联想词：11px，次要色
+        if root.entry.associations != "" : Text {
+            text: root.entry.associations;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // 5. 例句：标题 @tr("Examples")（11px，次要色，加粗）；每条原句 13px + 译句 13px 次要色
+        if root.entry.examples.length > 0 : VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: @tr("Examples");
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+            for example in root.entry.examples : VerticalLayout {
+                spacing: 2px;
+                if example.text != "" : Text {
+                    text: example.text;
+                    font-size: 13px;
+                    color: Theme.text-primary;
+                    wrap: word-wrap;
+                }
+                if example.translation != "" : Text {
+                    text: example.translation;
+                    font-size: 13px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // 6. 备注：标题 @tr("Notes")；每条一段 13px
+        if root.entry.notes.length > 0 : VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: @tr("Notes");
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+            for note in root.entry.notes : Text {
+                text: note;
+                font-size: 13px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+        }
+
+        // 7. 长难句结构：主干 13px，从句修饰 13px 次要色
+        if root.entry.main-clause != "" || root.entry.clauses != "" : VerticalLayout {
+            spacing: 2px;
+            if root.entry.main-clause != "" : Text {
+                text: root.entry.main-clause;
+                font-size: 13px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+            if root.entry.clauses != "" : Text {
+                text: root.entry.clauses;
+                font-size: 13px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+        }
+
+        // 8. 语气说明：13px
+        if root.entry.nuance != "" : Text {
+            text: root.entry.nuance;
+            font-size: 13px;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+
+        // 9. 关键词：每条一行，词 13px 加粗 + 空格 + 含义 13px 次要色
+        if root.entry.vocabulary.length > 0 : VerticalLayout {
+            spacing: 2px;
+            for item in root.entry.vocabulary : HorizontalLayout {
+                spacing: 4px;
+                Text {
+                    text: item.word;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+                if item.meaning != "" : Text {
+                    text: item.meaning;
+                    font-size: 13px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}

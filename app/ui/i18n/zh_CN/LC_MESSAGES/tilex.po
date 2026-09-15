@@ -38,3 +38,21 @@ msgstr "AI"
 
 msgid "Translating…"
 msgstr "翻译中…"
+
+msgid "Speak"
+msgstr "朗读"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Add to wordbook"
+msgstr "添加至生词本"
+
+msgid "Examples"
+msgstr "例句"
+
+msgid "Notes"
+msgstr "备注"

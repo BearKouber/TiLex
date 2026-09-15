@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use tilex::error::Error;
-use tilex::logic::config;
+use tilex::logic::{config, wordbook};
 use tilex::{logger, platform, ui};
 
 fn main() {
@@ -36,6 +36,9 @@ fn run() -> Result<(), Error> {
         env!("CARGO_PKG_VERSION")
     );
     let backup = config::init(&data)?;
+    if let Err(e) = wordbook::init(&data) {
+        log::error!("Main: wordbook init failed: {e}");
+    }
 
     ui::select_backend()?;
     // 托盘必须先建：它是第一个 Slint 组件，建完才有事件循环和翻译上下文。
