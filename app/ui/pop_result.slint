@@ -20,10 +20,12 @@ component IconButton {
     in property <bool> active;
     in property <color> active-color;
     in property <string> label;
+    in property <bool> reveal: true;
     callback clicked();
 
     width: 20px;
     height: 20px;
+    opacity: (root.reveal || root.active || touch.has-hover) ? 1 : 0;
 
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -69,8 +71,13 @@ export component PopResult inherits Window {
     callback speak-clicked(int);
     callback copy-clicked(int);
     callback save-clicked(int);
+    callback content-height-changed();
 
-    out property <length> content-height: header.height + 1px + rows-layout.preferred-height;
+    out property <length> content-height: header.height + rows-layout.preferred-height;
+
+    changed content-height => {
+        root.content-height-changed();
+    }
 
     focus-scope := FocusScope {
         key-pressed(event) => {
@@ -84,8 +91,8 @@ export component PopResult inherits Window {
         content-layout := VerticalLayout {
             // Header
             header := Rectangle {
-                height: 28px;
-                background: Theme.header-bg;
+                height: 24px;
+                background: Theme.window-bg;
 
                 header-drag := TouchArea {
                     moved => {
@@ -98,115 +105,112 @@ export component PopResult inherits Window {
                             root.drag-started();
                         }
                     }
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 4px;
+
+                        // Close corner (20x20 hit area)
+                        close-box := Rectangle {
+                            width: 20px;
+                            height: 20px;
+
+                            close-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.close-requested();
+                                }
+                            }
+
+                            Image {
+                                source: @image-url("icons/x.svg");
+                                colorize: close-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+                                width: 12px;
+                                height: 12px;
+                                x: 4px;
+                                y: 4px;
+                            }
+                        }
+
+                        // Language badge (12px, accent, only when not empty)
+                        if root.lang-badge != "" : Text {
+                            text: root.lang-badge;
+                            color: Theme.accent;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+
+                        // Source text
+                        Text {
+                            text: root.source-text;
+                            wrap: no-wrap;
+                            overflow: elide;
+                            color: Theme.text-primary;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+
+                        // Source actions: Speak & Copy (only when source-text != "")
+                        if root.source-text != "" : HorizontalLayout {
+                            spacing: 2px;
+
+                            IconButton {
+                                icon: @image-url("icons/volume-2.svg");
+                                active-icon: @image-url("icons/square.svg");
+                                active: root.speaking-key == -1;
+                                active-color: Theme.accent;
+                                label: self.active ? @tr("Stop") : @tr("Speak");
+                                reveal: header-drag.has-hover;
+                                clicked => {
+                                    root.speak-clicked(-1);
+                                }
+                            }
+
+                            IconButton {
+                                icon: @image-url("icons/copy.svg");
+                                active-icon: @image-url("icons/check.svg");
+                                active: root.copied-key == -1;
+                                active-color: Theme.success;
+                                label: @tr("Copy");
+                                reveal: header-drag.has-hover;
+                                clicked => {
+                                    root.copy-clicked(-1);
+                                }
+                            }
+                        }
+
+                        // Pin button
+                        pin-box := Rectangle {
+                            width: 20px;
+                            height: 20px;
+
+                            pin-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.pin-toggled();
+                                }
+                            }
+
+                            Image {
+                                source: @image-url("icons/pin.svg");
+                                colorize: root.is-pinned ? Theme.accent : (pin-touch.has-hover ? Theme.text-primary : Theme.text-secondary);
+                                width: 13px;
+                                height: 13px;
+                                x: 3.5px;
+                                y: 3.5px;
+                            }
+                        }
+                    }
                 }
-
-                HorizontalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    spacing: 4px;
-                    alignment: space-between;
-
-                    // Close corner (20x20 hit area)
-                    close-box := Rectangle {
-                        width: 20px;
-                        height: 20px;
-
-                        close-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.close-requested();
-                            }
-                        }
-
-                        Image {
-                            source: @image-url("icons/x.svg");
-                            colorize: close-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-                            width: 12px;
-                            height: 12px;
-                            x: 4px;
-                            y: 4px;
-                        }
-                    }
-
-                    // Language badge (12px, accent, only when not empty)
-                    if root.lang-badge != "" : Text {
-                        text: root.lang-badge;
-                        color: Theme.accent;
-                        font-size: 12px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-
-                    // Source text
-                    Text {
-                        text: root.source-text;
-                        overflow: elide;
-                        color: Theme.text-primary;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-
-                    // Source actions: Speak & Copy (only when source-text != "")
-                    if root.source-text != "" : HorizontalLayout {
-                        spacing: 2px;
-
-                        IconButton {
-                            icon: @image-url("icons/volume-2.svg");
-                            active-icon: @image-url("icons/square.svg");
-                            active: root.speaking-key == -1;
-                            active-color: Theme.accent;
-                            label: self.active ? @tr("Stop") : @tr("Speak");
-                            clicked => {
-                                root.speak-clicked(-1);
-                            }
-                        }
-
-                        IconButton {
-                            icon: @image-url("icons/copy.svg");
-                            active-icon: @image-url("icons/check.svg");
-                            active: root.copied-key == -1;
-                            active-color: Theme.success;
-                            label: @tr("Copy");
-                            clicked => {
-                                root.copy-clicked(-1);
-                            }
-                        }
-                    }
-
-                    // Pin button
-                    pin-box := Rectangle {
-                        width: 20px;
-                        height: 20px;
-
-                        pin-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.pin-toggled();
-                            }
-                        }
-
-                        Image {
-                            source: @image-url("icons/pin.svg");
-                            colorize: root.is-pinned ? Theme.accent : (pin-touch.has-hover ? Theme.text-primary : Theme.text-secondary);
-                            width: 13px;
-                            height: 13px;
-                            x: 3.5px;
-                            y: 3.5px;
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                height: 1px;
-                background: Theme.divider;
             }
 
             // Scrollable content
             ScrollView {
                 rows-layout := VerticalLayout {
-                    padding: 4px;
+                    padding-bottom: 4px;
                     spacing: 4px;
 
                     for row[idx] in root.rows : VerticalLayout {
@@ -214,78 +218,79 @@ export component PopResult inherits Window {
 
                         // Service header
                         row-header := Rectangle {
-                            height: 26px;
-                            border-radius: 4px;
-                            background: row-touch.has-hover ? Theme.hover-bg : Colors.transparent;
+                            height: 22px;
 
                             row-touch := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
                                     root.toggle-collapse(idx);
                                 }
-                            }
 
-                            HorizontalLayout {
-                                padding-left: 6px;
-                                padding-right: 6px;
-                                spacing: 4px;
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 4px;
 
-                                // 折叠箭头（左）
-                                Image {
-                                    source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                                    colorize: Theme.text-secondary;
-                                    width: 14px;
-                                    height: 14px;
-                                    vertical-alignment: center;
-                                }
-
-                                // 服务名
-                                Text {
-                                    text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
-                                    color: Theme.text-secondary;
-                                    font-size: 12px;
-                                    font-weight: 600;
-                                    vertical-alignment: center;
-                                }
-
-                                // 弹性空白
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                }
-
-                                // 朗读、复制、收藏（右）
-                                if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
-                                    spacing: 2px;
-
-                                    IconButton {
-                                        icon: @image-url("icons/volume-2.svg");
-                                        active-icon: @image-url("icons/square.svg");
-                                        active: root.speaking-key == idx;
-                                        active-color: Theme.accent;
-                                        label: self.active ? @tr("Stop") : @tr("Speak");
-                                        clicked => {
-                                            root.speak-clicked(idx);
-                                        }
+                                    // 折叠箭头（左）
+                                    Image {
+                                        source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
+                                        colorize: Theme.text-secondary;
+                                        width: 12px;
+                                        height: 12px;
+                                        vertical-alignment: center;
                                     }
 
-                                    IconButton {
-                                        icon: @image-url("icons/copy.svg");
-                                        active-icon: @image-url("icons/check.svg");
-                                        active: root.copied-key == idx;
-                                        active-color: Theme.success;
-                                        label: @tr("Copy");
-                                        clicked => {
-                                            root.copy-clicked(idx);
-                                        }
+                                    // 服务名
+                                    Text {
+                                        text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
+                                        color: Theme.text-muted;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
                                     }
 
-                                    IconButton {
-                                        icon: @image-url("icons/star.svg");
-                                        active: root.saved-row == idx;
-                                        active-color: Theme.gold;
-                                        label: @tr("Add to wordbook");
-                                        clicked => {
-                                            root.save-clicked(idx);
+                                    // 弹性空白
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                    }
+
+                                    // 朗读、复制、收藏（右）
+                                    if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
+                                        spacing: 2px;
+
+                                        IconButton {
+                                            icon: @image-url("icons/volume-2.svg");
+                                            active-icon: @image-url("icons/square.svg");
+                                            active: root.speaking-key == idx;
+                                            active-color: Theme.accent;
+                                            label: self.active ? @tr("Stop") : @tr("Speak");
+                                            reveal: row-touch.has-hover;
+                                            clicked => {
+                                                root.speak-clicked(idx);
+                                            }
+                                        }
+
+                                        IconButton {
+                                            icon: @image-url("icons/copy.svg");
+                                            active-icon: @image-url("icons/check.svg");
+                                            active: root.copied-key == idx;
+                                            active-color: Theme.success;
+                                            label: @tr("Copy");
+                                            reveal: row-touch.has-hover;
+                                            clicked => {
+                                                root.copy-clicked(idx);
+                                            }
+                                        }
+
+                                        IconButton {
+                                            icon: @image-url("icons/star.svg");
+                                            active-icon: @image-url("icons/check.svg");
+                                            active: root.saved-row == idx;
+                                            active-color: Theme.success;
+                                            label: self.active ? @tr("Saved to wordbook") : @tr("Add to wordbook");
+                                            reveal: row-touch.has-hover;
+                                            clicked => {
+                                                root.save-clicked(idx);
+                                            }
                                         }
                                     }
                                 }

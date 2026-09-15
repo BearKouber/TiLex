@@ -42,6 +42,10 @@ pub fn create() -> Result<(), Error> {
         hide();
     });
 
+    result.on_content_height_changed(|| {
+        reposition();
+    });
+
     let weak_speak = result.as_weak();
     result.on_speak_clicked(move |key| {
         let Some(ui) = weak_speak.upgrade() else {
@@ -105,7 +109,6 @@ pub fn create() -> Result<(), Error> {
             if let Some(mut row) = model.row_data(idx) {
                 row.collapsed = !row.collapsed;
                 model.set_row_data(idx, row);
-                reposition();
             }
         });
     });
@@ -211,7 +214,8 @@ pub fn show(text: &str, x: i32, y: i32) {
             }
         });
 
-        ui.set_source_text(query.text.as_str().into());
+        let single_line_source = query.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        ui.set_source_text(single_line_source.as_str().into());
         ui.set_is_pinned(false);
         platform::stop_speaking();
         SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
@@ -303,7 +307,6 @@ fn on_translate_update(id: u64, update: Update) {
                     model.set_row_data(row, r);
                 }
             });
-            reposition();
         }
     }
 }
@@ -414,7 +417,7 @@ fn handle_copy(ui: &PopResult, key: i32) {
 }
 
 fn handle_save(ui: &PopResult, row: i32) {
-    if row < 0 {
+    if row < 0 || ui.get_saved_row() == row {
         return;
     }
     let row_idx = row as usize;

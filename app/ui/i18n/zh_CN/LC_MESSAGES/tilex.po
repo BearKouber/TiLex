@@ -51,6 +51,9 @@ msgstr "复制"
 msgid "Add to wordbook"
 msgstr "添加至生词本"
 
+msgid "Saved to wordbook"
+msgstr "已收藏"
+
 msgid "Examples"
 msgstr "例句"
 
