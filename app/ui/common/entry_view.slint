@@ -55,13 +55,20 @@ export component EntryBody {
             spacing: 2px;
             for item in root.entry.explanations : HorizontalLayout {
                 spacing: 6px;
-                if item.part != "" : Text {
-                    text: item.part;
-                    font-size: 10px;
-                    color: Theme.text-muted;
-                    vertical-alignment: top;
+                // 词性和释义字号不同，布局只能顶对齐；按字体 ascent 下移，让两者基线对齐
+                if item.part != "" : Rectangle {
+                    width: part.preferred-width;
+                    part := Text {
+                        x: 0;
+                        y: meaning.font-metrics.ascent - self.font-metrics.ascent;
+                        width: self.preferred-width;
+                        height: self.preferred-height;
+                        text: item.part;
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                    }
                 }
-                Text {
+                meaning := Text {
                     text: item.text;
                     font-size: 13px;
                     color: Theme.text-primary;

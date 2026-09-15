@@ -1,6 +1,7 @@
 import { EntryBody, EntryView } from "common/entry_view.slint";
+import { LoadingDots } from "common/loading_dots.slint";
 import { Theme } from "common/theme.slint";
-import { Palette, ScrollView, Spinner } from "std-widgets.slint";
+import { Palette, ScrollView } from "std-widgets.slint";
 
 export struct ResultRow {
     service-id: string,
@@ -13,7 +14,7 @@ export struct ResultRow {
     display: EntryView,
 }
 
-// 20×20 热区的图标按钮：常显，平时淡色、悬停变深，active 时换 active-icon / active-color。
+// 16×16 热区、12px 图标的按钮：平时淡色、悬停变深，active 时换 active-icon / active-color。
 component IconButton {
     in property <image> icon;
     in property <image> active-icon: root.icon;
@@ -23,8 +24,8 @@ component IconButton {
     in property <bool> reveal: true;
     callback clicked();
 
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     opacity: (root.reveal || root.active || touch.has-hover) ? 1 : 0;
 
     touch := TouchArea {
@@ -39,8 +40,8 @@ component IconButton {
     Image {
         source: root.active ? root.active-icon : root.icon;
         colorize: root.active ? root.active-color : (touch.has-hover ? Theme.text-primary : Theme.text-muted);
-        width: 14px;
-        height: 14px;
+        width: 12px;
+        height: 12px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
     }
@@ -106,10 +107,13 @@ export component PopResult inherits Window {
                         }
                     }
 
+                    // 布局默认 stretch 会把定高的按钮顶到上沿，要显式居中。
+                    // 右边距 6 + 按钮热区内 2 = 图标离右边 8（旧版 px-[8px]），服务行同理
                     HorizontalLayout {
                         padding-left: 8px;
-                        padding-right: 8px;
+                        padding-right: 6px;
                         spacing: 4px;
+                        cross-axis-alignment: center;
 
                         // Close corner (20x20 hit area)
                         close-box := Rectangle {
@@ -133,31 +137,28 @@ export component PopResult inherits Window {
                             }
                         }
 
-                        // Language badge (12px, accent, only when not empty)
+                        // 语种徽标：主题色六成透明度、不加粗（旧版 text-primary/60）
                         if root.lang-badge != "" : Text {
                             text: root.lang-badge;
-                            color: Theme.accent;
-                            font-size: 12px;
-                            font-weight: 600;
+                            color: Theme.accent.with-alpha(0.6);
+                            font-size: 11px;
                             vertical-alignment: center;
                         }
 
-                        // Source text
+                        // 原文：11px 淡灰（旧版顶栏 text-[11px] text-default-400）
                         Text {
                             text: root.source-text;
                             wrap: no-wrap;
                             overflow: elide;
-                            color: Theme.text-primary;
-                            font-size: 12px;
+                            color: Theme.text-muted;
+                            font-size: 11px;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
                         }
 
-                        // Source actions: Speak & Copy (only when source-text != "")
-                        if root.source-text != "" : HorizontalLayout {
-                            spacing: 2px;
-
-                            IconButton {
+                        // 右侧按钮挨着排：16px 热区里 12px 图标，间距 0 时图标之间正好 4px（旧版 gap-[4px]）
+                        HorizontalLayout {
+                            if root.source-text != "" : IconButton {
                                 icon: @image-url("icons/volume-2.svg");
                                 active-icon: @image-url("icons/square.svg");
                                 active: root.speaking-key == -1;
@@ -169,7 +170,7 @@ export component PopResult inherits Window {
                                 }
                             }
 
-                            IconButton {
+                            if root.source-text != "" : IconButton {
                                 icon: @image-url("icons/copy.svg");
                                 active-icon: @image-url("icons/check.svg");
                                 active: root.copied-key == -1;
@@ -180,27 +181,17 @@ export component PopResult inherits Window {
                                     root.copy-clicked(-1);
                                 }
                             }
-                        }
 
-                        // Pin button
-                        pin-box := Rectangle {
-                            width: 20px;
-                            height: 20px;
-
-                            pin-touch := TouchArea {
-                                mouse-cursor: pointer;
+                            // 钉子：常显，旧版的斜钉子，钉住实心。和服务行按钮同一个 IconButton，列才对得齐
+                            IconButton {
+                                icon: @image-url("icons/pin-angle.svg");
+                                active-icon: @image-url("icons/pin-angle-fill.svg");
+                                active: root.is-pinned;
+                                active-color: Theme.accent;
+                                label: self.active ? @tr("Unpin") : @tr("Pin");
                                 clicked => {
                                     root.pin-toggled();
                                 }
-                            }
-
-                            Image {
-                                source: @image-url("icons/pin.svg");
-                                colorize: root.is-pinned ? Theme.accent : (pin-touch.has-hover ? Theme.text-primary : Theme.text-secondary);
-                                width: 13px;
-                                height: 13px;
-                                x: 3.5px;
-                                y: 3.5px;
                             }
                         }
                     }
@@ -228,8 +219,9 @@ export component PopResult inherits Window {
 
                                 HorizontalLayout {
                                     padding-left: 8px;
-                                    padding-right: 8px;
+                                    padding-right: 6px;
                                     spacing: 4px;
+                                    cross-axis-alignment: center;
 
                                     // 折叠箭头（左）
                                     Image {
@@ -237,7 +229,6 @@ export component PopResult inherits Window {
                                         colorize: Theme.text-secondary;
                                         width: 12px;
                                         height: 12px;
-                                        vertical-alignment: center;
                                     }
 
                                     // 服务名
@@ -255,8 +246,6 @@ export component PopResult inherits Window {
 
                                     // 朗读、复制、收藏（右）
                                     if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
-                                        spacing: 2px;
-
                                         IconButton {
                                             icon: @image-url("icons/volume-2.svg");
                                             active-icon: @image-url("icons/square.svg");
@@ -305,20 +294,7 @@ export component PopResult inherits Window {
                                 padding-top: 2px;
                                 padding-bottom: 6px;
 
-                                if row.loading : HorizontalLayout {
-                                    spacing: 6px;
-                                    Spinner {
-                                        indeterminate: true;
-                                        width: 14px;
-                                        height: 14px;
-                                    }
-                                    Text {
-                                        text: @tr("Translating…");
-                                        color: Theme.text-muted;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                }
+                                if row.loading : LoadingDots { }
 
                                 if !row.loading && row.error != "" : Text {
                                     text: row.error;

@@ -1,0 +1,30 @@
+import { Theme } from "theme.slint";
+
+// 旧版 react-spinners PulseLoader：三点依次缩小再放大，0.75 秒一周期，每点错开 0.12 秒。
+// animation-tick() 每帧重画，只许在加载中存在（if loading: LoadingDots {}），结果一到就销毁（ui.md §4）。
+export component LoadingDots {
+    in property <length> dot: 4px;
+
+    HorizontalLayout {
+        spacing: 2px;
+
+        for i in 3 : Rectangle {
+            width: root.dot;
+            height: root.dot;
+            // 本点在周期里的位置 0..1；+1 让错开后的值不为负
+            property <float> t: Math.mod(animation-tick() / 750ms - i * 0.16 + 1, 1);
+            // 关键帧：0% 原大 → 45% 缩到 0.1 → 80% 回原大；透明度 1 → 0.7 → 1
+            property <float> k: self.t < 0.45 ? self.t / 0.45 : (self.t < 0.8 ? 1 - (self.t - 0.45) / 0.35 : 0);
+
+            Rectangle {
+                width: root.dot * (1 - 0.9 * parent.k);
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: self.width / 2;
+                background: Theme.text-muted;
+                opacity: 1 - 0.3 * parent.k;
+            }
+        }
+    }
+}

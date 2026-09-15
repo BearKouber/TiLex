@@ -36,11 +36,14 @@ msgstr "Google"
 msgid "AI"
 msgstr "AI"
 
-msgid "Translating…"
-msgstr "翻译中…"
-
 msgid "Speak"
 msgstr "朗读"
+
+msgid "Pin"
+msgstr "钉住浮窗"
+
+msgid "Unpin"
+msgstr "取消钉住"
 
 msgid "Stop"
 msgstr "停止"

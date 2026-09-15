@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUNDSMALL,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
@@ -82,8 +82,8 @@ pub fn monitor_at(x: i32, y: i32) -> Option<(Rect, f32)> {
 pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     let h = super::hwnd(window)?;
     apply_styles(h);
-    // Win11 小圆角
-    let pref = DWMWCP_ROUNDSMALL;
+    // Win11 标准圆角（8px；小圆角 4px 看着像普通窗口，B1 手测）
+    let pref = DWMWCP_ROUND;
     // SAFETY: h 是活着的窗口；pref 在调用期间有效，长度与类型一致。
     if let Err(e) = unsafe {
         DwmSetWindowAttribute(
