@@ -1,20 +1,19 @@
 //! 设置窗口（B0 是渲染验证页 + 界面语言）。打开时创建，关闭即销毁（design §1.4）。
-//! 圆角验证窗口（阶段 A）跟着设置窗口一起开、一起销毁。
 
 use std::cell::RefCell;
 use std::path::Path;
 use std::time::Duration;
 
+use slint::winit_030::WinitWindowAccessor;
 use slint::{CloseRequestResponse, ComponentHandle};
 
 use crate::error::Error;
 use crate::logic::config::{self, LANGUAGES};
 use crate::platform;
-use crate::slint_ui::{RenderCheck, RoundCheck};
+use crate::slint_ui::RenderCheck;
 
 struct Settings {
     page: RenderCheck,
-    round: RoundCheck,
 }
 
 thread_local! {
@@ -75,47 +74,70 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
             select_language(&page, index);
         }
     });
+
+    let weak_drag = page.as_weak();
+    page.on_drag_requested(move || {
+        if let Some(page) = weak_drag.upgrade() {
+            match page.window().with_winit_window(|w| w.drag_window()) {
+                Some(Err(e)) => log::warn!("Settings: drag_window failed: {e}"),
+                None => log::warn!("Settings: drag_window: winit window not available"),
+                _ => {}
+            }
+        }
+    });
+
+    let weak_close = page.as_weak();
+    page.on_close_clicked(move || {
+        if let Some(page) = weak_close.upgrade() {
+            schedule_close(&page);
+        }
+    });
+
     page.window().on_close_requested(|| {
-        // 不能在窗口自己的回调里销毁它：排到下一轮事件循环再 drop。
+        // Alt+F4 / 任务栏关闭：返回 HideWindow 由 Slint 隐藏，再排到下一轮 drop。
         slint::Timer::single_shot(Duration::ZERO, close);
         CloseRequestResponse::HideWindow
     });
-    page.show()?;
 
-    let round = RoundCheck::new()?;
-    round.show()?;
-    round_when_ready(round.as_weak(), 1);
-    Ok(Settings { page, round })
+    page.show()?;
+    style_when_ready(page.as_weak(), 1);
+
+    Ok(Settings { page })
 }
 
-/// 等原生窗口建好再设圆角。
+/// 等原生窗口建好再应用平台无边框外框样式（Win11 圆角 + 窗口阴影）。
 /// 事件循环已经在跑时 show() 的窗口，winit 要到之后的某一轮才真正建 HWND：
 /// 当场取句柄、`invoke_from_event_loop` 排队都太早（报 "underlying handle cannot be represented"）。
 /// 所以用 Timer 每 10ms 试一次（实测第一次 tick 就成功），最多 50 次；窗口先被关掉就停。
-fn round_when_ready(weak: slint::Weak<RoundCheck>, attempt: u32) {
+fn style_when_ready(weak: slint::Weak<RenderCheck>, attempt: u32) {
     const MAX_ATTEMPTS: u32 = 50;
     slint::Timer::single_shot(Duration::from_millis(10), move || {
-        let Some(round) = weak.upgrade() else { return };
-        match platform::round_corners(round.window()) {
-            Ok(()) => round.set_status(format!("DWM 圆角：已设置（第 {attempt} 次）").into()),
+        let Some(page) = weak.upgrade() else { return };
+        match platform::style_frameless_window(page.window()) {
+            Ok(()) => log::info!("Settings: styled frameless window (attempt {attempt})"),
             Err(e) if attempt >= MAX_ATTEMPTS => {
-                log::warn!("Settings: round corners failed after {attempt} tries: {e}");
-                round.set_status(format!("圆角未生效：{e}").into());
+                log::warn!("Settings: style frameless window failed after {attempt} tries: {e}");
             }
-            Err(_) => round_when_ready(weak, attempt + 1),
+            Err(_) => style_when_ready(weak, attempt + 1),
         }
     });
+}
+
+/// 关闭 = 销毁（design §1.4）。不能在窗口自己的回调里 drop：先隐藏（Slint 在窗口可见期间自己持有组件，
+/// 不隐藏 drop 不掉），排到下一轮事件循环再 drop。
+fn schedule_close(page: &RenderCheck) {
+    if let Err(e) = page.hide() {
+        log::warn!("Settings: hide window failed: {e}");
+    }
+    slint::Timer::single_shot(Duration::ZERO, close);
 }
 
 fn close() {
     let Some(settings) = SETTINGS.take() else {
         return;
     };
-    // Slint 在窗口可见期间自己持有组件，必须先 hide，drop 才真正释放。page 已经被关闭请求隐藏。
-    if let Err(e) = settings.round.hide() {
-        log::warn!("Settings: hide round-corner window failed: {e}");
-    }
-    drop(settings);
+    drop(settings); // 已经隐藏过（关闭请求返回 HideWindow，或 schedule_close）
+
     log::info!("Settings: closed");
 }
 

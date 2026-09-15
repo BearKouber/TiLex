@@ -1,5 +1,6 @@
 // 划词浮标。启动时在屏幕外 show() 一次，之后显示/隐藏、位置、大小全由平台层用 Win32 管，
 // Rust 再也不调它的 show()/hide()（platform-windows.md）。
+import { Theme } from "common/theme.slint";
 
 export component PopButton inherits Window {
     // 不显示给用户（不进任务栏），只给调试时 EnumWindows 认。
@@ -13,8 +14,7 @@ export component PopButton inherits Window {
     // 每次显示前翻转 repaint-tick 产生微小颜色差异促使 Slint 重画整窗，避免变成透明空框。
     // 以后 Slint 若提供整窗强制重绘接口时换掉。
     in property <bool> repaint-tick;
-    // 两种主题下都是固定的蓝：18px 上做随主题变化的样式只会糊成一团灰（沿用旧版）。
-    background: root.repaint-tick ? #d5e1fa : #d5e1fb;
+    background: root.repaint-tick ? Theme.pop-button-bg : Theme.pop-button-bg.brighter(0.01);
 
     callback hovered();
     callback clicked();
@@ -28,7 +28,7 @@ export component PopButton inherits Window {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: "M4 5h7 M9 3v2c0 4.418 -2.239 8 -5 8 M5 9c0 2.144 2.952 3.908 6.7 4 M12 20l4 -9l4 9 M19.1 18h-6.2";
-        stroke: #4a7dfc;
+        stroke: Theme.pop-button-icon;
         stroke-width: 1px;
         stroke-line-cap: round;
     }

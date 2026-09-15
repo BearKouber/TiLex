@@ -86,6 +86,16 @@ pub fn round_corners(_window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
+// 系统画边框，不用改。
+pub fn set_border_color(_window: &slint::Window, _color: slint::Color) -> Result<(), Error> {
+    Ok(())
+}
+
+/// macOS 设置窗口在 B6 使用系统标题栏，无需自绘外框与阴影，此处为空操作。
+pub fn style_frameless_window(_window: &slint::Window) -> Result<(), Error> {
+    Ok(())
+}
+
 // ponytail: B6 用 NSApp activate 实现；现在调用方只记日志，设置窗口照常打开。
 pub fn bring_to_front(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)

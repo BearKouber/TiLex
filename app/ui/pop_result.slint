@@ -39,7 +39,7 @@ component IconButton {
 
     Image {
         source: root.active ? root.active-icon : root.icon;
-        colorize: root.active ? root.active-color : (touch.has-hover ? Theme.text-primary : Theme.text-muted);
+        colorize: root.active ? root.active-color : (touch.has-hover ? Theme.icon-muted-hover : Theme.icon-muted);
         width: 12px;
         height: 12px;
         x: (parent.width - self.width) / 2;
@@ -52,7 +52,7 @@ export component PopResult inherits Window {
     no-frame: true;
     always-on-top: true;
     width: 320px; // 与 logic::placement::RESULT_WIDTH 一致
-    background: Theme.window-bg;
+    background: Theme.content1;
     forward-focus: focus-scope;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
@@ -63,6 +63,8 @@ export component PopResult inherits Window {
     in property <int> speaking-key: -2;
     in property <int> copied-key: -2;
     in property <int> saved-row: -1;
+    // 鼠标在浮窗里移动超过 24px 后为真（Rust 按 winit 光标事件算，每次显示复位），之后左上角红三角才生效。
+    in property <bool> close-armed;
 
     callback close-requested();
     callback pin-toggled();
@@ -93,7 +95,7 @@ export component PopResult inherits Window {
             // Header
             header := Rectangle {
                 height: 24px;
-                background: Theme.window-bg;
+                background: Theme.content1;
 
                 header-drag := TouchArea {
                     moved => {
@@ -115,32 +117,10 @@ export component PopResult inherits Window {
                         spacing: 4px;
                         cross-axis-alignment: center;
 
-                        // Close corner (20x20 hit area)
-                        close-box := Rectangle {
-                            width: 20px;
-                            height: 20px;
-
-                            close-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.close-requested();
-                                }
-                            }
-
-                            Image {
-                                source: @image-url("icons/x.svg");
-                                colorize: close-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-                                width: 12px;
-                                height: 12px;
-                                x: 4px;
-                                y: 4px;
-                            }
-                        }
-
                         // 语种徽标：主题色六成透明度、不加粗（旧版 text-primary/60）
                         if root.lang-badge != "" : Text {
                             text: root.lang-badge;
-                            color: Theme.accent.with-alpha(0.6);
+                            color: Theme.primary.with-alpha(0.6);
                             font-size: 11px;
                             vertical-alignment: center;
                         }
@@ -150,7 +130,7 @@ export component PopResult inherits Window {
                             text: root.source-text;
                             wrap: no-wrap;
                             overflow: elide;
-                            color: Theme.text-muted;
+                            color: Theme.default-400;
                             font-size: 11px;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
@@ -162,7 +142,7 @@ export component PopResult inherits Window {
                                 icon: @image-url("icons/volume-2.svg");
                                 active-icon: @image-url("icons/square.svg");
                                 active: root.speaking-key == -1;
-                                active-color: Theme.accent;
+                                active-color: Theme.icon-active;
                                 label: self.active ? @tr("Stop") : @tr("Speak");
                                 reveal: header-drag.has-hover;
                                 clicked => {
@@ -174,7 +154,7 @@ export component PopResult inherits Window {
                                 icon: @image-url("icons/copy.svg");
                                 active-icon: @image-url("icons/check.svg");
                                 active: root.copied-key == -1;
-                                active-color: Theme.success;
+                                active-color: Theme.icon-done;
                                 label: @tr("Copy");
                                 reveal: header-drag.has-hover;
                                 clicked => {
@@ -187,7 +167,7 @@ export component PopResult inherits Window {
                                 icon: @image-url("icons/pin-angle.svg");
                                 active-icon: @image-url("icons/pin-angle-fill.svg");
                                 active: root.is-pinned;
-                                active-color: Theme.accent;
+                                active-color: Theme.icon-active;
                                 label: self.active ? @tr("Unpin") : @tr("Pin");
                                 clicked => {
                                     root.pin-toggled();
@@ -209,7 +189,7 @@ export component PopResult inherits Window {
 
                         // Service header
                         row-header := Rectangle {
-                            height: 22px;
+                            height: 20px;
 
                             row-touch := TouchArea {
                                 mouse-cursor: pointer;
@@ -220,13 +200,13 @@ export component PopResult inherits Window {
                                 HorizontalLayout {
                                     padding-left: 8px;
                                     padding-right: 6px;
-                                    spacing: 4px;
+                                    spacing: 2px;
                                     cross-axis-alignment: center;
 
                                     // 折叠箭头（左）
                                     Image {
                                         source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                                        colorize: Theme.text-secondary;
+                                        colorize: Theme.icon-muted;
                                         width: 12px;
                                         height: 12px;
                                     }
@@ -234,8 +214,8 @@ export component PopResult inherits Window {
                                     // 服务名
                                     Text {
                                         text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
-                                        color: Theme.text-muted;
-                                        font-size: 11px;
+                                        color: Theme.default-400;
+                                        font-size: 10px;
                                         vertical-alignment: center;
                                     }
 
@@ -250,7 +230,7 @@ export component PopResult inherits Window {
                                             icon: @image-url("icons/volume-2.svg");
                                             active-icon: @image-url("icons/square.svg");
                                             active: root.speaking-key == idx;
-                                            active-color: Theme.accent;
+                                            active-color: Theme.icon-active;
                                             label: self.active ? @tr("Stop") : @tr("Speak");
                                             reveal: row-touch.has-hover;
                                             clicked => {
@@ -262,7 +242,7 @@ export component PopResult inherits Window {
                                             icon: @image-url("icons/copy.svg");
                                             active-icon: @image-url("icons/check.svg");
                                             active: root.copied-key == idx;
-                                            active-color: Theme.success;
+                                            active-color: Theme.icon-done;
                                             label: @tr("Copy");
                                             reveal: row-touch.has-hover;
                                             clicked => {
@@ -274,7 +254,7 @@ export component PopResult inherits Window {
                                             icon: @image-url("icons/star.svg");
                                             active-icon: @image-url("icons/check.svg");
                                             active: root.saved-row == idx;
-                                            active-color: Theme.success;
+                                            active-color: Theme.icon-done;
                                             label: self.active ? @tr("Saved to wordbook") : @tr("Add to wordbook");
                                             reveal: row-touch.has-hover;
                                             clicked => {
@@ -298,7 +278,7 @@ export component PopResult inherits Window {
 
                                 if !row.loading && row.error != "" : Text {
                                     text: row.error;
-                                    color: Theme.error;
+                                    color: Theme.danger;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -312,6 +292,36 @@ export component PopResult inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    // 左上角红三角（旧版 PopResult:328-343）：close-armed 之后，悬停或点击即关闭。放在最后才盖在顶栏上面。
+    corner := TouchArea {
+        x: 0;
+        y: 0;
+        width: 10px;
+        height: 10px;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: @tr("Close");
+        changed has-hover => {
+            if self.has-hover && root.close-armed {
+                root.close-requested();
+            }
+        }
+        clicked => {
+            if root.close-armed {
+                root.close-requested();
+            }
+        }
+
+        Path {
+            width: 100%;
+            height: 100%;
+            viewbox-width: 10;
+            viewbox-height: 10;
+            commands: "M0 0 L10 0 L0 10 Z";
+            fill: corner.has-hover ? Theme.danger.darker(0.2) : Theme.danger;
         }
     }
 }

@@ -59,6 +59,18 @@ pub fn round_corners(window: &slint::Window) -> Result<(), Error> {
     imp::round_corners(window)
 }
 
+/// 设置窗口边框的颜色（Win11 DWM 画的那 1px）。Win10 不支持，返回错误由调用方决定是否记日志。
+/// 原生窗口必须已经存在，否则返回 `Error::Platform`。
+pub fn set_border_color(window: &slint::Window, color: slint::Color) -> Result<(), Error> {
+    imp::set_border_color(window, color)
+}
+
+/// 给无边框窗口应用平台原生外框样式（Win11 DWM 圆角 + 窗口阴影）。
+/// 原生窗口未建好时返回 `Error::Platform`，调用方应使用 Timer 重试。
+pub fn style_frameless_window(window: &slint::Window) -> Result<(), Error> {
+    imp::style_frameless_window(window)
+}
+
 /// 把已经显示的窗口拉到最前面并激活（最小化的先还原）。`show()` 对已显示的窗口什么都不做，
 /// 而 Windows 的前台锁会静默拒绝后台进程的 `SetForegroundWindow`，所以要走平台层。
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {

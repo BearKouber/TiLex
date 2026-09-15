@@ -1,0 +1,58 @@
+// 组件展示页（ui.md §13 A3）：cargo run --example ui_gallery。只用于开发手测，不进发布包（main.rs 不引用它）。
+import { Theme } from "common/theme.slint";
+import { Palette, ScrollView } from "std-widgets.slint";
+import { GalleryGroup1 } from "gallery/group1.slint";
+import { GalleryGroup2 } from "gallery/group2.slint";
+import { GalleryGroup3 } from "gallery/group3.slint";
+
+export component Gallery inherits Window {
+    title: "TiLex UI Gallery";
+    preferred-width: 960px;
+    preferred-height: 720px;
+    background: Theme.background;
+
+    VerticalLayout {
+        Rectangle {
+            height: 40px;
+            background: Theme.content3;
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+                alignment: start;
+
+                theme-touch := TouchArea {
+                    width: 140px;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Palette.color-scheme = Theme.dark ? ColorScheme.light : ColorScheme.dark;
+                    }
+
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: Theme.default-base;
+                        border-radius: 8px;
+                        background: theme-touch.has-hover ? Theme.default-100 : Theme.content1;
+
+                        Text {
+                            text: Theme.dark ? "暗色（点击切到亮色）" : "亮色（点击切到暗色）";
+                            color: Theme.foreground;
+                            font-size: 12px;
+                        }
+                    }
+                }
+            }
+        }
+
+        ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 32px;
+
+                GalleryGroup1 { }
+                GalleryGroup2 { }
+                GalleryGroup3 { }
+            }
+        }
+    }
+}

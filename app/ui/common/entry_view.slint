@@ -38,7 +38,7 @@ export component EntryBody {
         if root.entry.pronunciations != "" : Text {
             text: root.entry.pronunciations;
             font-size: 11px;
-            color: Theme.text-secondary;
+            color: Theme.default-500;
             wrap: word-wrap;
         }
 
@@ -46,7 +46,7 @@ export component EntryBody {
         if root.entry.translation != "" : Text {
             text: root.entry.translation;
             font-size: 13px;
-            color: Theme.text-primary;
+            color: Theme.foreground;
             wrap: word-wrap;
         }
 
@@ -65,13 +65,13 @@ export component EntryBody {
                         height: self.preferred-height;
                         text: item.part;
                         font-size: 10px;
-                        color: Theme.text-muted;
+                        color: Theme.default-400;
                     }
                 }
                 meaning := Text {
                     text: item.text;
                     font-size: 13px;
-                    color: Theme.text-primary;
+                    color: Theme.foreground;
                     wrap: word-wrap;
                     horizontal-stretch: 1;
                 }
@@ -82,7 +82,7 @@ export component EntryBody {
         if root.entry.associations != "" : Text {
             text: root.entry.associations;
             font-size: 11px;
-            color: Theme.text-secondary;
+            color: Theme.default-500;
             wrap: word-wrap;
         }
 
@@ -93,20 +93,20 @@ export component EntryBody {
                 text: @tr("Examples");
                 font-size: 11px;
                 font-weight: 600;
-                color: Theme.text-secondary;
+                color: Theme.default-500;
             }
             for example in root.entry.examples : VerticalLayout {
                 spacing: 2px;
                 if example.text != "" : Text {
                     text: example.text;
                     font-size: 13px;
-                    color: Theme.text-primary;
+                    color: Theme.foreground;
                     wrap: word-wrap;
                 }
                 if example.translation != "" : Text {
                     text: example.translation;
                     font-size: 13px;
-                    color: Theme.text-secondary;
+                    color: Theme.default-500;
                     wrap: word-wrap;
                 }
             }
@@ -119,12 +119,12 @@ export component EntryBody {
                 text: @tr("Notes");
                 font-size: 11px;
                 font-weight: 600;
-                color: Theme.text-secondary;
+                color: Theme.default-500;
             }
             for note in root.entry.notes : Text {
                 text: note;
                 font-size: 13px;
-                color: Theme.text-primary;
+                color: Theme.foreground;
                 wrap: word-wrap;
             }
         }
@@ -135,13 +135,13 @@ export component EntryBody {
             if root.entry.main-clause != "" : Text {
                 text: root.entry.main-clause;
                 font-size: 13px;
-                color: Theme.text-primary;
+                color: Theme.foreground;
                 wrap: word-wrap;
             }
             if root.entry.clauses != "" : Text {
                 text: root.entry.clauses;
                 font-size: 13px;
-                color: Theme.text-secondary;
+                color: Theme.default-500;
                 wrap: word-wrap;
             }
         }
@@ -150,7 +150,7 @@ export component EntryBody {
         if root.entry.nuance != "" : Text {
             text: root.entry.nuance;
             font-size: 13px;
-            color: Theme.text-primary;
+            color: Theme.foreground;
             wrap: word-wrap;
         }
 
@@ -163,12 +163,12 @@ export component EntryBody {
                     text: item.word;
                     font-size: 13px;
                     font-weight: 600;
-                    color: Theme.text-primary;
+                    color: Theme.foreground;
                 }
                 if item.meaning != "" : Text {
                     text: item.meaning;
                     font-size: 13px;
-                    color: Theme.text-secondary;
+                    color: Theme.default-500;
                     wrap: word-wrap;
                     horizontal-stretch: 1;
                 }

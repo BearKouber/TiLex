@@ -62,3 +62,15 @@ msgstr "例句"
 
 msgid "Notes"
 msgstr "备注"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Show password"
+msgstr "显示密码"
+
+msgid "Hide password"
+msgstr "隐藏密码"
+
+msgid "Clear"
+msgstr "清除"

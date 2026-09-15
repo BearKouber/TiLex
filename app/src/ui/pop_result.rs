@@ -19,7 +19,7 @@ use crate::logic::popup_state::{Blur, BlurGuard};
 use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
-use crate::slint_ui::{EntryView, PopResult, ResultRow};
+use crate::slint_ui::{EntryView, PopResult, ResultRow, Theme};
 use crate::ui::{entry_view, pop_button};
 
 thread_local! {
@@ -29,7 +29,12 @@ thread_local! {
     static PIN: Cell<Option<Pin>> = const { Cell::new(None) };
     static MODEL: RefCell<Option<Rc<VecModel<ResultRow>>>> = const { RefCell::new(None) };
     static SPEAK_TOKEN: Cell<u64> = const { Cell::new(0) };
+    /// 这次显示后第一个光标位置（物理像素），红三角的起算点；`None` = 还没动过。
+    static ARM_ORIGIN: Cell<Option<(f64, f64)>> = const { Cell::new(None) };
 }
+
+/// 鼠标离起算点超过这么远（逻辑像素）红三角才生效，防止浮窗刚出现在光标下就被碰掉（旧版 `ARM_PX`）。
+const ARM_PX: f64 = 24.0;
 
 /// 创建结果浮窗并完成初始设置。在屏幕外 show 一次并重试 attach 原生窗口。
 pub fn create() -> Result<(), Error> {
@@ -119,9 +124,11 @@ pub fn create() -> Result<(), Error> {
         CloseRequestResponse::KeepWindowShown
     });
 
-    result.window().on_winit_window_event(|_window, event| {
-        if let WindowEvent::Focused(focused) = event {
-            on_focus_changed(*focused);
+    result.window().on_winit_window_event(|window, event| {
+        match event {
+            WindowEvent::Focused(focused) => on_focus_changed(*focused),
+            WindowEvent::CursorMoved { position, .. } => arm_close(window, position.x, position.y),
+            _ => {}
         }
         slint::winit_030::EventResult::Propagate
     });
@@ -149,6 +156,21 @@ fn attach_when_ready(weak: slint::Weak<PopResult>, attempt: u32) {
             Err(_) => attach_when_ready(weak, attempt + 1),
         }
     });
+}
+
+/// 光标在浮窗里移动（物理像素）。离这次显示后的第一个位置超过 `ARM_PX` 就让红三角生效。
+fn arm_close(window: &slint::Window, x: f64, y: f64) {
+    let Some((ox, oy)) = ARM_ORIGIN.get() else {
+        ARM_ORIGIN.set(Some((x, y)));
+        return;
+    };
+    if (x - ox).hypot(y - oy) > ARM_PX * f64::from(window.scale_factor()) {
+        POP_RESULT.with_borrow(|r| {
+            if let Some(ui) = r.as_ref().filter(|ui| !ui.get_close_armed()) {
+                ui.set_close_armed(true);
+            }
+        });
+    }
 }
 
 fn on_focus_changed(focused: bool) {
@@ -206,6 +228,12 @@ pub fn show(text: &str, x: i32, y: i32) {
             },
         };
         ui.set_color_scheme(scheme);
+        // 边框跟主题走（ui.md §3）；Win10 不支持，照常显示
+        if let Err(e) =
+            platform::set_border_color(ui.window(), ui.global::<Theme>().get_default_200())
+        {
+            log::debug!("PopResult: border color not set: {e}");
+        }
 
         let query = translate::start(text, move |id, update| {
             if let Err(e) = slint::invoke_from_event_loop(move || {
@@ -224,6 +252,8 @@ pub fn show(text: &str, x: i32, y: i32) {
         ui.set_copied_key(-2);
         ui.set_saved_row(-1);
         ui.set_lang_badge("".into());
+        ui.set_close_armed(false);
+        ARM_ORIGIN.set(None);
 
         let row_items: Vec<ResultRow> = query
             .rows

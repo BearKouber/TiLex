@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Duration;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use slint::winit_030::WinitWindowAccessor;
+use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use windows::Win32::Foundation::{HANDLE, HWND, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
 };
 use windows::Win32::System::Threading::{
@@ -143,6 +145,41 @@ pub fn round_corners(window: &slint::Window) -> Result<(), Error> {
         )
     }
     .map_err(|e| Error::Platform(format!("DWM corner preference: {e}")))
+}
+
+pub fn set_border_color(window: &slint::Window, color: slint::Color) -> Result<(), Error> {
+    let hwnd = hwnd(window)?;
+    // COLORREF 是 0x00BBGGRR
+    let rgb =
+        u32::from(color.red()) | u32::from(color.green()) << 8 | u32::from(color.blue()) << 16;
+    // SAFETY: hwnd 来自活着的 Slint 窗口；rgb 在调用期间有效，长度与类型一致。
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            (&raw const rgb).cast::<c_void>(),
+            size_of::<u32>() as u32,
+        )
+    }
+    .map_err(|e| Error::Platform(format!("DWM border color: {e}")))
+}
+
+/// 给无边框设置窗口应用 Win11 圆角和窗口阴影。
+/// 原生窗口未就绪时返回 `Error::Platform`（调用方通过 Timer 重试）。
+pub fn style_frameless_window(window: &slint::Window) -> Result<(), Error> {
+    // 阴影：winit undecorated shadow
+    window
+        .with_winit_window(|w| {
+            w.set_undecorated_shadow(true);
+        })
+        .ok_or_else(|| Error::Platform("winit window not ready".into()))?;
+
+    // 圆角：Win11 DWM 圆角；Win10 返回错误只 log::info!，不算整体失败
+    if let Err(e) = round_corners(window) {
+        log::info!("Settings: round corners skipped or unsupported: {e}");
+    }
+
+    Ok(())
 }
 
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {

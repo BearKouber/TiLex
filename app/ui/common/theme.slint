@@ -1,21 +1,46 @@
+// 视觉 token（父任务 ui.md §1）。组件里不写颜色字面量，只引用这里。
+// 名字沿用旧版 NextUI 的，方便对照旧版 className（text-default-400 → Theme.default-400）。
 import { Palette } from "std-widgets.slint";
 
 export global Theme {
     out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+    // 彩色图标案例（ui.md §13 A6）用，还没接到任何图标上。
+    in property <bool> colorful-icons;
 
-    out property <color> window-bg: dark ? #202020 : #ffffff;
-    out property <color> card-bg: dark ? #2d2d30 : #ffffff;
-    out property <color> header-bg: dark ? #252526 : #f3f3f3;
-    out property <color> border: dark ? #3c3c3c : #e5e5e5;
-    out property <color> hover-bg: dark ? #333333 : #f0f0f0;
-    out property <color> pressed-bg: dark ? #3e3e3e : #e5e5e5;
+    out property <color> background: dark ? #0f0f10 : #f7f8fa;
+    out property <color> foreground: dark ? #e4e4e7 : #18181b;
+    out property <color> content1: dark ? #18181b : #ffffff;
+    out property <color> content2: dark ? #1f1f23 : #fafbfc;
+    out property <color> content3: dark ? #27272a : #f1f2f4;
+    out property <color> default-base: dark ? #52525b : #e4e6ea;
+    out property <color> default-100: dark ? #1f1f23 : #f4f5f7;
+    out property <color> default-200: dark ? #2a2a2e : #ecedf0;
+    out property <color> default-300: dark ? #3f3f46 : #dee0e4;
+    out property <color> default-400: dark ? #71717a : #a1a1aa;
+    out property <color> default-500: dark ? #a1a1aa : #71717a;
+    out property <color> default-600: dark ? #c4c4ca : #52525b;
+    out property <color> primary: dark ? #3b82f6 : #2563eb;
+    out property <color> primary-foreground: #ffffff;
+    out property <color> success: #17c964;
+    out property <color> warning: #f5a524;
+    out property <color> danger: #f31260;
+    out property <color> focus: dark ? #71717a : #d4d4d8;
+    out property <color> overlay: #00000080;
+    out property <color> tab-cursor: dark ? #52525b : #ffffff;
+    // 浮标两个主题都固定：18px 太小，跟主题变只会糊成灰（旧版 PopButton:18）。
+    out property <color> pop-button-bg: #d5e1fa;
+    out property <color> pop-button-icon: #4a7dfc;
+    out property <color> window-close-hover: #c42b1c;
 
-    out property <color> text-primary: dark ? #ffffff : #1a1a1a;
-    out property <color> text-secondary: dark ? #a0a0a0 : #666666;
-    out property <color> text-muted: dark ? #707070 : #999999;
-    out property <color> accent: dark ? #4cc2ff : #0078d4;
-    out property <color> error: dark ? #ff6b6b : #d13438;
-    out property <color> success: dark ? #6ccb5f : #107c41;
-    out property <color> gold: dark ? #fce100 : #d97706;
-    out property <color> divider: dark ? #2d2d2d : #f0f0f0;
+    // 图标按用途取色（ui.md §1.3）。
+    out property <color> icon-muted: default-400;
+    out property <color> icon-muted-hover: default-600;
+    out property <color> icon-normal: foreground;
+    out property <color> icon-danger: danger;
+    out property <color> icon-active: primary;
+    out property <color> icon-done: success;
+
+    out property <length> radius-small: 8px;
+    out property <length> radius-medium: 12px;
+    out property <length> radius-large: 16px;
 }
