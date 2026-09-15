@@ -1,0 +1,166 @@
+// ui.md §5.8 PillTabs。旧版 NextUI Tabs (size=sm)。
+// 标签以外的区域不能吞掉鼠标事件（调用方会在它下面垫一层拖动用的 TouchArea）。
+import { Theme } from "theme.slint";
+
+export component PillTabs {
+    // 标签文本列表
+    in property <[string]> tabs: [];
+    // 当前选中的标签索引
+    in-out property <int> current: 0;
+    // 形状："default"（轨道圆角 12，标签圆角 8）| "full"（全圆角）
+    in property <string> shape: "default";
+    // 是否通栏平分宽度
+    in property <bool> full-width: false;
+    // 是否启用
+    in property <bool> enabled: true;
+
+    // 标签切换回调，传出当前选中索引（避开 Slint 的 changed 关键字）
+    callback changed-tab(int);
+
+    property <bool> is-full: root.shape == "full";
+    property <length> track-radius: root.is-full ? 18px : Theme.radius-medium;
+    property <length> item-radius: root.is-full ? 14px : Theme.radius-small;
+
+    // 滑动选中块的坐标与宽度，由选中标签项回报
+    property <length> cursor-x: 4px;
+    property <length> cursor-width: 0px;
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    height: 36px;
+    horizontal-stretch: root.full-width ? 1 : 0;
+    accessible-role: tab-list;
+
+    // 轨道底色矩形（不覆盖 TouchArea，以允许下层接收鼠标拖动）
+    track := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.default-100;
+        border-radius: root.track-radius;
+        opacity: root.enabled ? 1.0 : 0.5;
+        animate opacity { duration: 150ms; }
+    }
+
+    // 独立选块：滑到选中标签下面
+    if root.cursor-width > 0px : Rectangle {
+        x: root.cursor-x;
+        y: 4px;
+        width: root.cursor-width;
+        height: 28px;
+        background: Theme.tab-cursor;
+        border-width: 1px;
+        border-color: Theme.default-200;
+        border-radius: root.item-radius;
+        opacity: root.enabled ? 1.0 : 0.5;
+        animate x, width { duration: 150ms; }
+    }
+
+    // 键盘 Tab 焦点环：画在当前选中的标签上，比标签四周各宽 2px，圆角 +2
+    if root.kb-focus && root.cursor-width > 0px : Rectangle {
+        x: root.cursor-x - 2px;
+        y: 2px;
+        width: root.cursor-width + 4px;
+        height: 32px;
+        border-radius: root.item-radius + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+        animate x, width { duration: 150ms; }
+    }
+
+    // 标签列表布局
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 8px;
+        alignment: root.full-width ? stretch : start;
+
+        for tab[i] in root.tabs : tab-item := Rectangle {
+            property <bool> is-current: i == root.current;
+            height: 28px;
+            horizontal-stretch: root.full-width ? 1 : 0;
+
+            // 当项位置、宽度或选中状态变化时，更新滑块目标参数
+            changed is-current => {
+                if self.is-current {
+                    root.cursor-x = self.x;
+                    root.cursor-width = self.width;
+                }
+            }
+            changed x => {
+                if self.is-current {
+                    root.cursor-x = self.x;
+                }
+            }
+            changed width => {
+                if self.is-current {
+                    root.cursor-width = self.width;
+                }
+            }
+            init => {
+                if self.is-current {
+                    root.cursor-x = self.x;
+                    root.cursor-width = self.width;
+                }
+            }
+
+            accessible-role: AccessibleRole.tab;
+            accessible-label: tab;
+            accessible-item-selectable: true;
+            accessible-item-selected: self.is-current;
+            accessible-item-index: i;
+
+            // 仅在标签本身覆盖 TouchArea，标签外空白不吞鼠标
+            item-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.current = i;
+                    root.changed-tab(i);
+                }
+            }
+
+            // 标签文字
+            item-text := Text {
+                x: root.full-width ? (parent.width - self.width) / 2 : 12px;
+                vertical-alignment: center;
+                text: tab;
+                font-size: 12px;
+                color: tab-item.is-current ? Theme.foreground : Theme.default-500;
+                opacity: !root.enabled ? 0.5 : (tab-item.is-current ? 1.0 : (item-touch.has-hover ? 0.5 : 1.0));
+                animate color, opacity { duration: 150ms; }
+            }
+
+            // 非通栏模式下根据文字宽度确定标签宽度（左右内边距各 12px）
+            width: root.full-width ? 0px : (item-text.width + 24px);
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        focus-on-click: true;
+        focus-on-tab-navigation: true;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                if root.current > 0 {
+                    root.current -= 1;
+                    root.changed-tab(root.current);
+                    return accept;
+                }
+            } else if event.text == Key.RightArrow {
+                if root.current < root.tabs.length - 1 {
+                    root.current += 1;
+                    root.changed-tab(root.current);
+                    return accept;
+                }
+            }
+            reject
+        }
+    }
+}

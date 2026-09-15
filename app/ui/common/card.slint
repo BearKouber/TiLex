@@ -1,0 +1,91 @@
+// ui.md §5.9 Card、SettingRow。旧版 NextUI Card 与 .config-item。
+// 软件渲染圆角裁剪限制：内边距 (12px) 小于圆角半径 (16px)，子元素不要贴边铺底色。
+import { Theme } from "theme.slint";
+import { Tooltip } from "tooltip.slint";
+
+export component Card {
+    // 内边距（默认 12px，服务页可传 20px）。不叫 padding：Slint 1.17 每个组件都有内置的 padding，不能重新声明
+    in property <length> content-padding: 12px;
+    // 边框颜色（默认 Theme.default-200，生词本卡片传 Theme.default-100）
+    in property <color> border-color: Theme.default-200;
+    // 子项间距
+    in property <length> spacing: 0px;
+
+    Rectangle {
+        background: Theme.content1;
+        border-radius: Theme.radius-large;
+        border-width: 1px;
+        border-color: root.border-color;
+
+        VerticalLayout {
+            padding: root.content-padding;
+            spacing: root.spacing;
+            @children
+        }
+    }
+}
+
+export component SettingRow inherits Rectangle {
+    // 左侧标题
+    in property <string> label: "";
+    // 提示说明（非空时标题右侧出现 ⓘ 图标，悬停弹出 Tooltip）
+    in property <string> info: "";
+    // 启用状态（false 时右侧控件整体 0.5 不透明度）
+    in property <bool> enabled: true;
+    // 右侧控件容器宽度（默认 0px 按内容宽度，服务配置弹窗等可传如 parent.width * 50%）
+    in property <length> control-width: 0px;
+
+    min-height: 40px;
+
+    HorizontalLayout {
+        padding-top: 10px;
+        padding-bottom: 10px;
+        alignment: space-between;
+        cross-axis-alignment: center;
+
+        // 左侧：标签文本与可选的 ⓘ 提示图标
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            Text {
+                text: root.label;
+                font-size: 16px;
+                color: Theme.foreground;
+                vertical-alignment: center;
+            }
+
+            if root.info != "" : Tooltip {
+                text: root.info;
+
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+
+                    Image {
+                        width: 14px;
+                        height: 14px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        source: @image-url("../icons/info.svg");
+                        colorize: Theme.icon-muted;
+                    }
+                }
+            }
+        }
+
+        // 右侧控件容器
+        right-box := Rectangle {
+            width: root.control-width > 0px ? root.control-width : right-layout.preferred-width;
+            opacity: root.enabled ? 1.0 : 0.5;
+            animate opacity { duration: 150ms; }
+
+            right-layout := HorizontalLayout {
+                alignment: end;
+                cross-axis-alignment: center;
+                @children
+            }
+        }
+    }
+}

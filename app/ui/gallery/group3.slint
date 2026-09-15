@@ -1,14 +1,360 @@
 // 展示页 组 3：PillTabs、Card / SettingRow、Toast、Tooltip（ui.md §5）。只用于开发手测，不写业务逻辑、不用 @tr。
 import { Theme } from "../common/theme.slint";
+import { PillTabs } from "../common/pill_tabs.slint";
+import { Card, SettingRow } from "../common/card.slint";
+import { Toast } from "../common/toast.slint";
+import { Tooltip } from "../common/tooltip.slint";
+import { Button } from "../common/button.slint";
+import { Switch } from "../common/switch.slint";
 
 export component GalleryGroup3 {
+    property <int> active-tab-1: 0;
+    property <int> active-tab-2: 0;
+    property <int> active-tab-3: 1;
+    property <int> active-tab-4: 0;
+
     VerticalLayout {
-        spacing: 16px;
+        spacing: 24px;
 
         Text {
             text: "组 3：PillTabs、Card / SettingRow、Toast、Tooltip";
             font-size: 18px;
+            font-weight: 700;
             color: Theme.foreground;
+        }
+
+        // ==========================================
+        // 1. PillTabs (§5.8)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "1. PillTabs (ui.md §5.8)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "Shape full（全圆角，设置窗口顶部 4 标签，长短不一，Tab 键 / ←→ 键切换）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                PillTabs {
+                    shape: "full";
+                    tabs: ["翻译设置", "服务设置", "生词本", "关于 TiLex"];
+                    current <=> root.active-tab-1;
+                }
+            }
+
+            Text {
+                text: "Shape default（圆角 12/8，服务页 2 标签、生词本 3 标签）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+
+                PillTabs {
+                    shape: "default";
+                    tabs: ["文本翻译", "文本识别"];
+                    current <=> root.active-tab-2;
+                }
+
+                PillTabs {
+                    shape: "default";
+                    tabs: ["全部", "生词", "长难句"];
+                    current <=> root.active-tab-3;
+                }
+            }
+
+            Text {
+                text: "Full-width（通栏平分宽度，生词本列表）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            PillTabs {
+                shape: "default";
+                full-width: true;
+                tabs: ["全部", "生词", "长难句"];
+                current <=> root.active-tab-4;
+            }
+
+            Text {
+                text: "Disabled 状态：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                PillTabs {
+                    shape: "full";
+                    enabled: false;
+                    tabs: ["翻译设置", "服务设置", "生词本", "关于 TiLex"];
+                }
+            }
+        }
+
+        // ==========================================
+        // 2. Card / SettingRow (§5.9)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "2. Card / SettingRow (ui.md §5.9)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "Card（内边距 12px，边框 default-200）+ SettingRow（带 ⓘ 提示、禁用态、控件宽 50%）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            Card {
+                content-padding: 12px;
+                border-color: Theme.default-200;
+
+                // 行 1：带 ⓘ 提示
+                SettingRow {
+                    label: "增强选中识别";
+                    info: "启用后将利用系统辅助功能接口提取选中文本与上下文信息，避免换行与空格丢失。";
+                    Switch {
+                        checked: true;
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.default-200;
+                }
+
+                // 行 2：禁用状态（控件整体 0.5 不透明度）
+                SettingRow {
+                    label: "跳过目标语言（浮标关闭时禁用）";
+                    enabled: false;
+                    Switch {
+                        checked: false;
+                        enabled: false;
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.default-200;
+                }
+
+                // 行 3：控件容器宽 50%
+                SettingRow {
+                    label: "服务配置弹窗行（控件宽 50%）";
+                    control-width: 320px;
+                    Button {
+                        variant: "bordered";
+                        text: "选择语言模型 (50% 宽)";
+                        full-width: true;
+                    }
+                }
+            }
+
+            Text {
+                text: "Card（内边距 20px，边框 default-100，生词本风格）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            Card {
+                content-padding: 20px;
+                border-color: Theme.default-100;
+
+                SettingRow {
+                    label: "自动同步生词到云端服务";
+                    info: "每 24 小时自动同步本地新增生词。";
+                    Switch {
+                        checked: true;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 3. Toast (§5.11)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "3. Toast (ui.md §5.11)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "模拟 640×200 设置窗口（Toast 顶部居中距顶 45px，2 秒后自动消失，再次触发重新计时）：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            // 640×200 模拟窗口
+            sim-window := Rectangle {
+                width: 640px;
+                height: 200px;
+                background: Theme.content2;
+                border-width: 1px;
+                border-color: Theme.default-base;
+                border-radius: Theme.radius-medium;
+                clip: true;
+
+                Text {
+                    x: 16px;
+                    y: 12px;
+                    text: "模拟设置窗口（顶部留白 45px 为 Toast 弹出区）";
+                    font-size: 12px;
+                    color: Theme.default-400;
+                }
+
+                // 顶部居中放置 Toast
+                sim-toast := Toast {
+                    x: (parent.width - self.width) / 2;
+                    y: 45px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+
+                Button {
+                    text: "弹成功 Toast (Kind 1)";
+                    color: "primary";
+                    clicked => {
+                        sim-toast.show("配置修改保存成功！", 1);
+                    }
+                }
+
+                Button {
+                    text: "弹失败 Toast (Kind 2)";
+                    color: "danger";
+                    clicked => {
+                        sim-toast.show("保存失败，请检查配置文件是否被占用！", 2);
+                    }
+                }
+
+                Button {
+                    text: "弹普通 Toast (Kind 0)";
+                    variant: "bordered";
+                    color: "default";
+                    clicked => {
+                        sim-toast.show("常规通知：已恢复系统默认语言", 0);
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. Tooltip (§5.11)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "4. Tooltip (ui.md §5.11)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "悬停 500ms 出现，鼠标离开立即消失。包含图标提示、长文本自动换行（最宽 260px）、右边缘贴边：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 32px;
+                alignment: space-between;
+                cross-axis-alignment: center;
+
+                // 1. 图标提示
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: "图标悬停：";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    Tooltip {
+                        text: "点击切换亮色 / 暗色主题模式";
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            border-radius: Theme.radius-small;
+                            background: Theme.default-100;
+
+                            Image {
+                                width: 18px;
+                                height: 18px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                source: @image-url("../icons/info.svg");
+                                colorize: Theme.foreground;
+                            }
+                        }
+                    }
+                }
+
+                // 2. 长文字换行测试
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: "长文本换行（最宽 260px）：";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    Tooltip {
+                        text: "增强选中识别：启用后将利用系统辅助功能接口提取选中文字与上下文信息，避免换行与空格丢失。";
+                        Button {
+                            variant: "bordered";
+                            text: "悬停查看完整长说明";
+                        }
+                    }
+                }
+
+                // 3. 贴在右边缘（测截断与右对齐）
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    cross-axis-alignment: center;
+
+                    Tooltip {
+                        text: "靠右对齐的提示气泡，测试右边缘防截断表现";
+                        alignment: "right";
+                        Button {
+                            variant: "light";
+                            text: "贴右边缘提示";
+                        }
+                    }
+                }
+            }
         }
     }
 }

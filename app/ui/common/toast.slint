@@ -1,0 +1,85 @@
+// ui.md §5.11 Toast。旧版 react-hot-toast (position=top-center, top: 45)。
+// 整个窗口只放一个（旧版注释教训：多个实例会导致计时与状态混乱）。
+import { Theme } from "theme.slint";
+
+export enum ToastKind {
+    normal,
+    success,
+    danger,
+}
+
+export component Toast inherits Rectangle {
+    // 提示文本
+    in-out property <string> text: "";
+    // 提示类型：0 普通 | 1 成功 | 2 失败/危险
+    in-out property <int> kind: 0;
+    // 是否正在显示
+    out property <bool> is-open: false;
+
+    // 显示提示条并重新倒计时 2 秒
+    public function show(message: string, toast-kind: int) {
+        root.text = message;
+        root.kind = toast-kind;
+        root.is-open = true;
+        // 重新计时
+        dismiss-timer.running = false;
+        dismiss-timer.running = true;
+    }
+
+    // 手动关闭
+    public function hide() {
+        root.is-open = false;
+        dismiss-timer.running = false;
+    }
+
+    dismiss-timer := Timer {
+        interval: 2000ms;
+        running: false;
+        triggered => {
+            root.is-open = false;
+            self.running = false;
+        }
+    }
+
+    background: Theme.content1;
+    border-radius: Theme.radius-medium;
+    border-width: 1px;
+    border-color: Theme.default-200;
+
+    opacity: root.is-open ? 1.0 : 0.0;
+    visible: root.is-open || self.opacity > 0.01;
+    animate opacity { duration: 150ms; }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 8px;
+        alignment: center;
+        cross-axis-alignment: center;
+
+        // 成功图标
+        if root.kind == 1 : Image {
+            width: 16px;
+            height: 16px;
+            source: @image-url("../icons/check-circle.svg");
+            colorize: Theme.success;
+        }
+
+        // 失败/危险图标
+        if root.kind == 2 : Image {
+            width: 16px;
+            height: 16px;
+            source: @image-url("../icons/alert-circle.svg");
+            colorize: Theme.danger;
+        }
+
+        Text {
+            text: root.text;
+            font-size: 14px;
+            color: Theme.foreground;
+            vertical-alignment: center;
+        }
+    }
+}
