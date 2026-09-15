@@ -1,5 +1,7 @@
 volume-2.svg (volume_up), copy.svg (content_copy), check.svg (check),
-star.svg (star_border), square.svg (stop) — Material Design Icons
+star.svg (star_border), square.svg (stop),
+settings-brightness.svg (settings_brightness), light-mode.svg (light_mode),
+dark-mode.svg (dark_mode) — Material Design Icons
 (https://github.com/google/material-design-icons)
 
 Copyright Google LLC

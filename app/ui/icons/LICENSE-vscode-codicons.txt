@@ -1,0 +1,8 @@
+chrome-minimize.svg (chrome-minimize), chrome-maximize.svg (chrome-maximize),
+chrome-restore.svg (chrome-restore), chrome-close.svg (chrome-close) — VS Code Codicons
+(https://github.com/microsoft/vscode-codicons)
+
+Copyright (c) Microsoft Corporation.
+
+Licensed under the Creative Commons Attribution 4.0 International Public License (CC-BY-4.0).
+See https://creativecommons.org/licenses/by/4.0/legalcode

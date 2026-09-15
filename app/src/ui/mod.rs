@@ -37,3 +37,23 @@ pub fn apply_language(language: &str) {
         log::warn!("UI: select translation {language:?} failed: {e}");
     }
 }
+
+/// 根据当前配置及窗口环境计算 `ColorScheme`（配置值 + system 时问 winit）。
+/// 设置窗口与结果浮窗共用此逻辑。
+pub fn resolve_color_scheme(window: &slint::Window) -> slint::language::ColorScheme {
+    use slint::language::ColorScheme;
+    use slint::winit_030::WinitWindowAccessor;
+    use slint::winit_030::winit::window::Theme as WinitTheme;
+
+    let cfg = crate::logic::config::snapshot();
+    match cfg.general.theme.as_str() {
+        "dark" => ColorScheme::Dark,
+        "light" => ColorScheme::Light,
+        _ => match window.with_winit_window(|w| w.theme()).flatten() {
+            Some(WinitTheme::Dark) => ColorScheme::Dark,
+            Some(WinitTheme::Light) => ColorScheme::Light,
+            // 拿不到系统主题时回退 Unknown：fluent 走系统默认，自绘部分因 dark 判断为 false 按亮色显示（已知限制）
+            None => ColorScheme::Unknown,
+        },
+    }
+}

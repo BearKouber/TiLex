@@ -1,4 +1,4 @@
-//! 设置窗口（B0 是渲染验证页 + 界面语言）。打开时创建，关闭即销毁（design §1.4）。
+//! 设置窗口。打开时创建，关闭即销毁（design §1.4）。
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -8,12 +8,12 @@ use slint::winit_030::WinitWindowAccessor;
 use slint::{CloseRequestResponse, ComponentHandle};
 
 use crate::error::Error;
-use crate::logic::config::{self, LANGUAGES};
+use crate::logic::config;
 use crate::platform;
-use crate::slint_ui::RenderCheck;
+use crate::slint_ui::SettingsWindow;
 
 struct Settings {
-    page: RenderCheck,
+    page: SettingsWindow,
 }
 
 thread_local! {
@@ -57,26 +57,30 @@ fn open_inner(backup: Option<&Path>) {
 }
 
 fn create(backup: Option<&Path>) -> Result<Settings, Error> {
-    let page = RenderCheck::new()?;
-    let sample =
-        "Runtime: an <font color=\"#2f9e44\">**unprecedented**</font> result，前所未有的结果 🎯";
-    match slint::StyledText::from_markdown(sample) {
-        Ok(styled) => page.set_runtime_sample(styled),
-        Err(e) => page.set_runtime_sample(slint::StyledText::from_plain_text(&e.to_string())),
-    }
-    if let Some(name) = backup.and_then(Path::file_name) {
-        page.set_bad_config(name.to_string_lossy().as_ref().into()); // 只用于显示
-    }
-    page.invoke_show_language(language_index(&config::snapshot().general.language));
-    let weak = page.as_weak();
-    page.on_language_selected(move |index| {
-        if let Some(page) = weak.upgrade() {
-            select_language(&page, index);
+    let page = SettingsWindow::new()?;
+
+    let cfg = config::snapshot();
+    page.set_theme_mode(cfg.general.theme.as_str().into());
+    page.set_language(cfg.general.language.as_str().into());
+    let scheme = super::resolve_color_scheme(page.window());
+    page.set_color_scheme(scheme);
+
+    let weak_theme = page.as_weak();
+    page.on_cycle_theme(move || {
+        if let Some(page) = weak_theme.upgrade() {
+            cycle_theme(&page);
+        }
+    });
+
+    let weak_lang = page.as_weak();
+    page.on_toggle_language(move || {
+        if let Some(page) = weak_lang.upgrade() {
+            toggle_language(&page);
         }
     });
 
     let weak_drag = page.as_weak();
-    page.on_drag_requested(move || {
+    page.on_drag(move || {
         if let Some(page) = weak_drag.upgrade() {
             match page.window().with_winit_window(|w| w.drag_window()) {
                 Some(Err(e)) => log::warn!("Settings: drag_window failed: {e}"),
@@ -102,6 +106,10 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     page.show()?;
     style_when_ready(page.as_weak(), 1);
 
+    if let Some(name) = backup.and_then(Path::file_name) {
+        page.invoke_show_bad_config(name.to_string_lossy().as_ref().into());
+    }
+
     Ok(Settings { page })
 }
 
@@ -109,12 +117,16 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
 /// 事件循环已经在跑时 show() 的窗口，winit 要到之后的某一轮才真正建 HWND：
 /// 当场取句柄、`invoke_from_event_loop` 排队都太早（报 "underlying handle cannot be represented"）。
 /// 所以用 Timer 每 10ms 试一次（实测第一次 tick 就成功），最多 50 次；窗口先被关掉就停。
-fn style_when_ready(weak: slint::Weak<RenderCheck>, attempt: u32) {
+fn style_when_ready(weak: slint::Weak<SettingsWindow>, attempt: u32) {
     const MAX_ATTEMPTS: u32 = 50;
     slint::Timer::single_shot(Duration::from_millis(10), move || {
         let Some(page) = weak.upgrade() else { return };
         match platform::style_frameless_window(page.window()) {
-            Ok(()) => log::info!("Settings: styled frameless window (attempt {attempt})"),
+            Ok(()) => {
+                log::info!("Settings: styled frameless window (attempt {attempt})");
+                // 原生窗口这时才有：show() 之前问不到系统主题，"跟随系统"要在这里再算一次
+                page.set_color_scheme(super::resolve_color_scheme(page.window()));
+            }
             Err(e) if attempt >= MAX_ATTEMPTS => {
                 log::warn!("Settings: style frameless window failed after {attempt} tries: {e}");
             }
@@ -125,7 +137,7 @@ fn style_when_ready(weak: slint::Weak<RenderCheck>, attempt: u32) {
 
 /// 关闭 = 销毁（design §1.4）。不能在窗口自己的回调里 drop：先隐藏（Slint 在窗口可见期间自己持有组件，
 /// 不隐藏 drop 不掉），排到下一轮事件循环再 drop。
-fn schedule_close(page: &RenderCheck) {
+fn schedule_close(page: &SettingsWindow) {
     if let Err(e) = page.hide() {
         log::warn!("Settings: hide window failed: {e}");
     }
@@ -141,24 +153,37 @@ fn close() {
     log::info!("Settings: closed");
 }
 
-fn select_language(page: &RenderCheck, index: i32) {
-    let Some(&language) = usize::try_from(index).ok().and_then(|i| LANGUAGES.get(i)) else {
-        return;
+fn cycle_theme(page: &SettingsWindow) {
+    let current = config::snapshot().general.theme;
+    let next = match current.as_str() {
+        "light" => "dark",
+        "dark" => "system",
+        _ => "light",
     };
-    let before = config::snapshot().general.language;
-    match config::update(|c| c.general.language = language.to_owned()) {
+    match config::update(|c| c.general.theme = next.to_owned()) {
         Ok(()) => {
-            page.set_save_error(Default::default());
-            super::apply_language(language);
+            page.set_theme_mode(next.into());
+            let scheme = super::resolve_color_scheme(page.window());
+            page.set_color_scheme(scheme);
         }
         Err(e) => {
-            log::warn!("Settings: save language failed: {e}");
-            page.set_save_error(e.to_string().into());
-            page.invoke_show_language(language_index(&before));
+            log::warn!("Settings: save theme failed: {e}");
+            page.invoke_show_save_error(e.to_string().into());
         }
     }
 }
 
-fn language_index(language: &str) -> i32 {
-    LANGUAGES.iter().position(|l| *l == language).unwrap_or(0) as i32
+fn toggle_language(page: &SettingsWindow) {
+    let current = config::snapshot().general.language;
+    let next = if current == "zh_CN" { "en" } else { "zh_CN" };
+    match config::update(|c| c.general.language = next.to_owned()) {
+        Ok(()) => {
+            page.set_language(next.into());
+            super::apply_language(next);
+        }
+        Err(e) => {
+            log::warn!("Settings: save language failed: {e}");
+            page.invoke_show_save_error(e.to_string().into());
+        }
+    }
 }

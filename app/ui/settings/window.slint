@@ -1,0 +1,376 @@
+// ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
+import { Card } from "../common/card.slint";
+import { IconButton } from "../common/icon_button.slint";
+import { PillTabs } from "../common/pill_tabs.slint";
+import { Theme } from "../common/theme.slint";
+import { Toast } from "../common/toast.slint";
+import { Tooltip } from "../common/tooltip.slint";
+import { Palette, ScrollView } from "std-widgets.slint";
+
+component LanguageButton {
+    in property <string> language: "zh_CN";
+    in property <bool> enabled: true;
+    callback clicked();
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    width: 26px;
+    height: 26px;
+    accessible-role: AccessibleRole.button;
+    accessible-label: @tr("Interface language");
+
+    // 键盘 Tab 焦点环（比控件大 2px，圆角 +2）
+    if root.kb-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: 15px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 13px;
+
+        background: touch.pressed
+            ? Theme.default-200
+            : (touch.has-hover ? Theme.default-base.with-alpha(0.4) : Colors.transparent);
+
+        opacity: root.enabled ? 1.0 : 0.5;
+
+        animate background, opacity { duration: 150ms; }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            text: root.language == "zh_CN" ? "中" : "EN";
+            font-size: 12px;
+            font-weight: 700;
+            color: Theme.foreground;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        focus-on-click: true;
+        focus-on-tab-navigation: true;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            enabled: root.enabled;
+            mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: @tr("TiLex Settings");
+    no-frame: true;
+    resize-border-width: 5px;
+    min-width: 800px;
+    min-height: 400px;
+    preferred-width: 800px;
+    preferred-height: 600px;
+    background: Theme.background;
+
+    in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
+    in property <string> theme-mode: "system";
+    in property <string> language: "zh_CN";
+    in-out property <int> page: 0;
+
+    property <bool> has-dragged: false;
+
+    callback drag();
+    callback cycle-theme();
+    callback toggle-language();
+    callback close-clicked();
+
+    public function show-toast(text: string, kind: int) {
+        toast.show(text, kind);
+    }
+
+    public function show-save-error(err: string) {
+        toast.show(@tr("Could not save settings: {}", err), 2);
+    }
+
+    public function show-bad-config(name: string) {
+        toast.show(@tr("The settings file could not be read. It was renamed to {} and default settings are used.", name), 2);
+    }
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        title-bar := Rectangle {
+            height: 35px;
+            background: Theme.content3;
+            z: 1;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                spacing: 0;
+
+                title-drag := TouchArea {
+                    horizontal-stretch: 1;
+                    moved => {
+                        if self.pressed && !root.has-dragged {
+                            root.has-dragged = true;
+                            root.drag();
+                        }
+                    }
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            root.has-dragged = false;
+                        }
+                    }
+                    double-clicked => {
+                        root.maximized = !root.maximized;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        cross-axis-alignment: center;
+
+                        Image {
+                            width: 20px;
+                            height: 20px;
+                            source: @image-url("../icons/logo.svg");
+                        }
+
+                        Text {
+                            text: "TiLex";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.foreground;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    cross-axis-alignment: center;
+
+                    Tooltip {
+                        position: "bottom";
+                        text: root.theme-mode == "light" ? @tr("Light") : (root.theme-mode == "dark" ? @tr("Dark") : @tr("Follow system"));
+
+                        IconButton {
+                            size: "round";
+                            icon: root.theme-mode == "light" ? @image-url("../icons/light-mode.svg") : (root.theme-mode == "dark" ? @image-url("../icons/dark-mode.svg") : @image-url("../icons/settings-brightness.svg"));
+                            color: Theme.icon-normal;
+                            label: @tr("Theme");
+                            clicked => {
+                                root.cycle-theme();
+                            }
+                        }
+                    }
+
+                    LanguageButton {
+                        language: root.language;
+                        clicked => {
+                            root.toggle-language();
+                        }
+                    }
+
+                    Rectangle {
+                        width: 4px;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 0px;
+
+                    min-btn := Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        background: min-touch.pressed ? Theme.default-200 : (min-touch.has-hover ? Theme.default-base.with-alpha(0.4) : Colors.transparent);
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: @tr("Minimize");
+                        animate background { duration: 150ms; }
+
+                        min-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                root.minimized = true;
+                            }
+                        }
+
+                        Image {
+                            width: 16px;
+                            height: 16px;
+                            source: @image-url("../icons/chrome-minimize.svg");
+                            colorize: Theme.foreground;
+                        }
+                    }
+
+                    max-btn := Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        background: max-touch.pressed ? Theme.default-200 : (max-touch.has-hover ? Theme.default-base.with-alpha(0.4) : Colors.transparent);
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: root.maximized ? @tr("Restore") : @tr("Maximize");
+                        animate background { duration: 150ms; }
+
+                        max-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                root.maximized = !root.maximized;
+                            }
+                        }
+
+                        Image {
+                            width: 16px;
+                            height: 16px;
+                            source: root.maximized ? @image-url("../icons/chrome-restore.svg") : @image-url("../icons/chrome-maximize.svg");
+                            colorize: Theme.foreground;
+                        }
+                    }
+
+                    close-btn := Rectangle {
+                        width: 35px;
+                        height: 35px;
+                        background: close-touch.has-hover || close-touch.pressed ? Theme.window-close-hover : Colors.transparent;
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: @tr("Close");
+                        animate background { duration: 150ms; }
+
+                        close-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                root.close-clicked();
+                            }
+                        }
+
+                        Image {
+                            width: 16px;
+                            height: 16px;
+                            source: @image-url("../icons/chrome-close.svg");
+                            colorize: close-touch.has-hover || close-touch.pressed ? Theme.primary-foreground : Theme.foreground;
+                        }
+                    }
+                }
+            }
+        }
+
+        tab-bar := Rectangle {
+            height: 52px;
+
+            Rectangle {
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: Theme.default-200;
+            }
+
+            tab-drag := TouchArea {
+                width: 100%;
+                height: 100%;
+                moved => {
+                    if self.pressed && !root.has-dragged {
+                        root.has-dragged = true;
+                        root.drag();
+                    }
+                }
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        root.has-dragged = false;
+                    }
+                }
+                double-clicked => {
+                    root.maximized = !root.maximized;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                cross-axis-alignment: center;
+
+                PillTabs {
+                    shape: "full";
+                    tabs: [
+                        @tr("Translate"),
+                        @tr("Services"),
+                        @tr("Wordbook"),
+                        @tr("About"),
+                    ];
+                    current <=> root.page;
+                }
+            }
+        }
+
+        ScrollView {
+            VerticalLayout {
+                padding: 10px;
+                alignment: start;
+
+                if root.page == 0 : Card {
+                    content-padding: 12px;
+                    Text {
+                        text: @tr("Translate");
+                        font-size: 14px;
+                        color: Theme.default-400;
+                    }
+                }
+
+                if root.page == 1 : Card {
+                    content-padding: 12px;
+                    Text {
+                        text: @tr("Services");
+                        font-size: 14px;
+                        color: Theme.default-400;
+                    }
+                }
+
+                if root.page == 2 : Card {
+                    content-padding: 12px;
+                    Text {
+                        text: @tr("Wordbook");
+                        font-size: 14px;
+                        color: Theme.default-400;
+                    }
+                }
+
+                if root.page == 3 : Card {
+                    content-padding: 12px;
+                    Text {
+                        text: @tr("About");
+                        font-size: 14px;
+                        color: Theme.default-400;
+                    }
+                }
+            }
+        }
+    }
+
+    toast := Toast {
+        x: (parent.width - self.width) / 2;
+        y: 45px;
+    }
+}

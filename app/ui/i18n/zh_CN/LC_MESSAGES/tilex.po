@@ -74,3 +74,37 @@ msgstr "隐藏密码"
 
 msgid "Clear"
 msgstr "清除"
+
+msgid "Follow system"
+msgstr "跟随系统"
+
+msgid "Light"
+msgstr "浅色"
+
+msgid "Dark"
+msgstr "深色"
+
+msgid "Theme"
+msgstr "主题"
+
+msgid "Minimize"
+msgstr "最小化"
+
+msgid "Maximize"
+msgstr "最大化"
+
+msgid "Restore"
+msgstr "还原"
+
+msgid "Translate"
+msgstr "翻译设置"
+
+msgid "Services"
+msgstr "服务设置"
+
+msgid "Wordbook"
+msgstr "生词本"
+
+msgid "About"
+msgstr "关于"
+

@@ -6,10 +6,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use slint::language::ColorScheme;
 use slint::winit_030::WinitWindowAccessor;
 use slint::winit_030::winit::event::WindowEvent;
-use slint::winit_030::winit::window::Theme as WinitTheme;
 use slint::{CloseRequestResponse, ComponentHandle, Model, PhysicalPosition, VecModel};
 
 use crate::error::Error;
@@ -216,17 +214,7 @@ pub fn show(text: &str, x: i32, y: i32) {
 
         GUARD.with(|g| g.borrow_mut().begin(Instant::now()));
 
-        let cfg = config::snapshot();
-        let scheme = match cfg.general.theme.as_str() {
-            "dark" => ColorScheme::Dark,
-            "light" => ColorScheme::Light,
-            _ => match ui.window().with_winit_window(|w| w.theme()).flatten() {
-                Some(WinitTheme::Dark) => ColorScheme::Dark,
-                Some(WinitTheme::Light) => ColorScheme::Light,
-                // 拿不到系统主题时回退 Unknown：fluent 走系统默认，自绘部分因 dark 判断为 false 按亮色显示（已知限制）
-                None => ColorScheme::Unknown,
-            },
-        };
+        let scheme = super::resolve_color_scheme(ui.window());
         ui.set_color_scheme(scheme);
         // 边框跟主题走（ui.md §3）；Win10 不支持，照常显示
         if let Err(e) =
@@ -280,6 +268,7 @@ pub fn show(text: &str, x: i32, y: i32) {
             return;
         };
 
+        let cfg = config::snapshot();
         let (sx, sy) =
             pop_button::corner(&cfg.selection.result_pos).unwrap_or((Side::After, Side::After));
         let anchor = Rect::point(x, y);
