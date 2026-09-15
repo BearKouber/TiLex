@@ -45,17 +45,18 @@ use windows::Win32::UI::Accessibility::{
     SetWinEventHook, UIA_TextPatternId,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, VK_ESCAPE};
+use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, EVENT_SYSTEM_FOREGROUND,
     GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetMessageTime, GetMessageW, GetWindowLongPtrW,
-    GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG,
-    MSLLHOOKSTRUCT, RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WINEVENT_OUTOFCONTEXT, WM_CLIPBOARDUPDATE,
-    WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
-    WS_SYSMENU, WS_THICKFRAME,
+    GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT,
+    MA_NOACTIVATE, MSG, MSLLHOOKSTRUCT, RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, TranslateMessage,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WINEVENT_OUTOFCONTEXT,
+    WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEACTIVATE,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WNDCLASSW,
+    WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX,
+    WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 use windows::core::{PWSTR, w};
 
@@ -138,6 +139,12 @@ pub fn start_selection(
 pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
     let h = super::hwnd(window)?;
     apply_styles(h);
+    // SAFETY: 在窗口所属的 UI 线程上挂；button_proc 签名正确，窗口销毁时系统自动摘。
+    if !unsafe { SetWindowSubclass(h, Some(button_proc), 1, 0) }.as_bool() {
+        log::warn!(
+            "PopButton: subclass failed, clicking the button may activate the result window"
+        );
+    }
     // 小圆角贴近旧版 5px 的圆角。Win10 不支持，直角照用。
     let pref = DWMWCP_ROUNDSMALL;
     // SAFETY: h 是活着的窗口；pref 在调用期间有效，长度与类型一致。
@@ -168,6 +175,23 @@ pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
     BUTTON.store(h.0 as isize, SeqCst);
     log::info!("PopButton: window attached");
     Ok(())
+}
+
+/// 点浮标时 WS_EX_NOACTIVATE 只保证不激活浮标自己；默认处理仍回 MA_ACTIVATE，系统就把本线程
+/// 上次的活动窗口（隐藏着的结果浮窗）拉到前台，手势因前台变化被取消（B1 实测：点击触发隔一次失败一次）。
+unsafe extern "system" fn button_proc(
+    h: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    if msg == WM_MOUSEACTIVATE {
+        return LRESULT(MA_NOACTIVATE as isize);
+    }
+    // SAFETY: 其余消息原样交给 winit 的窗口过程。
+    unsafe { DefSubclassProc(h, msg, w, l) }
 }
 
 pub fn engage_selection() {
