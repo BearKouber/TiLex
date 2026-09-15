@@ -1,6 +1,7 @@
 //! 划词浮标窗口。启动时建好（D12），在屏幕外 `show()` 一次，拿到原生窗口后交给平台层
 //! （`platform::attach_selection_button`），之后显示、隐藏、位置都由平台层管，这里再也不调它的 `show()`/`hide()`。
 
+use std::cell::RefCell;
 use std::time::Duration;
 
 use slint::{CloseRequestResponse, ComponentHandle, PhysicalPosition};
@@ -11,10 +12,14 @@ use crate::platform::geometry::Side;
 use crate::platform::{self, EngagedSelection, SelectionSettings};
 use crate::slint_ui::PopButton;
 
+thread_local! {
+    static BUTTON: RefCell<Option<slint::Weak<PopButton>>> = const { RefCell::new(None) };
+}
+
 /// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词（macOS 在 B6），或监听没起来（已记日志）。
 /// 调用方持有返回值到退出。
 pub fn create() -> Result<Option<PopButton>, Error> {
-    match platform::start_selection(settings, accept, engaged) {
+    match platform::start_selection(settings, accept, engaged, before_show) {
         Ok(()) => {}
         Err(Error::Unsupported) => {
             log::info!("PopButton: selection is not supported on this platform yet");
@@ -29,6 +34,7 @@ pub fn create() -> Result<Option<PopButton>, Error> {
     let button = PopButton::new();
     super::CREATING_INACTIVE.set(false);
     let button = button?;
+    BUTTON.with(|b| *b.borrow_mut() = Some(button.as_weak()));
     button.on_hovered(|| engage_if(true));
     button.on_clicked(|| engage_if(false));
     // Slint 的 hide() 会让 winit 重写窗口样式（浮标就会抢焦点），所以永远不让它自己隐藏。
@@ -115,5 +121,20 @@ fn engaged(selection: EngagedSelection) {
         super::pop_result::show(&text, x, y);
     }) {
         log::warn!("PopButton: invoke pop_result::show failed: {e}");
+    }
+}
+
+/// 浮标每次显示之前调用（在取词 worker 线程上）。
+/// 切回 UI 线程翻转浮标的 `repaint-tick`，促使 Slint 软件渲染整窗重画，
+/// 避免 DWM cloak 期间系统丢失画面后变成透明空框（platform-windows.md §1 第 4 条）。
+fn before_show() {
+    if let Err(e) = slint::invoke_from_event_loop(|| {
+        BUTTON.with(|b| {
+            if let Some(button) = b.borrow().as_ref().and_then(|w| w.upgrade()) {
+                button.set_repaint_tick(!button.get_repaint_tick());
+            }
+        });
+    }) {
+        log::warn!("PopButton: invoke before_show repaint failed: {e}");
     }
 }

@@ -87,23 +87,31 @@ pub struct EngagedSelection {
 }
 
 /// 启动划词监听：鼠标/键盘钩子线程 + 取词 worker 线程，进程结束前不停。
-/// 三个回调都在取词 worker 线程上调用，不许碰 Slint 组件：
+/// 四个回调都在取词 worker 线程上调用，不许碰 Slint 组件：
 /// - `settings`：现取设置，一次手势里会调好几次，要便宜；
 /// - `accept`：读到文字后、出浮标之前问一次，返回 `false` 就不出（排除母语的挂钩点）；
-/// - `engaged`：用户悬停/点击了浮标，文字交给调用方。
+/// - `engaged`：用户悬停/点击了浮标，文字交给调用方；
+/// - `before_show`：在取词 worker 线程上、浮标每次显示之前调用；调用方让浮标整窗重画（Slint 软件渲染只画脏区域，DWM cloak 期间画面可能丢失导致透明空框，见 platform-windows.md §1 第 4 条）；不许碰 Slint 组件（要切回 UI 线程）。
 ///
 /// 浮标窗口另外用 [`attach_selection_button`] 交进来；交进来之前读到的选区只是不显示。
 pub fn start_selection(
     settings: impl Fn() -> SelectionSettings + Send + 'static,
     accept: impl Fn(&str) -> bool + Send + 'static,
     engaged: impl Fn(EngagedSelection) + Send + 'static,
+    before_show: impl Fn() + Send + 'static,
 ) -> Result<(), Error> {
-    imp::start_selection(Box::new(settings), Box::new(accept), Box::new(engaged))
+    imp::start_selection(
+        Box::new(settings),
+        Box::new(accept),
+        Box::new(engaged),
+        Box::new(before_show),
+    )
 }
 
 type SettingsFn = Box<dyn Fn() -> SelectionSettings + Send>;
 type AcceptFn = Box<dyn Fn(&str) -> bool + Send>;
 type EngagedFn = Box<dyn Fn(EngagedSelection) + Send>;
+type BeforeShowFn = Box<dyn Fn() + Send>;
 
 /// 把浮标窗口交给平台层。之后它的显示、隐藏、位置只由平台层管，**调用方再也不能调它的 `show()`/`hide()`**。
 /// 调用前窗口必须已经 `show()` 过一次（最好在屏幕外）；原生窗口要到事件循环之后的某一轮才有，

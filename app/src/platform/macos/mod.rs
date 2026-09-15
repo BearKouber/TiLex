@@ -96,6 +96,7 @@ pub fn start_selection(
     _settings: super::SettingsFn,
     _accept: super::AcceptFn,
     _engaged: super::EngagedFn,
+    _before_show: super::BeforeShowFn,
 ) -> Result<(), Error> {
     Err(Error::Unsupported)
 }

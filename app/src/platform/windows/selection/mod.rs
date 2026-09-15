@@ -69,7 +69,7 @@ use crate::error::Error;
 use crate::platform::geometry::{
     DISMISS_DIST, Rect, dismissal_limit_squared, distance_squared, place,
 };
-use crate::platform::{AcceptFn, EngagedFn, EngagedSelection, SettingsFn};
+use crate::platform::{AcceptFn, BeforeShowFn, EngagedFn, EngagedSelection, SettingsFn};
 
 /// 浮标的逻辑边长，和 `ui/pop_button.slint` 的 18px 一致。物理边长按目标显示器的 DPI 算。
 const BUTTON_LOGICAL: f64 = 18.0;
@@ -117,6 +117,7 @@ pub fn start_selection(
     settings: SettingsFn,
     accept: AcceptFn,
     engaged: EngagedFn,
+    before_show: BeforeShowFn,
 ) -> Result<(), Error> {
     let (tx, rx) = channel();
     TX.set(tx)
@@ -125,6 +126,7 @@ pub fn start_selection(
         settings,
         accept,
         engaged,
+        before_show,
         candidates: Candidates::default(),
         display: Display::default(),
     };
@@ -551,6 +553,7 @@ struct Worker {
     settings: SettingsFn,
     accept: AcceptFn,
     engaged: EngagedFn,
+    before_show: BeforeShowFn,
     candidates: Candidates,
     display: Display,
 }
@@ -685,6 +688,7 @@ impl Worker {
             x: cx,
             y: cy,
         });
+        (self.before_show)();
         show_at(x, y, px, gesture.id, dismiss_limit);
         let context = self.read_context();
         if !gesture.is_current(context) || clipboard.is_some_and(|clip| !clip.is_current(context)) {

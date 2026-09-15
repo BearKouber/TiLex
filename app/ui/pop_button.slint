@@ -9,8 +9,12 @@ export component PopButton inherits Window {
     // 平台层按显示器 DPI 算物理边长时用的也是 18（platform/windows/selection/mod.rs 的 BUTTON_LOGICAL）。
     width: 18px;
     height: 18px;
+    // ponytail: Slint 软件渲染只渲染脏区域；浮标用 DWM cloak 隐藏期间系统画面可能丢失（如锁屏、睡眠、换显示器等）。
+    // 每次显示前翻转 repaint-tick 产生微小颜色差异促使 Slint 重画整窗，避免变成透明空框。
+    // 以后 Slint 若提供整窗强制重绘接口时换掉。
+    in property <bool> repaint-tick;
     // 两种主题下都是固定的蓝：18px 上做随主题变化的样式只会糊成一团灰（沿用旧版）。
-    background: #d5e1fa;
+    background: root.repaint-tick ? #d5e1fa : #d5e1fb;
 
     callback hovered();
     callback clicked();
