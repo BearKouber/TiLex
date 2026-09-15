@@ -81,6 +81,18 @@ pub fn open_path(path: &Path) -> Result<(), Error> {
     }
 }
 
+pub fn open_url(_url: &str) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn autostart_enabled() -> Result<bool, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn set_autostart(_on: bool) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
 /// macOS 的无边框窗口圆角由 AppKit 负责，这里不做事。
 pub fn round_corners(_window: &slint::Window) -> Result<(), Error> {
     Ok(())

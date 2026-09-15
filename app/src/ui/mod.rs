@@ -30,6 +30,13 @@ pub fn select_backend() -> Result<(), crate::error::Error> {
     Ok(())
 }
 
+/// 打开日志目录（托盘"查看日志"、关于页共用）。
+pub fn open_log_dir() -> Result<(), crate::error::Error> {
+    let dir = crate::logger::dir()
+        .ok_or_else(|| crate::error::Error::Platform("log directory unavailable".into()))?;
+    crate::platform::open_path(dir)
+}
+
 /// 切换界面语言（`logic::config::LANGUAGES` 里的值）。所有窗口和托盘菜单立即重新翻译。
 /// 必须在第一个 Slint 组件建好之后调用。
 pub fn apply_language(language: &str) {

@@ -48,6 +48,9 @@ pub use tts::{speak, stop_speaking};
 mod proxy;
 pub use proxy::system_proxy;
 
+mod autostart;
+pub use autostart::{autostart_enabled, set_autostart};
+
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");
@@ -110,8 +113,7 @@ pub fn listen_activation(on_activate: impl Fn() + Send + 'static) -> Result<(), 
     Ok(())
 }
 
-pub fn open_path(path: &Path) -> Result<(), Error> {
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+fn shell_open_wide(wide: &[u16]) -> Result<(), Error> {
     // SAFETY: wide 以 0 结尾，调用期间有效；其余指针参数为空。
     let result = unsafe {
         ShellExecuteW(
@@ -130,6 +132,16 @@ pub fn open_path(path: &Path) -> Result<(), Error> {
     } else {
         Err(Error::Platform(format!("ShellExecuteW failed: {code}")))
     }
+}
+
+pub fn open_path(path: &Path) -> Result<(), Error> {
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    shell_open_wide(&wide)
+}
+
+pub fn open_url(url: &str) -> Result<(), Error> {
+    let wide: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+    shell_open_wide(&wide)
 }
 
 pub fn round_corners(window: &slint::Window) -> Result<(), Error> {

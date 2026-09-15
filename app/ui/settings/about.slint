@@ -1,0 +1,187 @@
+// ui.md §6.7 关于页。旧版 TiLex/src/window/Config/pages/About/index.jsx。
+import { Button } from "../common/button.slint";
+import { Card, SettingRow } from "../common/card.slint";
+import { Switch } from "../common/switch.slint";
+import { Theme } from "../common/theme.slint";
+
+export component AboutPage {
+    in property <string> version: "";
+    in property <bool> autostart-enabled: false;
+    in property <bool> autostart-supported: true;
+    in property <bool> checking-update: false;
+    in property <styled-text> credits;
+
+    callback open-url(string);
+    callback open-github();
+    callback open-feedback();
+    callback open-releases();
+    callback autostart-toggled(bool);
+    callback check-update();
+    callback view-log();
+    callback view-config();
+
+    VerticalLayout {
+        padding-top: 40px;
+        padding-bottom: 40px;
+        padding-left: 100px;
+        padding-right: 100px;
+        alignment: start;
+
+        // 图标高 80，下边距 5
+        HorizontalLayout {
+            alignment: center;
+
+            Image {
+                height: 80px;
+                source: @image-url("../icons/logo.svg");
+            }
+        }
+
+        Rectangle {
+            height: 5px;
+        }
+
+        // "TiLex" 24px 粗体
+        Text {
+            text: "TiLex";
+            font-size: 24px;
+            font-weight: 700;
+            color: Theme.foreground;
+            horizontal-alignment: center;
+        }
+
+        // 版本号 14px default-500
+        Text {
+            text: root.version;
+            font-size: 14px;
+            color: Theme.default-500;
+            horizontal-alignment: center;
+        }
+
+        Rectangle {
+            height: 5px;
+        }
+
+        // 描述 14px
+        Text {
+            text: @tr("Selection translation and screenshot OCR for Windows");
+            font-size: 14px;
+            color: Theme.foreground;
+            horizontal-alignment: center;
+        }
+
+        Rectangle {
+            height: 10px;
+        }
+
+        // 三个 Button light sm（GitHub / 反馈 / 发布），间距 8
+        HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+
+            Button {
+                variant: "light";
+                size: "sm";
+                text: @tr("Source Code");
+                clicked => { root.open-github(); }
+            }
+
+            Button {
+                variant: "light";
+                size: "sm";
+                text: @tr("Feedback");
+                clicked => { root.open-feedback(); }
+            }
+
+            Button {
+                variant: "light";
+                size: "sm";
+                text: @tr("Releases");
+                clicked => { root.open-releases(); }
+            }
+        }
+
+        Rectangle {
+            height: 10px;
+        }
+
+        // 下面 1px default-200 分割线
+        Rectangle {
+            height: 1px;
+            background: Theme.default-200;
+        }
+
+        // Card（上边距 20）里一个 SettingRow「开机自启」+ Switch md
+        Rectangle {
+            height: 20px;
+        }
+
+        Card {
+            content-padding: 12px;
+
+            SettingRow {
+                label: @tr("Auto Startup");
+                enabled: root.autostart-supported;
+
+                Switch {
+                    size: "md";
+                    checked: root.autostart-enabled;
+                    enabled: root.autostart-supported;
+                    toggled(on) => {
+                        root.autostart-toggled(on);
+                    }
+                }
+            }
+        }
+
+        // 三个 Button bordered sm，间距 24：检查更新（检查中 loading: true）、查看日志、查看配置
+        Rectangle {
+            height: 20px;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 24px;
+
+            Button {
+                variant: "bordered";
+                size: "sm";
+                text: @tr("Check for Updates");
+                loading: root.checking-update;
+                clicked => { root.check-update(); }
+            }
+
+            Button {
+                variant: "bordered";
+                size: "sm";
+                text: @tr("View Log");
+                clicked => { root.view-log(); }
+            }
+
+            Button {
+                variant: "bordered";
+                size: "sm";
+                text: @tr("View Config");
+                clicked => { root.view-config(); }
+            }
+        }
+
+        // 底部 12px default-500 版权行，上边距 30
+        Rectangle {
+            height: 30px;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+
+            StyledText {
+                default-color: Theme.default-500;
+                default-font-size: 12px;
+                horizontal-alignment: center;
+                link-color: Theme.default-500;
+                text: root.credits;
+                link-clicked(url) => { root.open-url(url); }
+            }
+        }
+    }
+}

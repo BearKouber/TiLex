@@ -108,3 +108,51 @@ msgstr "生词本"
 msgid "About"
 msgstr "关于"
 
+msgid "Selection translation and screenshot OCR for Windows"
+msgstr "Windows 划词翻译与截图文字识别"
+
+msgid "Source Code"
+msgstr "源代码"
+
+msgid "Feedback"
+msgstr "问题反馈"
+
+msgid "Releases"
+msgstr "版本发布"
+
+msgid "Auto Startup"
+msgstr "开机时启动应用"
+
+msgid "Check for Updates"
+msgstr "检查更新"
+
+msgid "View Log"
+msgstr "查看日志"
+
+msgid "View Config"
+msgstr "查看配置文件"
+
+msgid "Based on [pot-desktop](https://github.com/pot-app/pot-desktop) · UI/UX inspired by [Easydict](https://github.com/tisfeng/Easydict) · Tool logic drawn from [STranslate](https://github.com/STranslate/STranslate) · [GPL-3.0](https://github.com/BearKouber/TiLex/blob/HEAD/LICENSE) License"
+msgstr "代码基底 [pot-desktop](https://github.com/pot-app/pot-desktop) · 交互灵感 [Easydict](https://github.com/tisfeng/Easydict) · 工具逻辑汲取自 [STranslate](https://github.com/STranslate/STranslate) · 开源协议 [GPL-3.0](https://github.com/BearKouber/TiLex/blob/HEAD/LICENSE)"
+
+msgid "Version {} is available on the Releases page"
+msgstr "有新版本 {}，可到「版本发布」页下载"
+
+msgid "You are on the latest version"
+msgstr "已是最新版本"
+
+msgid "No release published yet"
+msgstr "还没有发布过版本"
+
+msgid "Update check failed: {}"
+msgstr "检查更新失败：{}"
+
+msgid "Could not open link: {}"
+msgstr "打开链接失败：{}"
+
+msgid "Could not open folder: {}"
+msgstr "打开文件夹失败：{}"
+
+msgid "Could not change autostart setting: {}"
+msgstr "修改开机自启失败：{}"
+

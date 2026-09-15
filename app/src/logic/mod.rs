@@ -6,4 +6,5 @@ pub mod popup_state;
 pub mod result;
 pub mod saved_entry;
 pub mod translate;
+pub mod update;
 pub mod wordbook;

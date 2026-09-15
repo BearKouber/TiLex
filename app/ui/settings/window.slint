@@ -1,4 +1,5 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
+import { AboutPage } from "about.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
@@ -103,12 +104,28 @@ export component SettingsWindow inherits Window {
     in property <string> language: "zh_CN";
     in-out property <int> page: 0;
 
+    in property <string> version: "";
+    in property <bool> autostart-enabled: false;
+    in property <bool> autostart-supported: true;
+    in property <bool> checking-update: false;
+    in property <string> credits-raw: @tr("Based on [pot-desktop](https://github.com/pot-app/pot-desktop) · UI/UX inspired by [Easydict](https://github.com/tisfeng/Easydict) · Tool logic drawn from [STranslate](https://github.com/STranslate/STranslate) · [GPL-3.0](https://github.com/BearKouber/TiLex/blob/HEAD/LICENSE) License");
+    in property <styled-text> credits;
+
     property <bool> has-dragged: false;
 
     callback drag();
     callback cycle-theme();
     callback toggle-language();
     callback close-clicked();
+
+    callback open-url(string);
+    callback open-github();
+    callback open-feedback();
+    callback open-releases();
+    callback autostart-toggled(bool);
+    callback check-update();
+    callback view-log();
+    callback view-config();
 
     public function show-toast(text: string, kind: int) {
         toast.show(text, kind);
@@ -120,6 +137,34 @@ export component SettingsWindow inherits Window {
 
     public function show-bad-config(name: string) {
         toast.show(@tr("The settings file could not be read. It was renamed to {} and default settings are used.", name), 2);
+    }
+
+    public function show-update-newer(ver: string) {
+        toast.show(@tr("Version {} is available on the Releases page", ver), 1);
+    }
+
+    public function show-update-latest() {
+        toast.show(@tr("You are on the latest version"), 1);
+    }
+
+    public function show-update-none() {
+        toast.show(@tr("No release published yet"), 0);
+    }
+
+    public function show-update-failed(err: string) {
+        toast.show(@tr("Update check failed: {}", err), 2);
+    }
+
+    public function show-open-url-error(err: string) {
+        toast.show(@tr("Could not open link: {}", err), 2);
+    }
+
+    public function show-open-path-error(err: string) {
+        toast.show(@tr("Could not open folder: {}", err), 2);
+    }
+
+    public function show-autostart-error(err: string) {
+        toast.show(@tr("Could not change autostart setting: {}", err), 2);
     }
 
     VerticalLayout {
@@ -327,7 +372,10 @@ export component SettingsWindow inherits Window {
 
         ScrollView {
             VerticalLayout {
-                padding: 10px;
+                padding-left: root.page == 3 ? 0px : 10px;
+                padding-right: root.page == 3 ? 0px : 10px;
+                padding-top: root.page == 3 ? 0px : 10px;
+                padding-bottom: root.page == 3 ? 0px : 10px;
                 alignment: start;
 
                 if root.page == 0 : Card {
@@ -357,13 +405,20 @@ export component SettingsWindow inherits Window {
                     }
                 }
 
-                if root.page == 3 : Card {
-                    content-padding: 12px;
-                    Text {
-                        text: @tr("About");
-                        font-size: 14px;
-                        color: Theme.default-400;
-                    }
+                if root.page == 3 : AboutPage {
+                    version: root.version;
+                    autostart-enabled: root.autostart-enabled;
+                    autostart-supported: root.autostart-supported;
+                    checking-update: root.checking-update;
+                    credits: root.credits;
+                    open-url(url) => { root.open-url(url); }
+                    open-github => { root.open-github(); }
+                    open-feedback => { root.open-feedback(); }
+                    open-releases => { root.open-releases(); }
+                    autostart-toggled(on) => { root.autostart-toggled(on); }
+                    check-update => { root.check-update(); }
+                    view-log => { root.view-log(); }
+                    view-config => { root.view-config(); }
                 }
             }
         }

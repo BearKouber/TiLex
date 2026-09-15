@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::Value;
 use ureq::http::Response;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
-use ureq::{Agent, Body, Proxy};
+use ureq::{Agent, Body, Proxy, ResponseExt};
 
 use crate::error::{Error, HttpKind};
 use crate::platform;
@@ -79,6 +79,33 @@ pub fn post_form(
             .build()
             .send_form(form.iter().copied()),
     )
+}
+
+/// HEAD，跟随重定向，返回最终状态码和最终地址（[`ResponseExt::get_uri`])。
+/// 404 不当错误返回；其他非 2xx 照现有函数错误分类。
+pub fn final_url(url: &str, timeout: Duration) -> Result<(u16, String), Error> {
+    let req = agent().head(url);
+    let resp = req
+        .config()
+        .timeout_global(Some(timeout))
+        .proxy(proxy(url))
+        .build()
+        .call()
+        .map_err(classify)?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) && status != 404 {
+        let kind = if (400..500).contains(&status) {
+            HttpKind::Client
+        } else {
+            HttpKind::Server
+        };
+        return Err(Error::Http {
+            status: Some(status),
+            kind,
+        });
+    }
+    let final_uri = resp.get_uri().to_string();
+    Ok((status, final_uri))
 }
 
 /// 进程内一个 Agent（连接池复用）。状态码自己判断；不读环境变量里的代理，代理按请求设。

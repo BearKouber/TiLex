@@ -1,16 +1,15 @@
 //! 托盘：设置 / 查看日志 / 重启 / 退出。菜单在 `ui/tray.slint`。
 
 use crate::error::Error;
+use crate::platform;
 use crate::slint_ui::Tray;
-use crate::{logger, platform};
 
 /// 建托盘。调用方持有返回值直到退出：drop 时图标从通知区域移除。
 pub fn create() -> Result<Tray, Error> {
     let tray = Tray::new()?;
     tray.on_open_settings(super::settings::open);
     tray.on_open_logs(|| {
-        let Some(dir) = logger::dir() else { return };
-        if let Err(e) = platform::open_path(dir) {
+        if let Err(e) = super::open_log_dir() {
             log::warn!("Tray: open log folder failed: {e}");
         }
     });

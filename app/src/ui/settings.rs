@@ -106,6 +106,80 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     page.show()?;
     style_when_ready(page.as_weak(), 1);
 
+    page.set_version(env!("CARGO_PKG_VERSION").into());
+    match platform::autostart_enabled() {
+        Ok(enabled) => {
+            page.set_autostart_supported(true);
+            page.set_autostart_enabled(enabled);
+        }
+        Err(Error::Unsupported) => {
+            page.set_autostart_supported(false);
+            page.set_autostart_enabled(false);
+        }
+        Err(e) => {
+            log::warn!("Settings: check autostart failed: {e}");
+            page.set_autostart_supported(true);
+            page.set_autostart_enabled(false);
+        }
+    }
+    update_credits(&page);
+
+    let weak_url = page.as_weak();
+    page.on_open_url(move |url| {
+        if let Some(page) = weak_url.upgrade() {
+            open_url_or_toast(&page, &url);
+        }
+    });
+
+    let weak_gh = page.as_weak();
+    page.on_open_github(move || {
+        if let Some(page) = weak_gh.upgrade() {
+            open_url_or_toast(&page, REPO);
+        }
+    });
+
+    let weak_fb = page.as_weak();
+    page.on_open_feedback(move || {
+        if let Some(page) = weak_fb.upgrade() {
+            open_url_or_toast(&page, &format!("{REPO}/issues"));
+        }
+    });
+
+    let weak_rel = page.as_weak();
+    page.on_open_releases(move || {
+        if let Some(page) = weak_rel.upgrade() {
+            open_url_or_toast(&page, &format!("{REPO}/releases"));
+        }
+    });
+
+    let weak_auto = page.as_weak();
+    page.on_autostart_toggled(move |on| {
+        if let Some(page) = weak_auto.upgrade() {
+            handle_autostart_toggle(&page, on);
+        }
+    });
+
+    let weak_upd = page.as_weak();
+    page.on_check_update(move || {
+        if let Some(page) = weak_upd.upgrade() {
+            check_update(&page);
+        }
+    });
+
+    let weak_log = page.as_weak();
+    page.on_view_log(move || {
+        if let Some(page) = weak_log.upgrade() {
+            view_log(&page);
+        }
+    });
+
+    let weak_cfg = page.as_weak();
+    page.on_view_config(move || {
+        if let Some(page) = weak_cfg.upgrade() {
+            view_config(&page);
+        }
+    });
+
     if let Some(name) = backup.and_then(Path::file_name) {
         page.invoke_show_bad_config(name.to_string_lossy().as_ref().into());
     }
@@ -180,10 +254,101 @@ fn toggle_language(page: &SettingsWindow) {
         Ok(()) => {
             page.set_language(next.into());
             super::apply_language(next);
+            update_credits(page);
         }
         Err(e) => {
             log::warn!("Settings: save language failed: {e}");
             page.invoke_show_save_error(e.to_string().into());
         }
+    }
+}
+
+const REPO: &str = "https://github.com/BearKouber/TiLex";
+
+fn update_credits(page: &SettingsWindow) {
+    let raw = page.get_credits_raw();
+    let styled = slint::StyledText::from_markdown(&raw)
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(&raw));
+    page.set_credits(styled);
+}
+
+fn open_url_or_toast(page: &SettingsWindow, url: &str) {
+    if let Err(e) = platform::open_url(url) {
+        log::warn!("Settings: open url {url:?} failed: {e}");
+        page.invoke_show_open_url_error(e.to_string().into());
+    }
+}
+
+fn view_log(page: &SettingsWindow) {
+    if let Err(e) = super::open_log_dir() {
+        log::warn!("Settings: open log folder failed: {e}");
+        page.invoke_show_open_path_error(e.to_string().into());
+    }
+}
+
+fn view_config(page: &SettingsWindow) {
+    match platform::data_dir() {
+        Ok(dir) => {
+            if let Err(e) = platform::open_path(&dir) {
+                log::warn!("Settings: open config folder failed: {e}");
+                page.invoke_show_open_path_error(e.to_string().into());
+            }
+        }
+        Err(e) => {
+            log::warn!("Settings: get data dir failed: {e}");
+            page.invoke_show_open_path_error(e.to_string().into());
+        }
+    }
+}
+
+fn handle_autostart_toggle(page: &SettingsWindow, on: bool) {
+    match platform::set_autostart(on) {
+        Ok(()) => {
+            log::info!("Settings: autostart set to {on}");
+            page.set_autostart_enabled(on);
+        }
+        Err(e) => {
+            log::warn!("Settings: set autostart to {on} failed: {e}");
+            page.invoke_show_autostart_error(e.to_string().into());
+            page.set_autostart_enabled(!on);
+        }
+    }
+}
+
+fn check_update(page: &SettingsWindow) {
+    if page.get_checking_update() {
+        return;
+    }
+    page.set_checking_update(true);
+    let weak = page.as_weak();
+    if let Err(e) = std::thread::Builder::new()
+        .name("check-update".into())
+        .spawn(move || {
+            let res = crate::logic::update::check();
+            // ignore: window might be closed during async check
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(page) = weak.upgrade() else { return };
+                page.set_checking_update(false);
+                match res {
+                    Ok(crate::logic::update::Release::Newer(v)) => {
+                        page.invoke_show_update_newer(v.into());
+                    }
+                    Ok(crate::logic::update::Release::Latest) => {
+                        page.invoke_show_update_latest();
+                    }
+                    Ok(crate::logic::update::Release::None) => {
+                        page.invoke_show_update_none();
+                    }
+                    Err(e) => {
+                        log::warn!("Settings: check update failed: {e}");
+                        page.invoke_show_update_failed(e.to_string().into());
+                    }
+                }
+            });
+        })
+    {
+        log::error!("Settings: spawn check-update thread failed: {e}");
+        page.set_checking_update(false);
+        page.invoke_show_update_failed(e.to_string().into());
     }
 }

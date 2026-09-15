@@ -47,6 +47,21 @@ pub fn open_path(path: &Path) -> Result<(), Error> {
     imp::open_path(path)
 }
 
+/// 用系统默认浏览器打开 URL。
+pub fn open_url(url: &str) -> Result<(), Error> {
+    imp::open_url(url)
+}
+
+/// 开机自启是否已开启（Windows 检查 Run 注册表键且指向当前 exe；macOS 返回 Unsupported）。
+pub fn autostart_enabled() -> Result<bool, Error> {
+    imp::autostart_enabled()
+}
+
+/// 设置开机自启（Windows 写/删 Run 注册表键；macOS 返回 Unsupported）。
+pub fn set_autostart(on: bool) -> Result<(), Error> {
+    imp::set_autostart(on)
+}
+
 /// 拉起一个新的自己（带 `RESTART_FLAG`）。调用方随后退出事件循环。
 pub fn restart() -> Result<(), Error> {
     process::spawn(&std::env::current_exe()?, &[RESTART_FLAG.into()])
