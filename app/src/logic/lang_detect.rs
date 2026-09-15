@@ -1,6 +1,8 @@
 //! 本地语种识别（design §2.6，D13，lingua 1.8 高精度模式）。
 //!
-//! 哪些语言被编进来完全由 Cargo.toml 的 feature 决定（`detect-lite` 中日英韩，`detect-full` 22 种），这里不列语言：
+//! 发布、CI、验证都用默认的 `detect-lite`（中日英韩，和旧版发布包一样，拉丁字母一律认成英语）。
+//! `detect-full`（22 种）不用：短英文词会被猜成挪威语、马来语（B1 手测）。
+//! 哪些语言被编进来完全由 Cargo.toml 的 feature 决定，这里不列语言：
 //! lingua 的 `Language` 变体随 feature 门控，`from_all_languages()` 拿到的就是这次编译带的。
 //! 检测器第一次用时建一次，全程复用。**只许在后台线程调**（取词 worker、翻译调度线程），UI 线程不许（R-5）。
 
@@ -184,6 +186,17 @@ mod tests {
         assert_eq!(super::detect("Привет, как дела"), Some("ru"));
     }
 
+    // 发布用 lite 的原因：full 会把短英文词猜成挪威语、马来语（B1 手测徽标 NN、MS）。
+    #[cfg(all(feature = "local-detect", not(feature = "detect-full")))]
+    #[test]
+    fn lite_build_reads_short_latin_words_as_english() {
+        for word in [
+            "into", "Service", "Supports", "database", "computer", "OpenAI",
+        ] {
+            assert_eq!(super::detect(word), Some("en"), "{word}");
+        }
+    }
+
     use super::{is_native_language_for, same_base_language};
 
     #[test]
@@ -239,8 +252,8 @@ mod tests {
         assert!(!same_base_language("zh_cn", "ja"));
     }
 
-    // 测第二级（lingua）真的起作用。
-    #[cfg(feature = "local-detect")]
+    // 测第二级（lingua）真的起作用。只在完整构建下跑：detect-lite 没编法语，法语句子只能被认成英语。
+    #[cfg(feature = "detect-full")]
     #[test]
     fn lingua_disambiguates_languages_sharing_the_same_script() {
         let fr = "Je voudrais réserver une table pour deux personnes ce soir";

@@ -35,10 +35,10 @@ jobs:
           workspaces: app
 
       - run: cargo fmt --check
-      - run: cargo clippy -p tilex --all-targets --features detect-full -- -D warnings
+      - run: cargo clippy -p tilex --all-targets -- -D warnings
       # R-10：测试用 --release 跑；source_rules.rs / unicode_paths.rs 在这里面。
-      - run: cargo test -p tilex --release --features detect-full
-      - run: cargo build -p tilex --release --features detect-full
+      - run: cargo test -p tilex --release
+      - run: cargo build -p tilex --release
 
       # B3 起 zip 里再加 tilex-ocr.exe 和 wcocr.dll。
       - name: Package (Windows)
