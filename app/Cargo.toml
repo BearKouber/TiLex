@@ -33,6 +33,10 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lingua = { version = "1.8.0", optional = true, default-features = false }
+# D14：同步 HTTP，只在 src/service/http.rs 用。native-tls 用系统证书库（Windows SChannel / macOS Security）。
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls"] }
+# 生词本（design §2.3）。Windows 没有可靠的系统 SQLite，所以 bundled。
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [
@@ -45,6 +49,7 @@ windows = { version = "0.58.0", features = [
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",

@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 use super::process;
 use crate::error::Error;
 
+mod proxy;
+pub use proxy::system_proxy;
+
 const LOCK_FILE: &str = "tilex.lock";
 const SOCKET: &str = "tilex.sock";
 

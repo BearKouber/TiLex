@@ -5,6 +5,7 @@ pub mod error;
 pub mod logger;
 pub mod logic;
 pub mod platform;
+pub mod service;
 pub mod ui;
 
 /// slint 生成的代码里有 unwrap / expect / todo!，放进单独模块豁免。
