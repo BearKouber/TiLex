@@ -1,10 +1,12 @@
 //! R-7：用户目录含中文（本机就是 `C:\Users\威泰普`）时路径不能被替换成 �。
-//! 在临时目录下建 `测试_威泰普/` 走一遍。生词本、临时 PNG、sidecar 参数随 B1/B3/B4 加进来。
+//! 在临时目录下建 `测试_威泰普/` 走一遍。临时 PNG、sidecar 参数随 B3 加进来。
 
 use std::fs;
 
 use tilex::logger;
 use tilex::logic::config::Store;
+use tilex::logic::saved_entry::Snapshot;
+use tilex::logic::wordbook::{self, Db};
 
 #[test]
 fn config_and_log_under_chinese_dir() {
@@ -32,6 +34,20 @@ fn config_and_log_under_chinese_dir() {
     log::info!("UnicodeTest: 中文日志 ✓");
     let text = fs::read_to_string(dir.join("logs").join("tilex.log")).unwrap();
     assert!(text.contains("UnicodeTest: 中文日志 ✓"), "{text}");
+
+    // 生词本：在中文目录里建库、写一条中文、读回来。
+    let mut db = Db::new(dir.join(wordbook::FILE));
+    let entry = Snapshot {
+        text: "威泰普".into(),
+        translation: "a name".into(),
+        detail: None,
+        service: "google".into(),
+    };
+    let id = db.save(1, &entry).unwrap();
+    let list = db.list().unwrap();
+    assert_eq!((list[0].id, list[0].text.as_str()), (id, "威泰普"));
+    assert!(dir.join(wordbook::FILE).exists());
+    drop(db);
 
     fs::remove_dir_all(&base).unwrap();
 }

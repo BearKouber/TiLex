@@ -23,6 +23,9 @@ use windows::core::{PCWSTR, w};
 
 use crate::error::Error;
 
+mod proxy;
+pub use proxy::system_proxy;
+
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");

@@ -1,1 +1,9 @@
+pub mod cache;
 pub mod config;
+pub mod lang_detect;
+pub mod placement;
+pub mod popup_state;
+pub mod result;
+pub mod saved_entry;
+pub mod translate;
+pub mod wordbook;

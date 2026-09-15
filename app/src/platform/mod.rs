@@ -15,6 +15,8 @@ mod windows;
 #[cfg(windows)]
 use windows as imp;
 
+mod bypass;
+pub mod geometry;
 pub mod process;
 
 /// 托盘"重启"拉起的新进程带这个参数，启动时多等旧实例退出。
@@ -59,4 +61,10 @@ pub fn round_corners(window: &slint::Window) -> Result<(), Error> {
 /// 而 Windows 的前台锁会静默拒绝后台进程的 `SetForegroundWindow`，所以要走平台层。
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
     imp::bring_to_front(window)
+}
+
+/// `url` 该走的系统代理（`http://host:port`），直连返回 `None`。每次请求时查，改了 Clash 设置不用重启。
+/// 回环地址永远直连；只认手动 HTTP 代理，PAC 和 SOCKS 不支持（design §2.5）。
+pub fn system_proxy(url: &str) -> Option<String> {
+    imp::system_proxy(url)
 }

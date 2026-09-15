@@ -8,9 +8,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, PoisonError, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::{Map, Value};
 
 use crate::error::Error;
+use crate::service::{ai, google};
+
+pub use crate::service::ai::Config as AiConfig;
+pub use crate::service::google::Config as GoogleConfig;
 
 /// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
 pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
@@ -55,7 +60,9 @@ pub struct Selection {
     pub force_copy: bool,
     pub blacklist: String,
     pub button_pos: String,
-    /// 浮标离选区的间距，物理像素，0–20（`normalize` 夹紧）。
+    /// 浮标离选区的间距，物理像素，0–20（`normalize` 夹紧）。手改成字符串、小数等非法值时用默认 10，
+    /// 不让整份配置因为这一项被当成损坏。
+    #[serde(deserialize_with = "distance")]
     pub button_distance: i64,
     pub result_pos: String,
 }
@@ -67,25 +74,40 @@ pub struct Screenshot {
     pub result_pos: String,
 }
 
-/// 一个服务实例。`kind` 决定形状；各服务自己的字段随对应批次加进变体里。
+/// 一个服务实例。`kind` 决定形状；各服务自己的字段在 `service::xxx::Config` 里。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Service {
-    Google(Basic),
-    Wechat(Basic),
+    Google(Instance<google::Config>),
+    Ai(Instance<ai::Config>),
+    Wechat(Instance<NoSettings>),
     /// 认不出的 kind（例如从新版降级回来）或字段对不上的：原样保留、原样写回，界面不显示。
     /// 不因为认不出就丢掉用户的 API key。
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
 
+/// 服务实例的公共字段 + 服务自己的配置。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Basic {
+pub struct Instance<C> {
+    /// 实例 id，形如 `ai@k3x9`；同一服务可以有多个实例。
     pub id: String,
     /// 启用判据是 `enabled != false`（旧规范的坑），缺省为 true。
     pub enabled: bool,
+    /// 用户起的名字；空 = 用服务默认名。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    #[serde(flatten)]
+    pub config: C,
+    /// 这一版不认识的字段（新版加的、以后的批次加的）原样写回：交替运行不同版本时不丢 key 之类的新字段。
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
+
+/// 没有可配项的服务（微信 OCR）。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct NoSettings {}
 
 impl Default for Config {
     fn default() -> Self {
@@ -95,14 +117,8 @@ impl Default for Config {
             translate: Translate::default(),
             selection: Selection::default(),
             screenshot: Screenshot::default(),
-            translate_services: vec![Service::Google(Basic {
-                id: "google".into(),
-                enabled: true,
-            })],
-            recognize_services: vec![Service::Wechat(Basic {
-                id: "wechat".into(),
-                enabled: true,
-            })],
+            translate_services: vec![Service::Google(Instance::new("google"))],
+            recognize_services: vec![Service::Wechat(Instance::new("wechat"))],
         }
     }
 }
@@ -134,7 +150,7 @@ impl Default for Selection {
             exclude_native: true,
             force_copy: false,
             blacklist: String::new(),
-            button_pos: "BottomRight".into(),
+            button_pos: "BottomLeft".into(),
             button_distance: 10,
             result_pos: "BottomRight".into(),
         }
@@ -150,13 +166,34 @@ impl Default for Screenshot {
     }
 }
 
-impl Default for Basic {
+impl<C: Default> Default for Instance<C> {
     fn default() -> Self {
+        Self::new("")
+    }
+}
+
+impl<C: Default> Instance<C> {
+    pub fn new(id: &str) -> Self {
         Self {
-            id: String::new(),
+            id: id.to_owned(),
             enabled: true,
+            label: String::new(),
+            config: C::default(),
+            extra: Map::new(),
         }
     }
+}
+
+/// 旧 `normalizePopButtonDistance` / `button_distance()` 的契约：整数（含 JSON 的 `4.0`）保留，
+/// 越界的由 `normalize` 夹紧；缺失、null、布尔、字符串、数组、对象、小数都用默认值。
+fn distance<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    let value = Value::deserialize(d)?;
+    Ok(value
+        .as_f64()
+        .filter(|n| n.is_finite() && n.fract() == 0.0)
+        .map_or(Selection::default().button_distance, |n| {
+            n.clamp(0.0, 20.0) as i64
+        }))
 }
 
 impl Config {
@@ -463,10 +500,7 @@ mod tests {
         let config: Config = serde_json::from_value(input).unwrap();
         assert_eq!(
             config.translate_services[0],
-            Service::Google(Basic {
-                id: "google".into(),
-                enabled: true
-            })
+            Service::Google(Instance::new("google"))
         );
         assert!(matches!(config.translate_services[1], Service::Unknown(_)));
         assert!(matches!(config.recognize_services[0], Service::Unknown(_)));
@@ -477,16 +511,109 @@ mod tests {
         assert_eq!(out["recognize_services"][0], broken_known);
     }
 
+    // B0 审查 P2：认得的服务里不认得的字段（以后的批次加的）也要原样写回。
+    #[test]
+    fn unknown_fields_of_known_services_round_trip() {
+        let ai = json!({
+            "id": "ai@k3x9", "kind": "ai", "enabled": true, "label": "DeepSeek",
+            "base_url": "https://api.deepseek.com", "api_key": "sk-secret", "model": "deepseek-chat",
+            "protocol": "openai_chat", "custom_instructions": "",
+            "request_arguments": {"temperature": 0.3},
+            "icon": "deepseek", "future_field": {"nested": [1, 2]},
+        });
+        let google = json!({"id": "google", "kind": "google", "enabled": false, "mode": "api",
+                            "api_key": "g-key", "later": true});
+        let wechat = json!({"id": "wechat", "kind": "wechat", "enabled": true, "path": "D:/微信"});
+        let input = json!({"translate_services": [ai, google], "recognize_services": [wechat]});
+        let config: Config = serde_json::from_value(input).unwrap();
+
+        let Service::Ai(instance) = &config.translate_services[0] else {
+            panic!(
+                "ai entry not recognized: {:?}",
+                config.translate_services[0]
+            );
+        };
+        assert_eq!(instance.label, "DeepSeek");
+        assert_eq!(instance.config.api_key, "sk-secret");
+        assert_eq!(instance.config.custom_instructions, "", "显式空要求保留");
+        assert_eq!(instance.extra.len(), 2);
+        let Service::Google(g) = &config.translate_services[1] else {
+            panic!("google entry not recognized");
+        };
+        assert!(!g.enabled);
+        assert_eq!(g.config.mode, "api");
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["translate_services"][0], ai);
+        assert_eq!(out["translate_services"][1], google);
+        assert_eq!(out["recognize_services"][0], wechat);
+    }
+
+    #[test]
+    fn ai_defaults_fill_missing_fields() {
+        let service: Service = serde_json::from_value(
+            json!({"id": "ai@x", "kind": "ai", "base_url": "u", "model": "m"}),
+        )
+        .unwrap();
+        let Service::Ai(i) = service else {
+            panic!("not ai");
+        };
+        assert!(i.enabled);
+        assert_eq!(i.config.protocol, "openai_chat");
+        assert_eq!(
+            i.config.custom_instructions,
+            crate::service::ai::DEFAULT_CUSTOM_INSTRUCTIONS
+        );
+    }
+
     #[test]
     fn known_service_without_enabled_is_enabled() {
         let service: Service =
             serde_json::from_value(json!({"id": "g", "kind": "google"})).unwrap();
-        assert_eq!(
-            service,
-            Service::Google(Basic {
-                id: "g".into(),
-                enabled: true
-            })
-        );
+        assert_eq!(service, Service::Google(Instance::new("g")));
+    }
+
+    // 旧 pop_button_distance.test.js + 旧 pop_button.rs 的 button_distance 测试。
+    #[test]
+    fn button_distance_contract() {
+        let parse = |v: Value| {
+            let mut c: Config =
+                serde_json::from_value(json!({"selection": {"button_distance": v}})).unwrap();
+            c.normalize();
+            c.selection.button_distance
+        };
+        for v in [0, 4, 10, 19, 20] {
+            assert_eq!(parse(json!(v)), v, "整数原样保留");
+        }
+        assert_eq!(parse(json!(4.0)), 4, "JSON 的 4.0 也是整数");
+        for v in [
+            json!(null),
+            json!(false),
+            json!(true),
+            json!(""),
+            json!("20"),
+            json!([]),
+            json!([20]),
+            json!({}),
+            json!(4.5),
+            json!(-0.5),
+            json!(20.5),
+        ] {
+            assert_eq!(parse(v.clone()), 10, "{v} 用默认值");
+        }
+        for v in [json!(-1), json!(-100), json!(-1.0e300)] {
+            assert_eq!(parse(v.clone()), 0, "{v}");
+        }
+        for v in [
+            json!(21),
+            json!(37),
+            json!(1000),
+            json!(1.0e300),
+            json!(u64::MAX),
+        ] {
+            assert_eq!(parse(v.clone()), 20, "{v}");
+        }
+        let missing: Config = serde_json::from_value(json!({"selection": {}})).unwrap();
+        assert_eq!(missing.selection.button_distance, 10);
     }
 }
