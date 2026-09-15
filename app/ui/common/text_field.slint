@@ -1,0 +1,297 @@
+// ui.md §5.5 TextField / TextArea（旧版 NextUI Input / Textarea）
+import { Theme } from "theme.slint";
+
+export component TextField {
+    // 变体："bordered"（md 高 40，圆角 12）或 "flat"（sm 高 32，圆角 8）
+    in property <string> variant: "bordered";
+    // 输入文本内容
+    in-out property <string> text: "";
+    // 占位文字
+    in property <string> placeholder: "";
+    // 密码模式：右侧显示显示/隐藏密码按钮
+    in property <bool> password: false;
+    // 是否可清除：有文字时右侧显示清除按钮
+    in property <bool> clearable: false;
+    // 文字是否居中（快捷键框使用）
+    in property <bool> center: false;
+    // 是否只读
+    in property <bool> read-only: false;
+    // 是否启用：禁用时透明度 0.5
+    in property <bool> enabled: true;
+
+    // 每次输入文本变动回调
+    callback edited(string);
+    // 按 Enter 提交回调
+    callback accepted(string);
+    // 结束编辑回调（Enter 或失焦，只调一次，Enter 后失焦不重复调用）
+    callback editing-finished(string);
+
+    public function select-all() {
+        text-input.select-all();
+    }
+
+    private property <bool> is-bordered: root.variant == "bordered";
+    private property <bool> password-revealed: false;
+    // 记录本轮编辑是否已触发过 editing-finished，避免 Enter 后失焦重复触发
+    private property <bool> finished-called: true;
+
+    forward-focus: text-input;
+
+    height: root.is-bordered ? 40px : 32px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate opacity { duration: 150ms; }
+
+    accessible-role: AccessibleRole.text-input;
+    accessible-value: root.text;
+    accessible-placeholder-text: root.placeholder;
+    accessible-enabled: root.enabled;
+    accessible-read-only: root.read-only;
+
+    shell := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: root.is-bordered ? Theme.radius-medium : Theme.radius-small;
+        border-width: 1px;
+        border-color: root.is-bordered
+            ? (text-input.has-focus ? Theme.foreground : (touch-area.has-hover ? Theme.default-400 : Theme.default-200))
+            : (text-input.has-focus ? Theme.foreground : transparent);
+        background: root.is-bordered
+            ? Theme.content1
+            : (touch-area.has-hover ? Theme.default-200 : Theme.default-100);
+
+        animate border-color, background { duration: 150ms; }
+
+        // 背景点击聚焦与悬停检测，置于底层避免干扰 TextInput 自身的鼠标选区操作
+        touch-area := TouchArea {
+            enabled: root.enabled;
+            width: 100%;
+            height: 100%;
+            mouse-cursor: MouseCursor.text;
+
+            clicked => {
+                text-input.focus();
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: root.is-bordered ? 12px : 8px;
+            padding-right: root.is-bordered ? 12px : 8px;
+            spacing: 6px;
+
+            input-container := Rectangle {
+                horizontal-stretch: 1;
+
+                // 占位文字
+                if (root.text == "" && text-input.preedit-text == "") : Text {
+                    width: 100%;
+                    height: 100%;
+                    vertical-alignment: TextVerticalAlignment.center;
+                    horizontal-alignment: root.center ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
+                    text: root.placeholder;
+                    font-size: root.is-bordered ? 14px : 12px;
+                    color: Theme.default-400;
+                }
+
+                text-input := TextInput {
+                    width: 100%;
+                    height: 100%;
+                    vertical-alignment: TextVerticalAlignment.center;
+                    horizontal-alignment: root.center ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
+                    font-size: root.is-bordered ? 14px : 12px;
+                    color: Theme.foreground;
+                    single-line: true;
+                    enabled: root.enabled;
+                    read-only: root.read-only;
+                    text <=> root.text;
+                    input-type: (root.password && !root.password-revealed) ? InputType.password : InputType.text;
+
+                    changed has-focus => {
+                        if self.has-focus {
+                            root.finished-called = false;
+                        } else {
+                            if !root.finished-called {
+                                root.finished-called = true;
+                                root.editing-finished(root.text);
+                            }
+                        }
+                    }
+
+                    edited => {
+                        root.finished-called = false;
+                        root.edited(self.text);
+                    }
+
+                    accepted => {
+                        root.accepted(self.text);
+                        if !root.finished-called {
+                            root.finished-called = true;
+                            root.editing-finished(self.text);
+                        }
+                    }
+                }
+            }
+
+            // 清除按钮（有文字且 clearable 时显示，点击不抢焦点、不触发 editing-finished）
+            if (root.clearable && root.text != "" && !root.read-only && root.enabled) : clear-btn := Rectangle {
+                width: 20px;
+                height: 100%;
+
+                FocusScope {
+                    focus-on-click: false;
+                    focus-on-tab-navigation: false;
+                    width: 100%;
+                    height: 100%;
+
+                    clear-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+
+                        clicked => {
+                            root.text = "";
+                            root.finished-called = false;
+                            root.edited("");
+                        }
+
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 14px;
+                            height: 14px;
+                            source: @image-url("../icons/x.svg");
+                            colorize: clear-touch.has-hover ? Theme.foreground : Theme.default-400;
+                            accessible-role: button;
+                            accessible-label: @tr("Clear");
+                        }
+                    }
+                }
+            }
+
+            // 密码切换眼睛按钮（password 为 true 时显示，点击不抢焦点、不触发 editing-finished）
+            if root.password : eye-btn := Rectangle {
+                width: 20px;
+                height: 100%;
+
+                FocusScope {
+                    focus-on-click: false;
+                    focus-on-tab-navigation: false;
+                    width: 100%;
+                    height: 100%;
+
+                    eye-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+
+                        clicked => {
+                            root.password-revealed = !root.password-revealed;
+                        }
+
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 16px;
+                            height: 16px;
+                            source: root.password-revealed
+                                ? @image-url("../icons/eye.svg")
+                                : @image-url("../icons/eye-off.svg");
+                            colorize: eye-touch.has-hover ? Theme.foreground : Theme.default-400;
+                            accessible-role: button;
+                            accessible-label: root.password-revealed ? @tr("Hide password") : @tr("Show password");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component TextArea {
+    // 文本内容
+    in-out property <string> text: "";
+    // 占位文字
+    in property <string> placeholder: "";
+    // 是否只读
+    in property <bool> read-only: false;
+    // 是否启用：禁用时透明度 0.5
+    in property <bool> enabled: true;
+
+    // 文本编辑回调
+    callback edited(string);
+
+    public function select-all() {
+        text-input.select-all();
+    }
+
+    forward-focus: text-input;
+
+    // 随内容长高（auto-expand），最小 80px
+    height: max(80px, text-input.preferred-height + 24px);
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate opacity { duration: 150ms; }
+
+    accessible-role: AccessibleRole.text-input;
+    accessible-value: root.text;
+    accessible-placeholder-text: root.placeholder;
+    accessible-enabled: root.enabled;
+    accessible-read-only: root.read-only;
+
+    shell := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Theme.radius-medium;
+        border-width: 1px;
+        border-color: text-input.has-focus
+            ? Theme.foreground
+            : (touch-area.has-hover ? Theme.default-400 : Theme.default-200);
+        background: Theme.content1;
+
+        animate border-color, background { duration: 150ms; }
+
+        touch-area := TouchArea {
+            enabled: root.enabled;
+            width: 100%;
+            height: 100%;
+            mouse-cursor: MouseCursor.text;
+
+            clicked => {
+                text-input.focus();
+            }
+        }
+
+        Rectangle {
+            x: 12px;
+            y: 12px;
+            width: parent.width - 24px;
+            height: parent.height - 24px;
+
+            if (root.text == "" && text-input.preedit-text == "") : Text {
+                x: 0;
+                y: 0;
+                width: 100%;
+                text: root.placeholder;
+                font-size: 14px;
+                color: Theme.default-400;
+                wrap: word-wrap;
+            }
+
+            text-input := TextInput {
+                x: 0;
+                y: 0;
+                width: 100%;
+                height: 100%;
+                font-size: 14px;
+                color: Theme.foreground;
+                single-line: false;
+                wrap: word-wrap;
+                enabled: root.enabled;
+                read-only: root.read-only;
+                text <=> root.text;
+
+                edited => {
+                    root.edited(self.text);
+                }
+            }
+        }
+    }
+}

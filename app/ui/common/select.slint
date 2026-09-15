@@ -1,0 +1,173 @@
+// ui.md §5.4 Select。旧版 Dropdown 下拉菜单。
+import { Theme } from "theme.slint";
+import { Button } from "button.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component Select {
+    // 选项列表
+    in property <[string]> options: [];
+    // 当前选中项索引
+    in-out property <int> current-index: 0;
+    // 是否启用
+    in property <bool> enabled: true;
+    // 菜单最大高度，默认 240px（超出时滚动，旧版 max-h-[50vh]）
+    in property <length> max-menu-height: 240px;
+
+    // 选中回调，传出选中的索引
+    callback selected(int);
+
+    // 打开下拉菜单
+    public function open-popup() {
+        if root.enabled && root.options.length > 0 {
+            root.highlighted-index = root.current-index;
+            popup.show();
+        }
+    }
+
+    // 关闭下拉菜单
+    public function close-popup() {
+        popup.close();
+    }
+
+    // 内部高亮项（用于键盘 ↑↓ 导航）
+    property <int> highlighted-index: root.current-index;
+
+    function select-item(idx: int) {
+        if idx >= 0 && idx < root.options.length {
+            root.current-index = idx;
+            root.selected(idx);
+        }
+        popup.close();
+    }
+
+    forward-focus: trigger-fs;
+    height: btn.height;
+    horizontal-stretch: 1;
+    accessible-role: combobox;
+    accessible-value: root.current-index >= 0 && root.current-index < root.options.length ? root.options[root.current-index] : "";
+
+    trigger-fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+
+        key-pressed(event) => {
+            if event.text == Key.DownArrow {
+                root.open-popup();
+                return accept;
+            }
+            reject
+        }
+
+        btn := Button {
+            variant: "bordered";
+            size: "md";
+            full-width: true;
+            enabled: root.enabled;
+            text: root.current-index >= 0 && root.current-index < root.options.length ? root.options[root.current-index] : "";
+            trailing-icon: @image-url("../icons/chevron-down.svg");
+            clicked => {
+                root.open-popup();
+            }
+        }
+    }
+
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        height: Math.min(root.options.length * 32px + 8px, root.max-menu-height);
+        close-policy: close-on-click-outside;
+
+        popup-fs := FocusScope {
+            width: 100%;
+            height: 100%;
+            // 菜单每次弹出都重新实例化，弹出即接管键盘（PopupWindow 上不能 forward-focus 到自己的子元素）
+            init => {
+                self.focus();
+            }
+
+            key-pressed(event) => {
+                if event.text == Key.UpArrow {
+                    if root.highlighted-index > 0 {
+                        root.highlighted-index -= 1;
+                    }
+                    return accept;
+                } else if event.text == Key.DownArrow {
+                    if root.highlighted-index < root.options.length - 1 {
+                        root.highlighted-index += 1;
+                    }
+                    return accept;
+                } else if event.text == Key.Return || event.text == " " {
+                    root.select-item(root.highlighted-index);
+                    return accept;
+                } else if event.text == Key.Escape {
+                    popup.close();
+                    return accept;
+                }
+                reject
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: Theme.content1;
+                border-width: 1px;
+                border-color: Theme.default-200;
+                border-radius: Theme.radius-medium;
+
+                ScrollView {
+                    VerticalLayout {
+                        padding: 4px;
+                        spacing: 0px;
+                        alignment: start;
+
+                        for opt[idx] in root.options : Rectangle {
+                            height: 32px;
+                            border-radius: Theme.radius-small;
+                            background: (root.highlighted-index == idx || item-touch.has-hover)
+                                ? (item-touch.pressed ? Theme.default-200 : Theme.default-base)
+                                : Colors.transparent;
+
+                            item-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                changed has-hover => {
+                                    if self.has-hover {
+                                        root.highlighted-index = idx;
+                                    }
+                                }
+                                clicked => {
+                                    root.select-item(idx);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                cross-axis-alignment: center;
+
+                                Image {
+                                    width: 14px;
+                                    height: 14px;
+                                    source: @image-url("../icons/check.svg");
+                                    colorize: Theme.foreground;
+                                    opacity: idx == root.current-index ? 1 : 0;
+                                }
+
+                                Text {
+                                    text: opt;
+                                    font-size: 14px;
+                                    color: Theme.foreground;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

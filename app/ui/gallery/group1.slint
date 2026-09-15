@@ -1,14 +1,416 @@
-// 展示页 组 1：Button、IconButton、Select、Modal（ui.md §5）。只用于开发手测，不写业务逻辑、不用 @tr。
+// 展示页 组 1：Button、IconButton、Select、Modal（ui.md §5.1, §5.2, §5.4, §5.10）。只用于开发手测，不写业务逻辑、不用 @tr。
 import { Theme } from "../common/theme.slint";
+import { Button } from "../common/button.slint";
+import { IconButton } from "../common/icon_button.slint";
+import { Select } from "../common/select.slint";
+import { Modal } from "../common/modal.slint";
 
 export component GalleryGroup1 {
+    property <bool> modal-md-open: false;
+    property <bool> modal-sm-open: false;
+
     VerticalLayout {
-        spacing: 16px;
+        spacing: 24px;
 
         Text {
             text: "组 1：Button、IconButton、Select、Modal";
-            font-size: 18px;
+            font-size: 20px;
+            font-weight: 700;
             color: Theme.foreground;
+        }
+
+        // ==================== 5.1 Button ====================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Button (ui.md §5.1)";
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "Size md (40px) - Solid, Bordered, Light";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Button { size: "md"; variant: "solid"; color: "primary"; text: "Solid Primary"; }
+                Button { size: "md"; variant: "solid"; color: "danger"; text: "Solid Danger"; }
+                Button { size: "md"; variant: "bordered"; color: "default"; text: "Bordered Default"; }
+                Button { size: "md"; variant: "bordered"; color: "primary"; text: "Bordered Primary"; }
+                Button { size: "md"; variant: "bordered"; color: "danger"; text: "Bordered Danger"; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Button { size: "md"; variant: "light"; color: "default"; text: "Light Default"; }
+                Button { size: "md"; variant: "light"; color: "danger"; text: "Light Danger"; }
+                Button { size: "md"; text: "With Icon"; icon: @image-url("../icons/copy.svg"); }
+                Button { size: "md"; text: "Loading"; loading: true; }
+                Button { size: "md"; text: "Disabled"; enabled: false; }
+            }
+
+            Text {
+                text: "Size sm (32px) - Solid, Bordered, Light";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Button { size: "sm"; variant: "solid"; color: "primary"; text: "Solid Primary"; }
+                Button { size: "sm"; variant: "solid"; color: "danger"; text: "Solid Danger"; }
+                Button { size: "sm"; variant: "bordered"; color: "default"; text: "Bordered Default"; }
+                Button { size: "sm"; variant: "bordered"; color: "primary"; text: "Bordered Primary"; }
+                Button { size: "sm"; variant: "bordered"; color: "danger"; text: "Bordered Danger"; }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Button { size: "sm"; variant: "light"; color: "default"; text: "Light Default"; }
+                Button { size: "sm"; variant: "light"; color: "danger"; text: "Light Danger"; }
+                Button { size: "sm"; text: "With Icon"; icon: @image-url("../icons/copy.svg"); }
+                Button { size: "sm"; text: "Loading"; loading: true; }
+                Button { size: "sm"; text: "Disabled"; enabled: false; }
+            }
+
+            Text {
+                text: "Full-width Button";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            Button {
+                size: "md";
+                full-width: true;
+                text: "Full Width Button (md)";
+            }
+        }
+
+        // ==================== 5.2 IconButton ====================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "IconButton (ui.md §5.2)";
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "Size tiny (16px, 12px icon, no focus steal, hover/checked visible)";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    cross-axis-alignment: center;
+                    Text { text: "Normal:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "tiny"; icon: @image-url("../icons/volume-2.svg"); label: "Speak"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    cross-axis-alignment: center;
+                    Text { text: "Checked:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "tiny"; icon: @image-url("../icons/pin-angle.svg"); checked-icon: @image-url("../icons/pin-angle-fill.svg"); checked: true; label: "Pinned"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    cross-axis-alignment: center;
+                    Text { text: "Disabled:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "tiny"; icon: @image-url("../icons/volume-2.svg"); enabled: false; label: "Disabled"; }
+                }
+
+                tiny-row := Rectangle {
+                    width: 150px;
+                    height: 28px;
+                    background: tiny-touch.has-hover ? Theme.default-100 : Colors.transparent;
+                    border-radius: 4px;
+
+                    tiny-touch := TouchArea { }
+
+                    HorizontalLayout {
+                        padding: 4px;
+                        spacing: 8px;
+                        cross-axis-alignment: center;
+                        Text { text: "Hover area:"; font-size: 12px; color: Theme.default-500; }
+                        IconButton { size: "tiny"; icon: @image-url("../icons/copy.svg"); revealed: tiny-touch.has-hover; label: "Copy"; }
+                    }
+                }
+            }
+
+            Text {
+                text: "Size sm (32px, radius 8, 18px icon, Tab focusable)";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Normal:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "sm"; icon: @image-url("../icons/copy.svg"); label: "Copy"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Checked:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "sm"; icon: @image-url("../icons/star.svg"); checked-icon: @image-url("../icons/check.svg"); checked: true; label: "Starred"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Disabled:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "sm"; icon: @image-url("../icons/copy.svg"); enabled: false; label: "Disabled"; }
+                }
+            }
+
+            Text {
+                text: "Size round (26px circular, 16px icon, Tab focusable)";
+                font-size: 12px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Normal:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "round"; icon: @image-url("../icons/x.svg"); label: "Close"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Checked:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "round"; icon: @image-url("../icons/pin-angle.svg"); checked-icon: @image-url("../icons/pin-angle-fill.svg"); checked: true; label: "Pinned"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    cross-axis-alignment: center;
+                    Text { text: "Disabled:"; font-size: 12px; color: Theme.foreground; }
+                    IconButton { size: "round"; icon: @image-url("../icons/x.svg"); enabled: false; label: "Disabled"; }
+                }
+            }
+        }
+
+        // ==================== 5.4 Select ====================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Select (ui.md §5.4)";
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.foreground;
+            }
+
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+
+                VerticalLayout {
+                    width: 220px;
+                    spacing: 6px;
+                    Text { text: "5 options (no scroll):"; font-size: 12px; color: Theme.default-500; }
+                    Select {
+                        options: ["English", "Chinese (Simplified)", "Chinese (Traditional)", "Japanese", "Korean"];
+                        current-index: 0;
+                    }
+                }
+
+                VerticalLayout {
+                    width: 220px;
+                    spacing: 6px;
+                    Text { text: "30 options (scrollable):"; font-size: 12px; color: Theme.default-500; }
+                    Select {
+                        options: [
+                            "Option 1", "Option 2", "Option 3", "Option 4", "Option 5",
+                            "Option 6", "Option 7", "Option 8", "Option 9", "Option 10",
+                            "Option 11", "Option 12", "Option 13", "Option 14", "Option 15",
+                            "Option 16", "Option 17", "Option 18", "Option 19", "Option 20",
+                            "Option 21", "Option 22", "Option 23", "Option 24", "Option 25",
+                            "Option 26", "Option 27", "Option 28", "Option 29", "Option 30"
+                        ];
+                        current-index: 2;
+                    }
+                }
+
+                VerticalLayout {
+                    width: 220px;
+                    spacing: 6px;
+                    Text { text: "Disabled:"; font-size: 12px; color: Theme.default-500; }
+                    Select {
+                        options: ["Disabled Option 1", "Disabled Option 2"];
+                        enabled: false;
+                        current-index: 0;
+                    }
+                }
+            }
+        }
+
+        // ==================== 5.10 Modal ====================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Modal (ui.md §5.10)";
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.foreground;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+
+                Button {
+                    text: "Open Modal (md, dismissable)";
+                    clicked => {
+                        root.modal-md-open = true;
+                    }
+                }
+
+                Button {
+                    text: "Open Modal (sm, dismissable=false)";
+                    color: "danger";
+                    clicked => {
+                        root.modal-sm-open = true;
+                    }
+                }
+            }
+
+            // 模拟窗口（640×480），Modal 铺满该框
+            mock-win := Rectangle {
+                width: 640px;
+                height: 480px;
+                background: Theme.background;
+                border-width: 1px;
+                border-color: Theme.default-200;
+                border-radius: Theme.radius-medium;
+                clip: true;
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "Mock Window Container (640×480)";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.foreground;
+                    }
+
+                    Text {
+                        text: "Modal overlays fill this mock window container, just as they fill the root window in the real application.\nClick the buttons above to open the modals.";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+                }
+
+                // Modal md
+                Modal {
+                    open <=> root.modal-md-open;
+                    size: "md";
+                    title: "Settings Dialog (md)";
+                    dismissable: true;
+
+                    Text {
+                        text: "This is a medium modal with dismissable: true.\nYou can dismiss it by clicking the X button, clicking the dark overlay, or pressing Escape.";
+                        font-size: 14px;
+                        color: Theme.foreground;
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        padding-top: 16px;
+
+                        Button {
+                            variant: "light";
+                            text: "Cancel";
+                            clicked => {
+                                root.modal-md-open = false;
+                            }
+                        }
+
+                        Button {
+                            variant: "solid";
+                            color: "primary";
+                            text: "Confirm";
+                            clicked => {
+                                root.modal-md-open = false;
+                            }
+                        }
+                    }
+                }
+
+                // Modal sm (undismissable)
+                Modal {
+                    open <=> root.modal-sm-open;
+                    size: "sm";
+                    title: "Delete Confirmation (sm)";
+                    dismissable: false;
+
+                    Text {
+                        text: "This is a small modal with dismissable: false.\nClicking the overlay or pressing Esc will NOT close it.\nYou must use the button below to close it.";
+                        font-size: 14px;
+                        color: Theme.foreground;
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        padding-top: 16px;
+
+                        Button {
+                            variant: "solid";
+                            color: "danger";
+                            text: "Delete and Close";
+                            clicked => {
+                                root.modal-sm-open = false;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 import { EntryBody, EntryView } from "common/entry_view.slint";
+import { IconButton } from "common/icon_button.slint";
 import { LoadingDots } from "common/loading_dots.slint";
 import { Theme } from "common/theme.slint";
 import { Palette, ScrollView } from "std-widgets.slint";
@@ -12,39 +13,6 @@ export struct ResultRow {
     text: string,
     error: string,
     display: EntryView,
-}
-
-// 16×16 热区、12px 图标的按钮：平时淡色、悬停变深，active 时换 active-icon / active-color。
-component IconButton {
-    in property <image> icon;
-    in property <image> active-icon: root.icon;
-    in property <bool> active;
-    in property <color> active-color;
-    in property <string> label;
-    in property <bool> reveal: true;
-    callback clicked();
-
-    width: 16px;
-    height: 16px;
-    opacity: (root.reveal || root.active || touch.has-hover) ? 1 : 0;
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        accessible-role: button;
-        accessible-label: root.label;
-        clicked => {
-            root.clicked();
-        }
-    }
-
-    Image {
-        source: root.active ? root.active-icon : root.icon;
-        colorize: root.active ? root.active-color : (touch.has-hover ? Theme.icon-muted-hover : Theme.icon-muted);
-        width: 12px;
-        height: 12px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-    }
 }
 
 export component PopResult inherits Window {
@@ -139,24 +107,26 @@ export component PopResult inherits Window {
                         // 右侧按钮挨着排：16px 热区里 12px 图标，间距 0 时图标之间正好 4px（旧版 gap-[4px]）
                         HorizontalLayout {
                             if root.source-text != "" : IconButton {
+                                size: "tiny";
                                 icon: @image-url("icons/volume-2.svg");
-                                active-icon: @image-url("icons/square.svg");
-                                active: root.speaking-key == -1;
-                                active-color: Theme.icon-active;
-                                label: self.active ? @tr("Stop") : @tr("Speak");
-                                reveal: header-drag.has-hover;
+                                checked-icon: @image-url("icons/square.svg");
+                                checked: root.speaking-key == -1;
+                                checked-color: Theme.icon-active;
+                                label: self.checked ? @tr("Stop") : @tr("Speak");
+                                revealed: header-drag.has-hover;
                                 clicked => {
                                     root.speak-clicked(-1);
                                 }
                             }
 
                             if root.source-text != "" : IconButton {
+                                size: "tiny";
                                 icon: @image-url("icons/copy.svg");
-                                active-icon: @image-url("icons/check.svg");
-                                active: root.copied-key == -1;
-                                active-color: Theme.icon-done;
+                                checked-icon: @image-url("icons/check.svg");
+                                checked: root.copied-key == -1;
+                                checked-color: Theme.icon-done;
                                 label: @tr("Copy");
-                                reveal: header-drag.has-hover;
+                                revealed: header-drag.has-hover;
                                 clicked => {
                                     root.copy-clicked(-1);
                                 }
@@ -164,11 +134,12 @@ export component PopResult inherits Window {
 
                             // 钉子：常显，旧版的斜钉子，钉住实心。和服务行按钮同一个 IconButton，列才对得齐
                             IconButton {
+                                size: "tiny";
                                 icon: @image-url("icons/pin-angle.svg");
-                                active-icon: @image-url("icons/pin-angle-fill.svg");
-                                active: root.is-pinned;
-                                active-color: Theme.icon-active;
-                                label: self.active ? @tr("Unpin") : @tr("Pin");
+                                checked-icon: @image-url("icons/pin-angle-fill.svg");
+                                checked: root.is-pinned;
+                                checked-color: Theme.icon-active;
+                                label: self.checked ? @tr("Unpin") : @tr("Pin");
                                 clicked => {
                                     root.pin-toggled();
                                 }
@@ -227,36 +198,39 @@ export component PopResult inherits Window {
                                     // 朗读、复制、收藏（右）
                                     if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
                                         IconButton {
+                                            size: "tiny";
                                             icon: @image-url("icons/volume-2.svg");
-                                            active-icon: @image-url("icons/square.svg");
-                                            active: root.speaking-key == idx;
-                                            active-color: Theme.icon-active;
-                                            label: self.active ? @tr("Stop") : @tr("Speak");
-                                            reveal: row-touch.has-hover;
+                                            checked-icon: @image-url("icons/square.svg");
+                                            checked: root.speaking-key == idx;
+                                            checked-color: Theme.icon-active;
+                                            label: self.checked ? @tr("Stop") : @tr("Speak");
+                                            revealed: row-touch.has-hover;
                                             clicked => {
                                                 root.speak-clicked(idx);
                                             }
                                         }
 
                                         IconButton {
+                                            size: "tiny";
                                             icon: @image-url("icons/copy.svg");
-                                            active-icon: @image-url("icons/check.svg");
-                                            active: root.copied-key == idx;
-                                            active-color: Theme.icon-done;
+                                            checked-icon: @image-url("icons/check.svg");
+                                            checked: root.copied-key == idx;
+                                            checked-color: Theme.icon-done;
                                             label: @tr("Copy");
-                                            reveal: row-touch.has-hover;
+                                            revealed: row-touch.has-hover;
                                             clicked => {
                                                 root.copy-clicked(idx);
                                             }
                                         }
 
                                         IconButton {
+                                            size: "tiny";
                                             icon: @image-url("icons/star.svg");
-                                            active-icon: @image-url("icons/check.svg");
-                                            active: root.saved-row == idx;
-                                            active-color: Theme.icon-done;
-                                            label: self.active ? @tr("Saved to wordbook") : @tr("Add to wordbook");
-                                            reveal: row-touch.has-hover;
+                                            checked-icon: @image-url("icons/check.svg");
+                                            checked: root.saved-row == idx;
+                                            checked-color: Theme.icon-done;
+                                            label: self.checked ? @tr("Saved to wordbook") : @tr("Add to wordbook");
+                                            revealed: row-touch.has-hover;
                                             clicked => {
                                                 root.save-clicked(idx);
                                             }

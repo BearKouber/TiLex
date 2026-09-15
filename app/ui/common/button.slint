@@ -1,0 +1,160 @@
+// ui.md §5.1 Button。旧版 NextUI Button。
+import { Theme } from "theme.slint";
+import { LoadingDots } from "loading_dots.slint";
+
+export component Button {
+    // 尺寸："sm"（高32，字号12，圆角8，内边距12，最小宽64）| "md"（高40，字号14，圆角12，内边距16，最小宽80）
+    in property <string> size: "md";
+    // 变体："solid" | "bordered" | "light"
+    in property <string> variant: "solid";
+    // 颜色："default" | "primary" | "danger"
+    in property <string> color: "primary";
+    // 显示文字
+    in property <string> text: "";
+    // 前置图标（可选）
+    in property <image> icon;
+    // 后置图标（可选，如下拉箭头）
+    in property <image> trailing-icon;
+    // 是否通栏宽度
+    in property <bool> full-width: false;
+    // 加载中状态（文字前显示三点动画，禁止再点击）
+    in property <bool> loading: false;
+    // 启用状态（false 时半透明且禁用交互）
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> is-sm: root.size == "sm";
+    property <bool> is-bordered: root.variant == "bordered";
+    property <bool> is-light: root.variant == "light";
+    property <bool> is-solid: !root.is-bordered && !root.is-light;
+
+    property <bool> is-danger: root.color == "danger";
+    property <bool> is-default: root.color == "default";
+    property <bool> is-primary: !root.is-danger && !root.is-default;
+
+    property <bool> has-icon: root.icon.width > 0;
+    property <bool> has-trailing-icon: root.trailing-icon.width > 0;
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    height: root.is-sm ? 32px : 40px;
+    min-width: root.full-width ? 0px : (root.is-sm ? 64px : 80px);
+    horizontal-stretch: root.full-width ? 1 : 0;
+    accessible-role: button;
+    accessible-label: root.text;
+
+    // 键盘 Tab 焦点环（比控件四周各大 2px，圆角 = 控件圆角 + 2）
+    if root.kb-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: (root.is-sm ? Theme.radius-small : Theme.radius-medium) + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    // 控件主体外框
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: root.is-sm ? Theme.radius-small : Theme.radius-medium;
+        border-width: root.is-bordered ? 1px : 0px;
+        border-color: root.is-bordered
+            ? (root.is-danger ? Theme.danger : (root.is-primary ? Theme.primary : Theme.default-base))
+            : Colors.transparent;
+
+        background: root.is-bordered
+            ? (touch.pressed ? Theme.default-100 : Theme.content1)
+            : (root.is-light
+                ? (touch.pressed
+                    ? (root.is-danger ? Theme.danger.with-alpha(0.3) : Theme.default-200)
+                    : (touch.has-hover
+                        ? (root.is-danger ? Theme.danger.with-alpha(0.2) : Theme.default-base.with-alpha(0.4))
+                        : Colors.transparent))
+                : (root.is-danger
+                    ? Theme.danger
+                    : (root.is-default ? Theme.default-base : Theme.primary)));
+
+        opacity: !root.enabled
+            ? 0.5
+            : (root.is-light
+                ? 1.0
+                : (touch.pressed
+                    ? (Theme.dark ? 0.8 : 0.7)
+                    : (touch.has-hover ? (Theme.dark ? 0.9 : 0.8) : 1.0)));
+
+        animate background, opacity, border-color { duration: 150ms; }
+
+        HorizontalLayout {
+            padding-left: root.is-sm ? 12px : 16px;
+            padding-right: root.is-sm ? 12px : 16px;
+            spacing: 8px;
+            alignment: root.has-trailing-icon ? stretch : center;
+            cross-axis-alignment: center;
+
+            property <color> text-color: root.is-solid
+                ? (root.is-default ? Theme.foreground : Theme.primary-foreground)
+                : (root.is-danger ? Theme.danger : (root.is-primary ? Theme.primary : Theme.foreground));
+
+            if root.loading : LoadingDots {
+                dot: root.is-sm ? 3px : 4px;
+            }
+
+            if !root.loading && root.has-icon : Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                colorize: parent.text-color;
+            }
+
+            if root.text != "" : Text {
+                text: root.text;
+                font-size: root.is-sm ? 12px : 14px;
+                color: parent.text-color;
+                horizontal-alignment: root.has-trailing-icon ? left : center;
+                vertical-alignment: center;
+                horizontal-stretch: root.has-trailing-icon ? 1 : 0;
+                overflow: elide;
+            }
+
+            if root.has-trailing-icon : Image {
+                source: root.trailing-icon;
+                width: 16px;
+                height: 16px;
+                colorize: parent.text-color;
+            }
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled && !root.loading;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            enabled: root.enabled && !root.loading;
+            mouse-cursor: (root.enabled && !root.loading) ? pointer : default;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}

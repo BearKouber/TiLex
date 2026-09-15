@@ -1,0 +1,235 @@
+// ui.md §5.6 Stepper（旧版 Translate 浮标距离输入控件）
+import { Theme } from "theme.slint";
+
+export component Stepper {
+    // 当前数值（已提交的合法值）
+    in-out property <int> value: 10;
+    // 允许的最小值
+    in property <int> minimum: 0;
+    // 允许的最大值
+    in property <int> maximum: 20;
+    // 步长，默认 1
+    in property <int> step: 1;
+    // 数值单位后缀，默认 "px"
+    in property <string> suffix: "px";
+    // 是否启用：禁用时透明度 0.5，不可交互
+    in property <bool> enabled: true;
+
+    // 只在数值真正改变且合法时触发一次
+    callback committed(int);
+
+    // 本地草稿文本（打字时只改草稿，提交成功或失焦恢复时才同步）
+    private property <string> draft-text: "" + root.value;
+
+    // 外部修改 value（例如保存失败回滚）时，草稿同步恢复
+    changed value => {
+        root.draft-text = "" + root.value;
+    }
+
+    public function step-up() {
+        if !root.enabled || root.value >= root.maximum {
+            return;
+        }
+        // 上面已排除到边界的情况，这里一定会变；草稿由 changed value 同步
+        root.value = Math.min(root.maximum, root.value + root.step);
+        root.committed(root.value);
+    }
+
+    public function step-down() {
+        if !root.enabled || root.value <= root.minimum {
+            return;
+        }
+        // 上面已排除到边界的情况，这里一定会变；草稿由 changed value 同步
+        root.value = Math.max(root.minimum, root.value - root.step);
+        root.committed(root.value);
+    }
+
+    public function commit-draft() {
+        if root.draft-text.is-float() {
+            root.try-commit-float(root.draft-text.to-float());
+        } else {
+            // 非数字、空字符串：恢复原显示，不调回调
+            root.draft-text = "" + root.value;
+        }
+    }
+
+    function try-commit-float(f: float) {
+        if Math.round(f) == f {
+            // 为整数
+            if f >= root.minimum && f <= root.maximum {
+                if f != root.value {
+                    root.value = Math.round(f);
+                    root.draft-text = "" + root.value;
+                    root.committed(root.value);
+                    return;
+                } else {
+                    // 值未变（如输入了原值的等价表示），刷新草稿显示，不调回调
+                    root.draft-text = "" + root.value;
+                    return;
+                }
+            }
+        }
+        // 小数或超出范围：恢复原显示，不调回调
+        root.draft-text = "" + root.value;
+    }
+
+    forward-focus: text-input;
+
+    width: 130px;
+    height: 40px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate opacity { duration: 150ms; }
+
+    accessible-role: spinbox;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-enabled: root.enabled;
+
+    shell := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Theme.radius-medium;
+        border-width: 1px;
+        border-color: text-input.has-focus
+            ? Theme.foreground
+            : (shell-touch.has-hover ? Theme.default-400 : Theme.default-200);
+        background: Theme.content1;
+
+        animate border-color { duration: 150ms; }
+
+        shell-touch := TouchArea {
+            enabled: root.enabled;
+            width: 100%;
+            height: 100%;
+
+            clicked => {
+                text-input.focus();
+            }
+        }
+
+        // 减号按钮（28×28，圆角 8）
+        minus-btn := Rectangle {
+            x: 6px;
+            y: (parent.height - self.height) / 2;
+            width: 28px;
+            height: 28px;
+            border-radius: Theme.radius-small;
+            background: minus-touch.pressed
+                ? Theme.default-200
+                : (minus-touch.has-hover ? Theme.default-100 : transparent);
+            opacity: (root.enabled && root.value > root.minimum) ? 1.0 : 0.3;
+
+            animate background { duration: 150ms; }
+
+            Text {
+                text: "-";
+                font-size: 16px;
+                color: Theme.foreground;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            minus-touch := TouchArea {
+                enabled: root.enabled && root.value > root.minimum;
+                width: 100%;
+                height: 100%;
+                mouse-cursor: self.enabled ? pointer : default;
+
+                clicked => {
+                    root.step-down();
+                }
+            }
+        }
+
+        // 中间数字草稿 + 后缀 px
+        middle-container := Rectangle {
+            x: 36px;
+            y: 0;
+            width: parent.width - 72px;
+            height: parent.height;
+
+            HorizontalLayout {
+                width: 100%;
+                height: 100%;
+                alignment: center;
+                spacing: 2px;
+
+                text-input := TextInput {
+                    width: max(20px, self.preferred-width);
+                    height: 100%;
+                    font-size: 14px;
+                    color: Theme.foreground;
+                    single-line: true;
+                    enabled: root.enabled;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    text <=> root.draft-text;
+
+                    changed has-focus => {
+                        if !self.has-focus {
+                            root.commit-draft();
+                        }
+                    }
+
+                    key-pressed(event) => {
+                        if event.text == Key.UpArrow {
+                            root.step-up();
+                            return accept;
+                        }
+                        if event.text == Key.DownArrow {
+                            root.step-down();
+                            return accept;
+                        }
+                        reject
+                    }
+
+                    accepted => {
+                        root.commit-draft();
+                    }
+                }
+
+                if root.suffix != "" : Text {
+                    text: root.suffix;
+                    font-size: 14px;
+                    color: Theme.default-500;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // 加号按钮（28×28，圆角 8）
+        plus-btn := Rectangle {
+            x: parent.width - self.width - 6px;
+            y: (parent.height - self.height) / 2;
+            width: 28px;
+            height: 28px;
+            border-radius: Theme.radius-small;
+            background: plus-touch.pressed
+                ? Theme.default-200
+                : (plus-touch.has-hover ? Theme.default-100 : transparent);
+            opacity: (root.enabled && root.value < root.maximum) ? 1.0 : 0.3;
+
+            animate background { duration: 150ms; }
+
+            Text {
+                text: "+";
+                font-size: 16px;
+                color: Theme.foreground;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            plus-touch := TouchArea {
+                enabled: root.enabled && root.value < root.maximum;
+                width: 100%;
+                height: 100%;
+                mouse-cursor: self.enabled ? pointer : default;
+
+                clicked => {
+                    root.step-up();
+                }
+            }
+        }
+    }
+}

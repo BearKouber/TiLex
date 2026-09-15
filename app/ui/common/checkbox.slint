@@ -1,0 +1,129 @@
+// ui.md §5.7 Checkbox（旧版 NextUI Checkbox）
+import { Theme } from "theme.slint";
+
+export component Checkbox {
+    // 选中状态
+    in-out property <bool> checked: false;
+    // 半选状态：显示横线；点击后变 checked=true, indeterminate=false
+    in-out property <bool> indeterminate: false;
+    // 文本标签（可空；非空时在复选框右侧 8px 显示 14px foreground 文字，点击文字也可切换）
+    in property <string> text: "";
+    // 是否启用：禁用时透明度 0.5，不可交互
+    in property <bool> enabled: true;
+
+    // 状态切换回调，传递切换后的 checked 值
+    callback toggled(bool);
+
+    private property <bool> kb-focus: false;
+
+    public function toggle() {
+        if !root.enabled {
+            return;
+        }
+        if root.indeterminate {
+            root.indeterminate = false;
+            root.checked = true;
+        } else {
+            root.checked = !root.checked;
+        }
+        root.toggled(root.checked);
+    }
+
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate opacity { duration: 150ms; }
+
+    accessible-role: checkbox;
+    accessible-checked: root.indeterminate ? false : root.checked;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-action-default => { root.toggle(); }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.toggle();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: root.enabled ? pointer : default;
+
+            clicked => {
+                root.toggle();
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                box-wrapper := Rectangle {
+                    width: 16px;
+                    height: 16px;
+
+                    box := Rectangle {
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: (root.checked || root.indeterminate)
+                            ? Theme.primary
+                            : (touch.pressed ? Theme.default-500 : (touch.has-hover ? Theme.default-400 : Theme.default-base));
+                        background: (root.checked || root.indeterminate)
+                            ? Theme.primary
+                            : (touch.pressed ? Theme.default-200 : (touch.has-hover ? Theme.default-100 : transparent));
+
+                        animate background, border-color { duration: 150ms; }
+
+                        // 选中对勾（Path）
+                        if (root.checked && !root.indeterminate) : Path {
+                            width: 16px;
+                            height: 16px;
+                            stroke: Theme.primary-foreground;
+                            stroke-width: 2px;
+                            commands: "M 3.5 8.5 L 6.5 11.5 L 12.5 4.5";
+                        }
+
+                        // 半选横线（Path）
+                        if root.indeterminate : Path {
+                            width: 16px;
+                            height: 16px;
+                            stroke: Theme.primary-foreground;
+                            stroke-width: 2px;
+                            commands: "M 3.5 8 L 12.5 8";
+                        }
+                    }
+
+                    // 键盘 Tab 焦点环
+                    if root.kb-focus : Rectangle {
+                        x: -2px;
+                        y: -2px;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 8px;
+                        border-width: 2px;
+                        border-color: Theme.focus;
+                    }
+                }
+
+                if root.text != "" : Text {
+                    text: root.text;
+                    font-size: 14px;
+                    color: Theme.foreground;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

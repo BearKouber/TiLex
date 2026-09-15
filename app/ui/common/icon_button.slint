@@ -1,0 +1,119 @@
+// ui.md §5.2 IconButton。旧版 PopResult 图标按钮与 NextUI isIconOnly 按钮。
+import { Theme } from "theme.slint";
+
+export component IconButton {
+    // 尺寸："tiny"（16×16，图标12，无底色不抢焦）| "sm"（32×32，图标18，圆角8）| "round"（26×26圆形，图标16）
+    in property <string> size: "sm";
+    // 常规图标
+    in property <image> icon;
+    // checked 态图标（为空时使用 icon）
+    in property <image> checked-icon;
+    // 是否处于 checked 切换态（如钉住、收藏成功、复制成功）
+    in property <bool> checked: false;
+    // 普通状态下的图标颜色，默认 Theme.icon-muted
+    in property <color> color: Theme.icon-muted;
+    // checked 状态下的图标颜色，默认 Theme.icon-active
+    in property <color> checked-color: Theme.icon-active;
+    // 读屏标签（accessible-label）
+    in property <string> label: "";
+    // 是否显现（用于浮窗悬停整行才显示，默认 true）
+    in property <bool> revealed: true;
+    // 是否启用
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> is-tiny: root.size == "tiny";
+    property <bool> is-round: root.size == "round";
+    property <bool> is-sm: root.size == "sm" || (!root.is-tiny && !root.is-round);
+
+    property <length> box-size: root.is-tiny ? 16px : (root.is-round ? 26px : 32px);
+    property <length> icon-size: root.is-tiny ? 12px : (root.is-round ? 16px : 18px);
+    property <length> radius: root.is-tiny ? 0px : (root.is-round ? 13px : Theme.radius-small);
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    width: root.box-size;
+    height: root.box-size;
+    accessible-role: button;
+    accessible-label: root.label;
+
+    // 键盘 Tab 焦点环（仅 sm / round 可聚焦，比控件大 2px，圆角 +2）
+    if root.kb-focus && !root.is-tiny : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: root.radius + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    // 按钮主体
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: root.radius;
+
+        background: root.is-tiny
+            ? Colors.transparent
+            : (touch.pressed
+                ? Theme.default-200
+                : (touch.has-hover ? Theme.default-base.with-alpha(0.4) : Colors.transparent));
+
+        opacity: !root.enabled
+            ? 0.5
+            : ((root.revealed || root.checked || touch.has-hover) ? 1.0 : 0.0);
+
+        animate background, opacity { duration: 150ms; }
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: root.icon-size;
+            height: root.icon-size;
+            source: root.checked && root.checked-icon.width > 0 ? root.checked-icon : root.icon;
+            colorize: root.checked
+                ? root.checked-color
+                : (root.is-tiny
+                    ? (touch.has-hover
+                        ? (root.color == Theme.icon-muted ? Theme.icon-muted-hover : root.color.darker(0.2))
+                        : root.color)
+                    : root.color);
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled && !root.is-tiny;
+        focus-on-click: !root.is-tiny;
+        focus-on-tab-navigation: !root.is-tiny;
+        focus-gained(reason) => {
+            if !root.is-tiny {
+                root.kb-focus = reason == FocusReason.tab-navigation;
+            }
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            enabled: root.enabled;
+            mouse-cursor: root.enabled ? pointer : default;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}

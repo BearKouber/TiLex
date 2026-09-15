@@ -1,0 +1,151 @@
+// ui.md §5.10 Modal。旧版 NextUI Modal / 对话框。
+//
+// 用法说明：
+// Modal 是窗口内覆盖层。调用方把它放在窗口根元素（或模拟窗口容器）的最后一个子元素位置，宽高铺满窗口（width: 100%; height: 100%;）。
+//
+// 体与脚排版方式：
+// Slint 语言中每个组件仅支持单个 @children 占位符。因此 Modal 提供外壳卡片、标题栏（含关闭按钮）与全屏暗色遮罩；
+// 调用方将内容体与底部按钮栏（Footer）都放进 children 中，推荐底部使用 HorizontalLayout { alignment: end; spacing: 8px; } 排列操作按钮。
+import { Theme } from "theme.slint";
+import { IconButton } from "icon_button.slint";
+
+export component Modal {
+    // 是否打开
+    in-out property <bool> open: false;
+    // 尺寸："sm"（宽 384px，如删除确认）| "md"（宽 448px）
+    in property <string> size: "md";
+    // 对话框标题
+    in property <string> title: "";
+    // 是否允许外部关闭（为 false 时点击遮罩、Esc、关闭按钮均不关闭）
+    in property <bool> dismissable: true;
+
+    // 关闭回调
+    callback closed();
+
+    // 尝试关闭对话框（受 dismissable 控制）
+    public function close() {
+        if root.dismissable {
+            root.open = false;
+            root.closed();
+        }
+    }
+
+    // 强制关闭（不受 dismissable 控制，供业务确定完成时使用）
+    public function force-close() {
+        root.open = false;
+        root.closed();
+    }
+
+    property <bool> is-sm: root.size == "sm";
+
+    forward-focus: modal-fs;
+    width: 100%;
+    height: 100%;
+    x: 0;
+    y: 0;
+
+    visible: root.open;
+    opacity: root.open ? 1.0 : 0.0;
+    animate opacity { duration: 150ms; }
+
+    changed open => {
+        if root.open {
+            modal-fs.focus();
+        }
+    }
+
+    modal-fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.open;
+
+        key-pressed(event) => {
+            if event.text == Key.Escape && root.dismissable {
+                root.close();
+                return accept;
+            }
+            reject
+        }
+
+        // 遮罩层（吞掉所有点击事件）
+        overlay := Rectangle {
+            width: 100%;
+            height: 100%;
+            background: Theme.overlay;
+
+            overlay-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                enabled: root.open;
+                clicked => {
+                    if root.dismissable {
+                        root.close();
+                    }
+                }
+            }
+        }
+
+        // 对话框卡片
+        card := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: root.is-sm ? 384px : 448px;
+            max-height: parent.height * 0.8;
+            background: Theme.content1;
+            border-radius: Theme.radius-large;
+            border-width: 1px;
+            border-color: Theme.default-200;
+
+            // 吞掉卡片本身的点击事件，防止点击卡片内部空白穿透触发遮罩关闭
+            card-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+            }
+
+            VerticalLayout {
+                spacing: 0px;
+
+                // 标题栏头
+                HorizontalLayout {
+                    padding-top: 16px;
+                    padding-bottom: 16px;
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    spacing: 12px;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: root.title;
+                        font-size: root.is-sm ? 16px : 18px;
+                        font-weight: 600;
+                        color: Theme.foreground;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if root.dismissable : IconButton {
+                        size: "round";
+                        icon: @image-url("../icons/x.svg");
+                        label: @tr("Close");
+                        color: Theme.foreground;
+                        clicked => {
+                            root.close();
+                        }
+                    }
+                }
+
+                // 内容体与脚部插槽
+                VerticalLayout {
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-top: 8px;
+                    padding-bottom: 24px;
+                    spacing: 12px;
+
+                    @children
+                }
+            }
+        }
+    }
+}

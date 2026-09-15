@@ -1,14 +1,387 @@
 // 展示页 组 2：Switch、Checkbox、TextField、Stepper（ui.md §5）。只用于开发手测，不写业务逻辑、不用 @tr。
 import { Theme } from "../common/theme.slint";
+import { Switch } from "../common/switch.slint";
+import { Checkbox } from "../common/checkbox.slint";
+import { TextField, TextArea } from "../common/text_field.slint";
+import { Stepper } from "../common/stepper.slint";
 
 export component GalleryGroup2 {
+    private property <string> last-editing-finished: "";
+    private property <int> stepper-val: 10;
+    private property <int> last-committed-val: 10;
+    private property <int> commit-count: 0;
+    private property <bool> simulate-save-fail: false;
+    private property <int> prev-val: 10;
+
     VerticalLayout {
-        spacing: 16px;
+        spacing: 24px;
 
         Text {
             text: "组 2：Switch、Checkbox、TextField、Stepper";
             font-size: 18px;
+            font-weight: 700;
             color: Theme.foreground;
+        }
+
+        // ==========================================
+        // 1. Switch (§5.3)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "1. Switch (ui.md §5.3)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            HorizontalLayout {
+                spacing: 20px;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: "md 尺寸（48×28，开机自启等）：";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+
+                        Switch { size: "md"; checked: false; }
+                        Switch { size: "md"; checked: true; }
+                        Switch { size: "md"; checked: false; enabled: false; }
+                        Switch { size: "md"; checked: true; enabled: false; }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: "sm 尺寸（40×24，服务列表等）：";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+
+                        Switch { size: "sm"; checked: false; }
+                        Switch { size: "sm"; checked: true; }
+                        Switch { size: "sm"; checked: false; enabled: false; }
+                        Switch { size: "sm"; checked: true; enabled: false; }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 2. Checkbox (§5.7)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "2. Checkbox (ui.md §5.7)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: "无文字四态：未选 / 选中 / 半选 / 禁用未选 / 禁用选中 / 禁用半选";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+
+                        Checkbox { checked: false; }
+                        Checkbox { checked: true; }
+                        Checkbox { indeterminate: true; }
+                        Checkbox { checked: false; enabled: false; }
+                        Checkbox { checked: true; enabled: false; }
+                        Checkbox { indeterminate: true; enabled: false; }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: "带文字标签（点击文字亦可切换）：";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 20px;
+                        alignment: start;
+
+                        Checkbox { text: "未选"; checked: false; }
+                        Checkbox { text: "选中"; checked: true; }
+                        Checkbox { text: "全选（半选）"; indeterminate: true; }
+                        Checkbox { text: "禁用项"; checked: true; enabled: false; }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 3. TextField (§5.5)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "3. TextField (ui.md §5.5)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "bordered md（高 40，圆角 12）：普通 / 占位 / 密码 / 可清除 / 居中 / 只读 / 禁用";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                TextField {
+                    variant: "bordered";
+                    placeholder: "请输入...";
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+
+                TextField {
+                    variant: "bordered";
+                    text: "可清除文本";
+                    clearable: true;
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+
+                TextField {
+                    variant: "bordered";
+                    text: "secret_123";
+                    password: true;
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+
+                TextField {
+                    variant: "bordered";
+                    center: true;
+                    text: "Ctrl + Shift + T";
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                TextField {
+                    variant: "bordered";
+                    read-only: true;
+                    text: "只读状态文本";
+                }
+
+                TextField {
+                    variant: "bordered";
+                    enabled: false;
+                    text: "禁用状态文本";
+                }
+            }
+
+            Text {
+                text: "flat sm（高 32，圆角 8，生词本搜索）：普通 / 可清除 / 禁用";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                TextField {
+                    variant: "flat";
+                    placeholder: "搜索生词、释义、原句...";
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+
+                TextField {
+                    variant: "flat";
+                    text: "hello world";
+                    clearable: true;
+                    editing-finished(val) => { root.last-editing-finished = val; }
+                }
+
+                TextField {
+                    variant: "flat";
+                    enabled: false;
+                    text: "禁用搜索框";
+                }
+            }
+
+            Rectangle {
+                height: 28px;
+                background: Theme.default-100;
+                border-radius: Theme.radius-small;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    alignment: start;
+
+                    Text {
+                        text: "最近一次 editing-finished 的值: \"" + root.last-editing-finished + "\"";
+                        font-size: 12px;
+                        color: Theme.foreground;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. TextArea (§5.5)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "4. TextArea (ui.md §5.5)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            TextArea {
+                placeholder: "多行文本输入（AI 自定义提示词，最小高 80，随内容长高）...";
+                text: "你是一名资深翻译家，请将以下文本翻译为地道自然的中文：";
+            }
+        }
+
+        // ==========================================
+        // 5. Stepper (§5.6)
+        // ==========================================
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "5. Stepper (ui.md §5.6)";
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: "范围 0-20，步长 1，单位 px；支持打字草稿、Enter/失焦提交、上下方向键与按钮加减：";
+                font-size: 13px;
+                color: Theme.default-500;
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+
+                stepper := Stepper {
+                    value <=> root.stepper-val;
+                    minimum: 0;
+                    maximum: 20;
+                    step: 1;
+                    suffix: "px";
+
+                    committed(new-val) => {
+                        root.last-committed-val = new-val;
+                        root.commit-count += 1;
+                        if root.simulate-save-fail {
+                            // 模拟保存失败回滚
+                            root.stepper-val = root.prev-val;
+                        } else {
+                            root.prev-val = new-val;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Switch {
+                        size: "sm";
+                        checked <=> root.simulate-save-fail;
+                    }
+
+                    Text {
+                        text: "模拟保存失败（开启后 committed 会将 value 改回原值，验证回滚显示）";
+                        font-size: 13px;
+                        color: root.simulate-save-fail ? Theme.danger : Theme.default-500;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+
+                Rectangle {
+                    height: 28px;
+                    background: Theme.default-100;
+                    border-radius: Theme.radius-small;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        alignment: start;
+
+                        Text {
+                            text: "当前 value: " + root.stepper-val + "px | 最近 committed 值: " + root.last-committed-val + "px | committed 触发次数: " + root.commit-count;
+                            font-size: 12px;
+                            color: Theme.foreground;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    Stepper {
+                        value: 10;
+                        minimum: 0;
+                        maximum: 20;
+                        enabled: false;
+                    }
+
+                    Text {
+                        text: "（禁用态 Stepper）";
+                        font-size: 13px;
+                        color: Theme.default-500;
+                        vertical-alignment: center;
+                    }
+                }
+            }
         }
     }
 }
