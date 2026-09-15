@@ -33,8 +33,9 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lingua = { version = "1.8.0", optional = true, default-features = false }
-# D14：同步 HTTP，只在 src/service/http.rs 用。native-tls 用系统证书库（Windows SChannel / macOS Security）。
-ureq = { version = "3.4.2", default-features = false, features = ["native-tls"] }
+# D14：同步 HTTP，只在 src/service/http.rs 用。rustls + platform-verifier：证书仍走系统证书库。
+# 不用 native-tls：走 SChannel 时 Google 网页接口按 TLS 指纹回 429（B1 实测，curl/rustls 同 IP 都是 200）。
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
 # 生词本（design §2.3）。Windows 没有可靠的系统 SQLite，所以 bundled。
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 

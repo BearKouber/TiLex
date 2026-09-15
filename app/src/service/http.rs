@@ -86,7 +86,7 @@ fn agent() -> &'static Agent {
     static AGENT: OnceLock<Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let tls = TlsConfig::builder()
-            .provider(TlsProvider::NativeTls)
+            .provider(TlsProvider::Rustls)
             .root_certs(RootCerts::PlatformVerifier)
             .build();
         Agent::config_builder()
@@ -146,7 +146,7 @@ fn classify(e: ureq::Error) -> Error {
         | E::InvalidProxyUrl
         | E::BadUri(_)
         | E::Tls(_)
-        | E::NativeTls(_) => HttpKind::Connect,
+        | E::Rustls(_) => HttpKind::Connect,
         _ => HttpKind::Format,
     };
     Error::Http { status: None, kind }
