@@ -1,0 +1,45 @@
+// 划词浮标。启动时在屏幕外 show() 一次，之后显示/隐藏、位置、大小全由平台层用 Win32 管，
+// Rust 再也不调它的 show()/hide()（platform-windows.md）。
+
+export component PopButton inherits Window {
+    // 不显示给用户（不进任务栏），只给调试时 EnumWindows 认。
+    title: "TiLex PopButton";
+    no-frame: true;
+    always-on-top: true;
+    // 平台层按显示器 DPI 算物理边长时用的也是 18（platform/windows/selection/mod.rs 的 BUTTON_LOGICAL）。
+    width: 18px;
+    height: 18px;
+    // 两种主题下都是固定的蓝：18px 上做随主题变化的样式只会糊成一团灰（沿用旧版）。
+    background: #d5e1fa;
+
+    callback hovered();
+    callback clicked();
+
+    // TbLanguage（Tabler "language" 图标，旧版用的 react-icons 同一个）。
+    Path {
+        x: 3px;
+        y: 3px;
+        width: 12px;
+        height: 12px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M4 5h7 M9 3v2c0 4.418 -2.239 8 -5 8 M5 9c0 2.144 2.952 3.908 6.7 4 M12 20l4 -9l4 9 M19.1 18h-6.2";
+        stroke: #4a7dfc;
+        stroke-width: 1px;
+        stroke-line-cap: round;
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        // 悬停看移动事件，不看 has-hover：浮标在鼠标底下被收起时 has-hover 可能一直停在 true，
+        // 下次出现时就不会再"变化"。重复触发由平台层去重。
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+        clicked => {
+            root.clicked();
+        }
+    }
+}

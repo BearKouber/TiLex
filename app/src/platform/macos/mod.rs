@@ -87,3 +87,29 @@ pub fn round_corners(_window: &slint::Window) -> Result<(), Error> {
 pub fn bring_to_front(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
+
+// B6：CGEventTap + AX 取词，浮标窗口用 AppKit 的对应做法。
+pub fn start_selection(
+    _settings: super::SettingsFn,
+    _accept: super::AcceptFn,
+    _engaged: super::EngagedFn,
+) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn attach_selection_button(_window: &slint::Window) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn engage_selection() {}
+
+// B6：`/usr/bin/say` 子进程
+pub fn speak(
+    _text: &str,
+    _voice: super::Voice,
+    _done: impl FnOnce() + Send + 'static,
+) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn stop_speaking() {}

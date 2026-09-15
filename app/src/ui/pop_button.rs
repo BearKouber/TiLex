@@ -1,0 +1,116 @@
+//! 划词浮标窗口。启动时建好（D12），在屏幕外 `show()` 一次，拿到原生窗口后交给平台层
+//! （`platform::attach_selection_button`），之后显示、隐藏、位置都由平台层管，这里再也不调它的 `show()`/`hide()`。
+
+use std::cell::Cell;
+use std::time::Duration;
+
+use slint::{CloseRequestResponse, ComponentHandle, PhysicalPosition};
+
+use crate::error::Error;
+use crate::logic::config;
+use crate::platform::geometry::Side;
+use crate::platform::{self, EngagedSelection, SelectionSettings};
+use crate::slint_ui::PopButton;
+
+thread_local! {
+    /// 正在建浮标。`ui::select_backend` 装的 winit 属性钩子只在这时加 `with_active(false)`。
+    pub(super) static CREATING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词（macOS 在 B6），或监听没起来（已记日志）。
+/// 调用方持有返回值到退出。
+pub fn create() -> Result<Option<PopButton>, Error> {
+    match platform::start_selection(settings, accept, engaged) {
+        Ok(()) => {}
+        Err(Error::Unsupported) => {
+            log::info!("PopButton: selection is not supported on this platform yet");
+            return Ok(None);
+        }
+        Err(e) => {
+            log::error!("PopButton: start selection failed: {e}");
+            return Ok(None);
+        }
+    }
+    CREATING.set(true);
+    let button = PopButton::new();
+    CREATING.set(false);
+    let button = button?;
+    button.on_hovered(|| engage_if(true));
+    button.on_clicked(|| engage_if(false));
+    // Slint 的 hide() 会让 winit 重写窗口样式（浮标就会抢焦点），所以永远不让它自己隐藏。
+    button
+        .window()
+        .on_close_requested(|| CloseRequestResponse::KeepWindowShown);
+    // 第一次 show 在屏幕外：原生窗口建出来、交给平台层之前那一下不会闪到屏幕上。
+    button
+        .window()
+        .set_position(PhysicalPosition::new(-32000, -32000));
+    button.show()?;
+    attach_when_ready(button.as_weak(), 1);
+    Ok(Some(button))
+}
+
+/// 原生窗口要到事件循环之后的某一轮才有（architecture.md §6 第 5 条），每 10ms 试一次，最多 50 次。
+fn attach_when_ready(weak: slint::Weak<PopButton>, attempt: u32) {
+    const MAX_ATTEMPTS: u32 = 50;
+    slint::Timer::single_shot(Duration::from_millis(10), move || {
+        let Some(button) = weak.upgrade() else { return };
+        match platform::attach_selection_button(button.window()) {
+            Ok(()) => {}
+            Err(e) if attempt >= MAX_ATTEMPTS => {
+                log::error!(
+                    "PopButton: attach window failed after {attempt} tries, no button: {e}"
+                );
+            }
+            Err(_) => attach_when_ready(weak, attempt + 1),
+        }
+    });
+}
+
+/// 悬停和点击各自只在对应的触发方式下生效。不认识的触发方式按默认的悬停。
+fn engage_if(hovered: bool) {
+    let hover_trigger = config::snapshot().selection.trigger != "click";
+    if hovered == hover_trigger {
+        platform::engage_selection();
+    }
+}
+
+/// 取词 worker 每次手势现取（改了 config.json 重启后生效；B2 设置页改了立即生效）。
+fn settings() -> SelectionSettings {
+    let s = config::snapshot().selection;
+    SelectionSettings {
+        enabled: s.enabled,
+        blacklist: s.blacklist,
+        force_copy: s.force_copy,
+        corner: corner(&s.button_pos),
+        gap: s.button_distance.clamp(0, 20) as i32,
+    }
+}
+
+fn corner(pos: &str) -> (Side, Side) {
+    match pos {
+        "BottomRight" => (Side::After, Side::After),
+        "BottomLeft" => (Side::Before, Side::After),
+        "TopRight" => (Side::After, Side::Before),
+        "TopLeft" => (Side::Before, Side::Before),
+        // 不认识的按配置默认值 BottomLeft
+        _ => (Side::Before, Side::After),
+    }
+}
+
+/// 排除母语（`selection.exclude_native`）的挂钩点，在取词 worker 线程上调用；返回 `false` 就不出浮标。
+/// phase C：在这里接 logic 的语种识别（旧版 `is_native_language`：先按书写系统粗判，再用 lingua 细分）。
+/// 现在一律放行。
+fn accept(_text: &str) -> bool {
+    true
+}
+
+/// 用户悬停/点击了浮标（取词 worker 线程）。phase C 在这里把文字交给结果浮窗。
+fn engaged(selection: EngagedSelection) {
+    log::info!(
+        "PopButton: engaged, {} chars, button at ({}, {})",
+        selection.text.chars().count(),
+        selection.x,
+        selection.y
+    );
+}

@@ -37,9 +37,12 @@ fn run() -> Result<(), Error> {
     );
     let backup = config::init(&data)?;
 
+    ui::select_backend()?;
     // 托盘必须先建：它是第一个 Slint 组件，建完才有事件循环和翻译上下文。
     let tray = ui::tray::create()?;
     ui::apply_language(&config::snapshot().general.language);
+    // 划词浮标启动时就建好、一直不销毁（D12）。
+    let _pop_button = ui::pop_button::create()?;
     // 听不到第二实例的通知只是"再开 exe 不弹设置"，不值得让整个程序起不来（macOS 上 socket bind 可能失败）。
     if let Err(e) = platform::listen_activation(|| {
         if let Err(e) = slint::invoke_from_event_loop(ui::settings::open) {

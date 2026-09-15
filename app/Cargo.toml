@@ -15,6 +15,9 @@ publish = false
 # compat-1-2 是 slint 强制要求的（缺了 lib.rs 里 compile_error!）。
 # raw-window-handle-06：从 Slint 窗口拿 HWND 设 DWM 圆角。
 # system-tray：Slint 自带托盘（design §2.12），菜单写在 .slint 里走 @tr。
+# unstable-winit-030：只为建浮标时给 winit 传 with_active(false)。默认属性下 Slint 第一次 show()
+# 会 SW_SHOW 激活窗口、抢走用户的焦点（winit 0.30 源码，见 platform-windows.md）。
+# 不引新 crate（winit 本来就编进来了）；"unstable" 指 Slint 小版本间可能改签名，Cargo.lock 锁着 1.17.1。
 slint = { version = "1.17.1", default-features = false, features = [
     "std",
     "backend-winit",
@@ -22,6 +25,7 @@ slint = { version = "1.17.1", default-features = false, features = [
     "compat-1-2",
     "raw-window-handle-06",
     "system-tray",
+    "unstable-winit-030",
 ] }
 raw-window-handle = "0.6"
 thiserror = "2"
@@ -34,8 +38,17 @@ lingua = { version = "1.8.0", optional = true, default-features = false }
 windows = { version = "0.58.0", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Speech",
     "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Threading",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
