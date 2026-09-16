@@ -17,7 +17,7 @@ use crate::logic::popup_state::{Blur, BlurGuard};
 use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
-use crate::slint_ui::{EntryView, PopResult, ResultRow, Theme};
+use crate::slint_ui::{EntryView, PopResult, ResultRow};
 use crate::ui::{entry_view, pop_button};
 
 thread_local! {
@@ -32,7 +32,7 @@ thread_local! {
 }
 
 /// 鼠标离起算点超过这么远（逻辑像素）红三角才生效，防止浮窗刚出现在光标下就被碰掉（旧版 `ARM_PX`）。
-const ARM_PX: f64 = 24.0;
+const ARM_PX: f64 = 10.0;
 
 /// 创建结果浮窗并完成初始设置。在屏幕外 show 一次并重试 attach 原生窗口。
 pub fn create() -> Result<(), Error> {
@@ -216,13 +216,6 @@ pub fn show(text: &str, x: i32, y: i32) {
 
         let scheme = super::resolve_color_scheme(ui.window());
         ui.set_color_scheme(scheme);
-        // 边框跟主题走（ui.md §3）；Win10 不支持，照常显示
-        if let Err(e) =
-            platform::set_border_color(ui.window(), ui.global::<Theme>().get_default_200())
-        {
-            log::debug!("PopResult: border color not set: {e}");
-        }
-
         let query = translate::start(text, move |id, update| {
             if let Err(e) = slint::invoke_from_event_loop(move || {
                 on_translate_update(id, update);

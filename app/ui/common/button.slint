@@ -7,8 +7,8 @@ export component Button {
     in property <string> size: "md";
     // 变体："solid" | "bordered" | "light"
     in property <string> variant: "solid";
-    // 颜色："default" | "primary" | "danger"
-    in property <string> color: "primary";
+    // 颜色："default" | "primary" | "danger"。默认跟旧版 NextUI 一样是 default（中性黑字灰框），不是 primary
+    in property <string> color: "default";
     // 显示文字
     in property <string> text: "";
     // 前置图标（可选）

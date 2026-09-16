@@ -56,7 +56,10 @@ export component SettingRow inherits Rectangle {
                 vertical-alignment: center;
             }
 
+            // 尺寸写死，否则 Tooltip 在布局里会 stretch（见 settings/window.slint 标题栏）
             if root.info != "" : Tooltip {
+                width: 16px;
+                height: 16px;
                 text: root.info;
 
                 Rectangle {

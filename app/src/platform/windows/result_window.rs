@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
-    DwmSetWindowAttribute,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
@@ -16,14 +16,18 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-    WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-    WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_EX_APPWINDOW,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    WS_THICKFRAME,
 };
 
 use crate::error::Error;
 use crate::platform::geometry::Rect;
+
+/// `DWMWA_BORDER_COLOR` 的特殊值：不画边框（windows crate 没导出这个常量）。
+const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
 
 static RESULT_WINDOW: AtomicIsize = AtomicIsize::new(0);
 static PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
@@ -94,6 +98,20 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
         )
     } {
         log::debug!("PopResult: no rounded corners: {e}");
+    }
+    // 关掉 DWM 那 1px 边框：它画在客户区外面，左上角的红三角盖不住，会露出一圈浅灰。
+    // 边框改由 pop_result.slint 里的 1px 内描边画。
+    let none = DWMWA_COLOR_NONE;
+    // SAFETY: h 是活着的窗口；none 在调用期间有效，长度与类型一致。
+    if let Err(e) = unsafe {
+        DwmSetWindowAttribute(
+            h,
+            DWMWA_BORDER_COLOR,
+            (&raw const none).cast::<c_void>(),
+            size_of::<u32>() as u32,
+        )
+    } {
+        log::debug!("PopResult: DWM border not disabled: {e}");
     }
     cloak(h, true);
     // SAFETY: 只刷新样式，不动位置、大小、激活。
@@ -181,6 +199,10 @@ pub fn show_result_window(rect: Rect) {
         );
         // ignore: 摆放尺寸失败不致命
         let _ = SetWindowPos(h, HWND_TOPMOST, rect.l, rect.t, w, h_px, SWP_NOACTIVATE);
+        // 上一次是 SW_HIDE 隐藏的（见 hide_result_window），要重新显示；启动那次窗口本来就可见，是空操作。
+        // 位置已经摆好才显示，不会在旧位置闪。
+        // ignore: 已经可见时返回 false，不是错误
+        let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
     }
     cloak(h, false);
     if !super::force_foreground(h) {
@@ -203,7 +225,12 @@ pub fn hide_result_window() {
     let Some(h) = result_hwnd() else {
         return;
     };
-    cloak(h, true);
+    // 用 SW_HIDE 而不是 cloak：系统关闭窗口的缩放淡出动画只在 ShowWindow 上走，cloak 是瞬间消失（旧版就是 SW_HIDE，
+    // 用户说重构后关得太生硬）。platform-windows.md §1 第 4 条的"再显示是透明的"只发生在内容没变时，
+    // 结果浮窗每次显示都重置 rows，整窗都是脏的。
+    // SAFETY: h 是活着的窗口。
+    // ignore: 隐藏失败时下面归还焦点的逻辑照常
+    let _ = unsafe { ShowWindow(h, SW_HIDE) };
     // 如果当前前台还是浮窗，归还焦点给记录的窗口；失焦隐藏时焦点已在别处，不归还
     // SAFETY: 无指针参数。
     let fg = unsafe { GetForegroundWindow() };

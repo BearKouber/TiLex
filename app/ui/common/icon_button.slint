@@ -2,7 +2,7 @@
 import { Theme } from "theme.slint";
 
 export component IconButton {
-    // 尺寸："tiny"（16×16，图标12，无底色不抢焦）| "sm"（32×32，图标18，圆角8）| "round"（26×26圆形，图标16）
+    // 尺寸："tiny"（16×16，图标12，无底色不抢焦）| "sm"（32×32，图标18，圆角8）| "round"（26×26圆形，图标18）
     in property <string> size: "sm";
     // 常规图标
     in property <image> icon;
@@ -28,7 +28,7 @@ export component IconButton {
     property <bool> is-sm: root.size == "sm" || (!root.is-tiny && !root.is-round);
 
     property <length> box-size: root.is-tiny ? 16px : (root.is-round ? 26px : 32px);
-    property <length> icon-size: root.is-tiny ? 12px : (root.is-round ? 16px : 18px);
+    property <length> icon-size: root.is-tiny ? 12px : 18px;
     property <length> radius: root.is-tiny ? 0px : (root.is-round ? 13px : Theme.radius-small);
 
     property <bool> kb-focus: false;
@@ -66,7 +66,8 @@ export component IconButton {
             ? 0.5
             : ((root.revealed || root.checked || touch.has-hover) ? 1.0 : 0.0);
 
-        animate background, opacity { duration: 150ms; }
+        // 底色不做过渡：从 transparent(#00000000) 插值到浅灰半透明会先压暗再变浅，悬停时看着像闪一下
+        animate opacity { duration: 150ms; }
 
         Image {
             x: (parent.width - self.width) / 2;

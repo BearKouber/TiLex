@@ -269,12 +269,22 @@ export component PopResult inherits Window {
         }
     }
 
-    // 左上角红三角（旧版 PopResult:328-343）：close-armed 之后，悬停或点击即关闭。放在最后才盖在顶栏上面。
+    // 1px 内描边（旧版 border-1 border-default-200）。不用 DWM 的 DWMWA_BORDER_COLOR：
+    // 那条线画在客户区外面，左上角的红三角盖不住，边角会露出一圈浅灰。
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-width: 1px;
+        border-color: Theme.default-200;
+        border-radius: 8px; // 与 DWMWCP_ROUND 的圆角一致
+    }
+
+    // 左上角红三角（旧版 PopResult:328-343）：close-armed 之后，悬停或点击即关闭。放在最后才盖在顶栏和描边上面。
     corner := TouchArea {
         x: 0;
         y: 0;
-        width: 10px;
-        height: 10px;
+        width: 14px;
+        height: 14px;
         mouse-cursor: pointer;
         accessible-role: button;
         accessible-label: @tr("Close");
@@ -289,12 +299,16 @@ export component PopResult inherits Window {
             }
         }
 
+        // 往左上多画 3px（斜边仍是 x+y=14 那条线）：窗口圆角会切掉三角的尖，画到边界外面才填得满，
+        // 多出来的部分被窗口边缘裁掉。
         Path {
-            width: 100%;
-            height: 100%;
-            viewbox-width: 10;
-            viewbox-height: 10;
-            commands: "M0 0 L10 0 L0 10 Z";
+            x: -3px;
+            y: -3px;
+            width: 17px;
+            height: 17px;
+            viewbox-width: 17;
+            viewbox-height: 17;
+            commands: "M0 0 L17 0 L0 17 Z";
             fill: corner.has-hover ? Theme.danger.darker(0.2) : Theme.danger;
         }
     }
