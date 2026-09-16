@@ -1,5 +1,6 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
+import { ServicesPage, ServiceRow } from "services.slint";
 import { TranslatePage } from "translate.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
@@ -118,6 +119,15 @@ export component SettingsWindow inherits Window {
 
     property <bool> has-dragged: false;
 
+    // 无边框窗口从任务栏还原后位置会掉到屏幕左上角（B2 F7 手测），Rust 侧重新居中。
+    changed minimized => {
+        // 最大化状态还原回来的不用管：它本来就铺满屏幕，再挪位置反而错位
+        if !root.minimized && !root.maximized {
+            root.restored();
+        }
+    }
+
+    callback restored();
     callback drag();
     callback cycle-theme();
     callback toggle-language();
@@ -131,6 +141,20 @@ export component SettingsWindow inherits Window {
     callback check-update();
     callback view-log();
     callback view-config();
+
+    // Services Page
+    in-out property <[ServiceRow]> translate-services: [];
+    in-out property <[ServiceRow]> recognize-services: [];
+
+    callback set-service-enabled(string, int, bool);
+    callback remove-service(string, int);
+    callback move-service(string, int, int);
+    callback add-service(string);
+    callback edit-service(string, int);
+
+    public function show-least-services-warning() {
+        toast.show(@tr("Please keep at least one translation service"), 2);
+    }
 
     public function show-toast(text: string, kind: int) {
         toast.show(text, kind);
@@ -387,7 +411,7 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            ScrollArea {
+            scroll := ScrollArea {
                 // ScrollView 自动算的 viewport 高度用的是子布局的 min-height（编译器 passes/flickable.rs），
                 // 而 SettingRow 写死 min-height: 40px，比实际行高小，算出来的 viewport 撑不到内容高度，页面就滚不动。
                 // 显式绑定 preferred-height 跳过那条自动规则；页面比可视区短时取可视高度，免得 viewport 比窗口还小。
@@ -402,12 +426,24 @@ export component SettingsWindow inherits Window {
 
                     if root.page == 0 : TranslatePage { }
 
-                    if root.page == 1 : Card {
-                        content-padding: 12px;
-                        Text {
-                            text: @tr("Services");
-                            font-size: 14px;
-                            color: Theme.default-400;
+                    if root.page == 1 : ServicesPage {
+                        available-height: scroll.visible-height - 20px;
+                        translate-services: root.translate-services;
+                        recognize-services: root.recognize-services;
+                        set-service-enabled(kind, idx, enabled) => {
+                            root.set-service-enabled(kind, idx, enabled);
+                        }
+                        remove-service(kind, idx) => {
+                            root.remove-service(kind, idx);
+                        }
+                        move-service(kind, from, to) => {
+                            root.move-service(kind, from, to);
+                        }
+                        add-service(kind) => {
+                            root.add-service(kind);
+                        }
+                        edit-service(kind, idx) => {
+                            root.edit-service(kind, idx);
                         }
                     }
 
@@ -440,8 +476,9 @@ export component SettingsWindow inherits Window {
         }
     }
 
+    // 窗口正中（用户 B2 F7 手测时定的；旧版 react-hot-toast 是 top-center top:45）
     toast := Toast {
         x: (parent.width - self.width) / 2;
-        y: 45px;
+        y: (parent.height - self.height) / 2;
     }
 }

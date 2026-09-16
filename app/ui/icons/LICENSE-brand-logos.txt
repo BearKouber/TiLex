@@ -1,0 +1,10 @@
+logo/google.svg, logo/openai.svg, logo/deepseek.svg
+
+Copied verbatim from the pre-rewrite version of this same product
+(TiLex/public/logo/). Per the note in src/services/translate/ai/icons.js,
+the OpenAI and DeepSeek marks came from simple-icons (CC0-1.0).
+
+These are third-party trademarks, used only to label the service the user
+configured. They are not covered by this project's GPL-3.0 license.
+
+logo/wechat.svg is Remix Icon, see LICENSE-remixicon.txt.

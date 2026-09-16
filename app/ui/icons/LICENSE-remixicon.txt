@@ -1,11 +1,7 @@
-volume-2.svg (volume_up), copy.svg (content_copy), check.svg (check),
-star.svg (star_border), square.svg (stop),
-settings-brightness.svg (settings_brightness), light-mode.svg (light_mode),
-dark-mode.svg (dark_mode), drag_handle.svg (drag_handle), edit.svg (edit),
-delete.svg (delete) — Material Design Icons
-(https://github.com/google/material-design-icons)
+logo/wechat.svg (wechat-fill) — Remix Icon
+(https://github.com/Remix-Design/RemixIcon)
 
-Copyright Google LLC
+Copyright Remix Design
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use these files except in compliance with the License.
@@ -19,4 +15,5 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-File names were kept from the earlier lucide set; the path data is Material's.
+Same icon the pre-rewrite version used for the WeChat OCR service
+(react-icons RiWechatFill, tinted #07C160).

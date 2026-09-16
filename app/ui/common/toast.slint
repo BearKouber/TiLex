@@ -46,11 +46,16 @@ export component Toast inherits Rectangle {
     border-width: 1px;
     border-color: Theme.default-200;
 
+    // 它是窗口的直接子元素（不在布局里），不显式给尺寸的话 Rectangle 会铺满整个窗口：
+    // 背景横贯全宽，文字被撑到窗口正中偏下（B2 F7 手测发现）。跟着内容走。
+    width: body.preferred-width;
+    height: body.preferred-height;
+
     opacity: root.is-open ? 1.0 : 0.0;
     visible: root.is-open || self.opacity > 0.01;
     animate opacity { duration: 150ms; }
 
-    HorizontalLayout {
+    body := HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
         padding-top: 8px;

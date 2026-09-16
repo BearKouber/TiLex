@@ -1,0 +1,258 @@
+// ui.md §6.5 服务设置页。
+import { Theme } from "../common/theme.slint";
+import { Card } from "../common/card.slint";
+import { Button } from "../common/button.slint";
+import { IconButton } from "../common/icon_button.slint";
+import { PillTabs } from "../common/pill_tabs.slint";
+import { Switch } from "../common/switch.slint";
+
+export struct ServiceRow {
+    index: int,
+    id: string,
+    kind: string,
+    label: string,
+    enabled: bool,
+    // 有真图标文件（`ui/icons/logo/<id>.svg`）；否则画品牌色方块 + 首字
+    has-logo: bool,
+    icon-color: brush,
+    icon-letter: string,
+}
+
+export component ServicesPage inherits VerticalLayout {
+    in property <length> available-height;
+    in property <[ServiceRow]> translate-services: [];
+    in property <[ServiceRow]> recognize-services: [];
+
+    callback set-service-enabled(string, int, bool);
+    callback remove-service(string, int);
+    callback move-service(string, int, int);
+    callback add-service(string);
+    callback edit-service(string, int);
+
+    in-out property <int> sub-page: 0;
+
+    private property <int> dragging-index: -1;
+    private property <length> drag-offset-y: 0px;
+    private property <int> target-index: -1;
+    // 按下那一刻鼠标在窗口里的绝对 y。
+    // 拖动中把手会跟着整行移动，`mouse-y` 的参考系也跟着动，直接拿 `mouse-y - pressed-y`
+    // 算位移会形成「移动 → 参考系变 → 位移变」的正反馈，行就抖。
+    // 加上 `absolute-position.y` 换算成窗口坐标，参考系的移动正好被抵消。
+    private property <length> press-abs-y: 0px;
+
+    private property <[ServiceRow]> current-services: root.sub-page == 0 ? root.translate-services : root.recognize-services;
+
+    min-height: root.available-height;
+    spacing: 10px;
+
+    HorizontalLayout {
+        alignment: center;
+
+        PillTabs {
+            tabs: [
+                @tr("Text Translation"),
+                @tr("Text Recognition"),
+            ];
+            current <=> root.sub-page;
+            changed-tab(idx) => {
+                root.sub-page = idx;
+                root.dragging-index = -1;
+                root.drag-offset-y = 0px;
+                root.target-index = -1;
+            }
+        }
+    }
+
+    Card {
+        content-padding: 20px;
+        vertical-stretch: 1;
+
+        if root.current-services.length > 0 : Rectangle {
+            height: root.current-services.length * 80px;
+
+            for item[idx] in root.current-services : Rectangle {
+                width: 100%;
+                height: 72px;
+                border-radius: 6px;
+                background: Theme.content2;
+
+                property <length> shift-y: (root.dragging-index >= 0) ? (
+                    (root.target-index > root.dragging-index && idx > root.dragging-index && idx <= root.target-index) ? -80px :
+                    (root.target-index < root.dragging-index && idx >= root.target-index && idx < root.dragging-index) ? 80px :
+                    0px
+                ) : 0px;
+
+                x: 0px;
+                // 被拖的那行自由跟手，不夹在列表范围里（夹了就「拖不动」）
+                y: (idx == root.dragging-index) ? (idx * 80px + root.drag-offset-y) : (idx * 80px + self.shift-y);
+
+                border-width: (idx == root.dragging-index) ? 1px : 0px;
+                border-color: (idx == root.dragging-index) ? Theme.default-300 : Colors.transparent;
+
+                animate y { duration: (idx == root.dragging-index) ? 0ms : 150ms; }
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    alignment: space-between;
+                    cross-axis-alignment: center;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        cross-axis-alignment: center;
+
+                        handle := Rectangle {
+                            width: 24px;
+                            height: 24px;
+
+                            Image {
+                                width: 24px;
+                                height: 24px;
+                                source: @image-url("../icons/drag_handle.svg");
+                                colorize: Theme.icon-normal;
+                            }
+
+                            handle-touch := TouchArea {
+                                mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.left {
+                                        if event.kind == PointerEventKind.down {
+                                            root.dragging-index = idx;
+                                            root.drag-offset-y = 0px;
+                                            root.target-index = idx;
+                                            root.press-abs-y = self.absolute-position.y + self.mouse-y;
+                                        } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                                            if root.dragging-index >= 0 && root.target-index >= 0 && root.dragging-index != root.target-index {
+                                                root.move-service(
+                                                    root.sub-page == 0 ? "translate" : "recognize",
+                                                    root.current-services[root.dragging-index].index,
+                                                    root.current-services[root.target-index].index
+                                                );
+                                            }
+                                            root.dragging-index = -1;
+                                            root.drag-offset-y = 0px;
+                                            root.target-index = -1;
+                                        }
+                                    }
+                                }
+                                moved => {
+                                    if self.pressed && root.dragging-index == idx {
+                                        root.drag-offset-y = self.absolute-position.y + self.mouse-y - root.press-abs-y;
+                                        root.target-index = Math.max(0, Math.min(root.current-services.length - 1, idx + Math.round(root.drag-offset-y / 80px)));
+                                    }
+                                }
+                            }
+                        }
+
+                        if item.id == "google" : Image {
+                            width: 24px;
+                            height: 24px;
+                            source: @image-url("../icons/logo/google.svg");
+                        }
+                        if item.id == "openai" : Image {
+                            width: 24px;
+                            height: 24px;
+                            source: @image-url("../icons/logo/openai.svg");
+                        }
+                        if item.id == "deepseek" : Image {
+                            width: 24px;
+                            height: 24px;
+                            source: @image-url("../icons/logo/deepseek.svg");
+                        }
+                        // 单色图标，用品牌色上色（旧版 RiWechatFill + #07C160）
+                        if item.id == "wechat" : Image {
+                            width: 24px;
+                            height: 24px;
+                            source: @image-url("../icons/logo/wechat.svg");
+                            colorize: item.icon-color;
+                        }
+                        if !item.has-logo : Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 6px;
+                            background: item.icon-color;
+
+                            Text {
+                                text: item.icon-letter;
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: Theme.primary-foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Text {
+                            text: item.label != "" ? item.label : (
+                                item.kind == "google" ? @tr("Google Translate") :
+                                item.kind == "ai" ? @tr("AI Translation") :
+                                item.kind == "wechat" ? @tr("WeChat OCR") : ""
+                            );
+                            font-size: 16px;
+                            color: Theme.foreground;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+                        cross-axis-alignment: center;
+
+                        // IconButton 的图标（18px）在 32px 盒子里居中，两侧各留 7px 空白；
+                        // Switch 是紧贴自己盒子边的。右边补出这 7px，三个控件的视觉间隙才都是 22px
+                        // （不补的话量出来是 17px 和 27px，B2 F7 手测）。
+                        Rectangle {
+                            width: sw.width + 7px;
+                            height: sw.height;
+
+                            sw := Switch {
+                                size: "sm";
+                                checked: item.enabled;
+                                toggled(val) => {
+                                    root.set-service-enabled(root.sub-page == 0 ? "translate" : "recognize", item.index, val);
+                                }
+                            }
+                        }
+
+                        IconButton {
+                            size: "sm";
+                            icon: @image-url("../icons/edit.svg");
+                            color: Theme.icon-normal;
+                            label: @tr("Edit");
+                            clicked => {
+                                root.edit-service(root.sub-page == 0 ? "translate" : "recognize", item.index);
+                            }
+                        }
+
+                        IconButton {
+                            size: "sm";
+                            icon: @image-url("../icons/delete.svg");
+                            color: Theme.icon-danger;
+                            label: @tr("Delete");
+                            clicked => {
+                                root.remove-service(root.sub-page == 0 ? "translate" : "recognize", item.index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 8px;
+        }
+
+        Button {
+            text: @tr("Add Service");
+            variant: "bordered";
+            size: "md";
+            full-width: true;
+            clicked => {
+                root.add-service(root.sub-page == 0 ? "translate" : "recognize");
+            }
+        }
+    }
+}

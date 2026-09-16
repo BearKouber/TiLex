@@ -351,3 +351,30 @@ msgstr "应用黑名单"
 msgid "Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy."
 msgstr "部分程序（如微信聊天记录）无法直接读取选中文字。开启后，TiLex 会在这些程序中模拟一次复制来获取文字，随后自动恢复剪贴板原有内容。\n注意：剪贴板管理工具和 Win+V 历史中可能会留下这次复制的记录。"
 
+msgid "Text Translation"
+msgstr "文本翻译"
+
+msgid "Text Recognition"
+msgstr "文本识别"
+
+msgid "Add Service"
+msgstr "添加服务"
+
+msgid "Google Translate"
+msgstr "谷歌翻译"
+
+msgid "AI Translation"
+msgstr "AI 服务"
+
+msgid "WeChat OCR"
+msgstr "微信 OCR"
+
+msgid "Please keep at least one translation service"
+msgstr "请至少保留一个翻译服务"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Delete"
+msgstr "删除"
+

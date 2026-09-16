@@ -73,7 +73,8 @@ export component Switch {
                 height: root.track-height;
                 border-radius: root.track-height / 2;
                 background: root.checked ? Theme.primary : Theme.default-200;
-                animate background { duration: 150ms; }
+                // 和滑块同时长同缓动，两者一起到位；不同步会显得「底色先停、滑块还在走」
+                animate background { duration: 150ms; easing: ease-out; }
 
                 thumb := Rectangle {
                     x: root.thumb-x;
@@ -84,7 +85,10 @@ export component Switch {
                     background: Theme.primary-foreground;
                     border-width: 1px;
                     border-color: Theme.default-200;
-                    animate x { duration: 200ms; }
+                    // ease-out：按下立刻起步、末尾收住，比线性看着跟手。
+                    // 200ms 线性在软件渲染下步进看得出来（用户反馈「卡卡的」），缩到 150ms。
+                    // 上限在渲染器：GPU（Skia）那种丝滑软件渲染给不了，D11 定的只编软件渲染。
+                    animate x { duration: 150ms; easing: ease-out; }
                 }
             }
         }

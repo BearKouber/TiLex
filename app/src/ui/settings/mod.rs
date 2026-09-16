@@ -12,6 +12,8 @@ use crate::logic::config;
 use crate::platform;
 use crate::slint_ui::{SettingsWindow, TranslateSettings};
 
+mod services;
+
 struct Settings {
     page: SettingsWindow,
 }
@@ -200,6 +202,13 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
         }
     });
 
+    let weak_restored = page.as_weak();
+    page.on_restored(move || {
+        if let Some(page) = weak_restored.upgrade() {
+            center_on_screen(page.window());
+        }
+    });
+
     let weak_close = page.as_weak();
     page.on_close_clicked(move || {
         if let Some(page) = weak_close.upgrade() {
@@ -294,7 +303,28 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
         page.invoke_show_bad_config(name.to_string_lossy().as_ref().into());
     }
 
+    services::bind(&page);
+
     Ok(Settings { page })
+}
+
+/// 把窗口挪到它所在显示器工作区的正中。无边框窗口没有系统的位置记忆：
+/// 首次显示和从任务栏还原都会落在左上角（B2 F7 手测），两处都调这里。
+fn center_on_screen(window: &slint::Window) {
+    let pos = window.position();
+    let Some((area, _scale)) = platform::monitor_at(pos.x, pos.y) else {
+        log::warn!(
+            "Settings: no monitor at {},{}; leaving window where it is",
+            pos.x,
+            pos.y
+        );
+        return;
+    };
+    let size = window.size();
+    window.set_position(slint::PhysicalPosition::new(
+        area.l + (area.r - area.l - size.width as i32) / 2,
+        area.t + (area.b - area.t - size.height as i32) / 2,
+    ));
 }
 
 /// 等原生窗口建好再应用平台无边框外框样式（Win11 圆角 + 窗口阴影）。
@@ -310,6 +340,7 @@ fn style_when_ready(weak: slint::Weak<SettingsWindow>, attempt: u32) {
                 log::info!("Settings: styled frameless window (attempt {attempt})");
                 // 原生窗口这时才有：show() 之前问不到系统主题，"跟随系统"要在这里再算一次
                 page.set_color_scheme(super::resolve_color_scheme(page.window()));
+                center_on_screen(page.window());
             }
             Err(e) if attempt >= MAX_ATTEMPTS => {
                 log::warn!("Settings: style frameless window failed after {attempt} tries: {e}");
