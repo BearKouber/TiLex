@@ -32,18 +32,37 @@ pub fn bind(page: &SettingsWindow) {
         }
     });
 
-    // 添加 / 编辑的对话框是下一轮（agy 11、12），这里先只留痕，不弹任何假成功提示。
-    page.on_add_service(|kind| {
-        log::info!("Settings: add service clicked for {}", kind.as_str());
+    let weak = page.as_weak();
+    page.on_edit_service(move |kind, idx| {
+        if let Some(page) = weak.upgrade() {
+            handle_edit_service(&page, kind.as_str(), idx);
+        }
     });
 
-    page.on_edit_service(|kind, idx| {
-        log::info!(
-            "Settings: edit service clicked for {} at index {}",
-            kind.as_str(),
-            idx
-        );
+    page.on_add_ai_service(|kind| {
+        log::info!("Settings: add AI service clicked for {}", kind.as_str());
     });
+
+    let weak = page.as_weak();
+    page.on_save_service(
+        move |kind, idx, service, label, mode, custom_url, api_key, custom_api_url| {
+            if let Some(page) = weak.upgrade() {
+                handle_save_service(
+                    &page,
+                    ServiceDraft {
+                        kind: kind.as_str(),
+                        real_idx: idx,
+                        service: service.as_str(),
+                        label: label.as_str(),
+                        mode: mode.as_str(),
+                        custom_url: custom_url.as_str(),
+                        api_key: api_key.as_str(),
+                        custom_api_url: custom_api_url.as_str(),
+                    },
+                );
+            }
+        },
+    );
 }
 
 pub fn refresh(page: &SettingsWindow) {
@@ -53,6 +72,9 @@ pub fn refresh(page: &SettingsWindow) {
 
     page.set_translate_services(Rc::new(VecModel::from(tr_rows)).into());
     page.set_recognize_services(Rc::new(VecModel::from(rec_rows)).into());
+
+    let wechat_info = icons::get_icon("wechat");
+    page.set_wechat_icon_color(parse_hex_color(wechat_info.color));
 }
 
 fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
@@ -178,6 +200,119 @@ fn handle_move_service(page: &SettingsWindow, kind: &str, from_real_idx: i32, to
     refresh(page);
 }
 
+fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
+    let cfg = config::snapshot();
+    let list = match kind {
+        "translate" => &cfg.translate_services,
+        "recognize" => &cfg.recognize_services,
+        _ => return,
+    };
+    if let Some(service) = list.get(real_idx as usize) {
+        match service {
+            Service::Google(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                // 界面上存的是下标（见 service_dialogs.slint 的注记）：0 web / 1 custom_api / 2 api
+                page.set_draft_google_mode_index(match inst.config.mode.as_str() {
+                    "custom_api" => 1,
+                    "api" => 2,
+                    _ => 0,
+                });
+                page.set_draft_google_custom_url(inst.config.custom_url.as_str().into());
+                page.set_draft_google_api_key(inst.config.api_key.as_str().into());
+                page.set_draft_google_custom_api_url(inst.config.custom_api_url.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("google".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Wechat(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("wechat".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            _ => {
+                log::info!("Settings: editing service kind not supported in this batch");
+            }
+        }
+    }
+}
+
+struct ServiceDraft<'a> {
+    kind: &'a str,
+    real_idx: i32,
+    service: &'a str,
+    label: &'a str,
+    mode: &'a str,
+    custom_url: &'a str,
+    api_key: &'a str,
+    custom_api_url: &'a str,
+}
+
+fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
+    let res = config::update(|c| {
+        let list = match draft.kind {
+            "translate" => &mut c.translate_services,
+            "recognize" => &mut c.recognize_services,
+            _ => return,
+        };
+        apply_draft(list, &draft);
+    });
+
+    match res {
+        Ok(()) => {
+            refresh(page);
+            page.set_dialog(0);
+        }
+        Err(e) => {
+            log::warn!("Settings: save service failed: {e}");
+            page.invoke_show_save_error(e.to_string().into());
+        }
+    }
+}
+
+/// 把对话框的草稿写进服务列表：`real_idx == -1` 追加一个新实例，否则改这一项，
+/// 保留它原有的 `enabled` 和 `extra`（不认识的字段不能因为一次保存就丢）。
+fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
+    if draft.real_idx == -1 {
+        match draft.service {
+            "google" => {
+                let mut inst = config::Instance::<config::GoogleConfig>::new(
+                    &config::new_instance_id("google"),
+                );
+                inst.label = draft.label.trim().to_string();
+                inst.config.mode = draft.mode.to_string();
+                inst.config.custom_url = draft.custom_url.trim().to_string();
+                inst.config.api_key = draft.api_key.trim().to_string();
+                inst.config.custom_api_url = draft.custom_api_url.trim().to_string();
+                list.push(Service::Google(inst));
+            }
+            "wechat" => {
+                let mut inst =
+                    config::Instance::<config::NoSettings>::new(&config::new_instance_id("wechat"));
+                inst.label = draft.label.trim().to_string();
+                list.push(Service::Wechat(inst));
+            }
+            _ => {}
+        }
+    } else if let Some(item) = list.get_mut(draft.real_idx as usize) {
+        match item {
+            Service::Google(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config.mode = draft.mode.to_string();
+                inst.config.custom_url = draft.custom_url.trim().to_string();
+                inst.config.api_key = draft.api_key.trim().to_string();
+                inst.config.custom_api_url = draft.custom_api_url.trim().to_string();
+            }
+            Service::Wechat(inst) => {
+                inst.label = draft.label.trim().to_string();
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +412,77 @@ mod tests {
                 Service::Unknown(_) => "unknown",
             }
         }
+    }
+
+    fn draft<'a>(
+        real_idx: i32,
+        service: &'a str,
+        label: &'a str,
+        mode: &'a str,
+    ) -> ServiceDraft<'a> {
+        ServiceDraft {
+            kind: "translate",
+            real_idx,
+            service,
+            label,
+            mode,
+            custom_url: "",
+            api_key: "",
+            custom_api_url: "",
+        }
+    }
+
+    #[test]
+    fn apply_draft_adds_independent_instances() {
+        let mut list = Vec::new();
+        let mut first = draft(-1, "google", "  A  ", "web");
+        first.custom_url = "https://mirror1.example.com";
+        apply_draft(&mut list, &first);
+        let mut second = draft(-1, "google", "B", "custom_api");
+        second.custom_api_url = "https://proxy.example.com";
+        apply_draft(&mut list, &second);
+
+        assert_eq!(list.len(), 2);
+        assert_ne!(list[0].id(), list[1].id());
+        let (Service::Google(a), Service::Google(b)) = (&list[0], &list[1]) else {
+            panic!("expected two google services");
+        };
+        assert_eq!(a.label, "A", "实例名前后的空格应去掉");
+        assert_eq!(a.config.custom_url, "https://mirror1.example.com");
+        // 两个实例互不串
+        assert_eq!(a.config.custom_api_url, "");
+        assert_eq!(b.config.mode, "custom_api");
+        assert_eq!(b.config.custom_api_url, "https://proxy.example.com");
+    }
+
+    #[test]
+    fn apply_draft_edit_preserves_enabled_and_extra() {
+        let unknown = serde_json::json!({"kind": "future_ai", "id": "future@1"});
+        let mut inst = Instance::<config::GoogleConfig>::new("google@test");
+        inst.enabled = false;
+        inst.label = "Old Name".into();
+        inst.extra
+            .insert("my_future_field".into(), serde_json::json!(1));
+        let mut list = vec![Service::Unknown(unknown.clone()), Service::Google(inst)];
+
+        // 真实下标 1（前面夹着一个界面上看不见的 Unknown）
+        let mut edit = draft(1, "google", "New Name", "custom_api");
+        edit.custom_api_url = "https://proxy.example.com";
+        apply_draft(&mut list, &edit);
+
+        let Service::Google(edited) = &list[1] else {
+            panic!("expected google service");
+        };
+        assert_eq!(edited.label, "New Name");
+        assert_eq!(edited.config.mode, "custom_api");
+        assert_eq!(edited.config.custom_api_url, "https://proxy.example.com");
+        assert_eq!(edited.id, "google@test", "编辑不该换 id");
+        assert!(!edited.enabled, "编辑不该动 enabled");
+        assert_eq!(
+            edited.extra.get("my_future_field"),
+            Some(&serde_json::json!(1)),
+            "编辑不该丢未知字段"
+        );
+        assert_eq!(list[0], Service::Unknown(unknown), "Unknown 一字不变");
     }
 }

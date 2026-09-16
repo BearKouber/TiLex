@@ -19,22 +19,26 @@ export component Modal {
     // 是否允许外部关闭（为 false 时点击遮罩、Esc、关闭按钮均不关闭）
     in property <bool> dismissable: true;
 
-    // 关闭回调
+    // 关闭回调。**关闭由调用方落实**：在这里把驱动 `open` 的状态改掉。
+    // Modal 自己不写 `open` —— 调用方多半是 `open: state == N` 这种绑定，
+    // 组件内部赋值会把绑定永久打断，之后状态再变也打不开（B2 F7 实测踩过）。
     callback closed();
 
     // 尝试关闭对话框（受 dismissable 控制）
     public function close() {
         if root.dismissable {
-            root.open = false;
             root.closed();
         }
     }
 
     // 强制关闭（不受 dismissable 控制，供业务确定完成时使用）
     public function force-close() {
-        root.open = false;
         root.closed();
     }
+
+    // 内容区可用宽度（卡片宽减左右各 24 内边距）。调用方要按比例摆控件就用它算，
+    // 别在内容里写 `parent.width * 50%`：内容外面套了 Flickable 时会成绑定环（B2 F7 实测）。
+    out property <length> content-width: (root.is-sm ? 384px : 448px) - 48px;
 
     property <bool> is-sm: root.size == "sm";
 
@@ -89,8 +93,10 @@ export component Modal {
         card := Rectangle {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: root.is-sm ? 384px : 448px;
-            max-height: parent.height * 0.8;
+            width: root.content-width + 48px;
+            // 高度跟内容走（旧版 NextUI 的默认行为），最高八成窗口高。
+            // 裸 Rectangle 的父不是布局时默认铺满父，不显式算就会撑成整窗。
+            height: min(parent.height * 0.8, body.preferred-height);
             background: Theme.content1;
             border-radius: Theme.radius-large;
             border-width: 1px;
@@ -102,7 +108,7 @@ export component Modal {
                 height: 100%;
             }
 
-            VerticalLayout {
+            body := VerticalLayout {
                 spacing: 0px;
 
                 // 标题栏头

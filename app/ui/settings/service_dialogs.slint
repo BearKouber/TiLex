@@ -1,0 +1,370 @@
+// ui.md §6.5 服务设置页：添加 / 编辑对话框链。
+import { Theme } from "../common/theme.slint";
+import { Modal } from "../common/modal.slint";
+import { Button } from "../common/button.slint";
+import { SettingRow } from "../common/card.slint";
+import { Select } from "../common/select.slint";
+import { TextField } from "../common/text_field.slint";
+import { ScrollArea } from "../common/scroll_area.slint";
+
+component BuiltinServiceItem {
+    in property <image> icon;
+    in property <bool> has-colorize: false;
+    in property <brush> colorize;
+    in property <string> title;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    height: 48px;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.title;
+
+    if root.kb-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-medium + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Theme.radius-medium;
+        border-width: 1px;
+        border-color: Theme.default-base;
+        background: touch.pressed ? Theme.default-100 : Theme.content1;
+
+        opacity: root.enabled ? 1.0 : 0.5;
+        animate background, opacity { duration: 150ms; }
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 12px;
+            cross-axis-alignment: center;
+
+            if !root.has-colorize : Image {
+                width: 24px;
+                height: 24px;
+                source: root.icon;
+            }
+
+            if root.has-colorize : Image {
+                width: 24px;
+                height: 24px;
+                source: root.icon;
+                colorize: root.colorize;
+            }
+
+            Text {
+                text: root.title;
+                font-size: 16px;
+                color: Theme.foreground;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        focus-on-click: true;
+        focus-on-tab-navigation: true;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            width: 100%;
+            height: 100%;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component ServiceDialogs {
+    in-out property <int> dialog: 0;
+    in-out property <string> dialog-kind: "translate";
+    in-out property <string> dialog-service: "google";
+    in-out property <int> dialog-index: -1;
+
+    in-out property <string> draft-label: "";
+    // Select 会写自己的 `current-index`，所以草稿这边存的就是下标、双向绑上去。
+    // 用 `current-index: <字符串三元>` 这种单向绑定，选一次就把绑定打断了（B2 F7 实测）。
+    // 0 = web，1 = custom_api，2 = api。
+    in-out property <int> draft-google-mode-index: 0;
+    in-out property <string> draft-google-custom-url: "";
+    in-out property <string> draft-google-api-key: "";
+    in-out property <string> draft-google-custom-api-url: "";
+
+    in property <length> window-height;
+    in property <brush> wechat-icon-color;
+
+    callback add-ai-service(string);
+    callback save-service(string, int, string, string, string, string, string, string);
+
+    width: 100%;
+    height: 100%;
+    x: 0;
+    y: 0;
+    visible: root.dialog > 0;
+
+    // Modal 1: 添加服务
+    Modal {
+        open: root.dialog == 1;
+        title: @tr("Add Service");
+        closed => {
+            if root.dialog == 1 {
+                root.dialog = 0;
+            }
+        }
+
+        Button {
+            text: @tr("Add Built-in Service");
+            variant: "bordered";
+            size: "md";
+            full-width: true;
+            clicked => {
+                root.dialog = 2;
+            }
+        }
+
+        Button {
+            text: @tr("Add AI Service");
+            variant: "bordered";
+            size: "md";
+            full-width: true;
+            clicked => {
+                root.add-ai-service(root.dialog-kind);
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+
+            Button {
+                text: @tr("Cancel");
+                variant: "light";
+                color: "danger";
+                size: "md";
+                clicked => {
+                    root.dialog = 0;
+                }
+            }
+        }
+    }
+
+    // Modal 2: 内置服务列表
+    Modal {
+        open: root.dialog == 2;
+        title: @tr("Add Built-in Service");
+        closed => {
+            if root.dialog == 2 {
+                root.dialog = 0;
+            }
+        }
+
+        if root.dialog-kind == "translate" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/google.svg");
+            has-colorize: false;
+            title: @tr("Google Translate");
+            clicked => {
+                root.dialog-service = "google";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.draft-google-mode-index = 0;
+                root.draft-google-custom-url = "";
+                root.draft-google-api-key = "";
+                root.draft-google-custom-api-url = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "recognize" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/wechat.svg");
+            has-colorize: true;
+            colorize: root.wechat-icon-color;
+            title: @tr("WeChat OCR");
+            clicked => {
+                root.dialog-service = "wechat";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.dialog = 3;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+
+            Button {
+                text: @tr("Cancel");
+                variant: "light";
+                color: "danger";
+                size: "md";
+                clicked => {
+                    root.dialog = 0;
+                }
+            }
+        }
+    }
+
+    // Modal 3: 服务配置
+    cfg-modal := Modal {
+        open: root.dialog == 3;
+        title: "";
+        closed => {
+            if root.dialog == 3 {
+                root.dialog = 0;
+            }
+        }
+
+        scroll := ScrollArea {
+            // 高度跟表单走，长了才夹到上限并滚动。ScrollArea 的 preferred-height 是 100%，
+            // 不显式给高度会把对话框撑满（B2 F7 实测）。
+            height: min(
+                form-layout.preferred-height,
+                max(100px, root.window-height * 0.75 - 192px)
+            );
+            viewport-height: max(self.visible-height, form-layout.preferred-height);
+
+            form-layout := VerticalLayout {
+                spacing: 0px;
+
+                if root.dialog-service == "google" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Google Translate");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Mode");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        Select {
+                            width: 100%;
+                            options: [
+                                @tr("Web Interface (Default)"),
+                                @tr("Custom Proxy API"),
+                                @tr("Google Cloud Official API"),
+                            ];
+                            current-index <=> root.draft-google-mode-index;
+                        }
+                    }
+
+                    if root.draft-google-mode-index == 1 : SettingRow {
+                        label: @tr("Proxy API URL");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-google-custom-api-url;
+                            placeholder: "https://.../translate";
+                        }
+                    }
+
+                    if root.draft-google-mode-index == 2 : SettingRow {
+                        label: @tr("API Key");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            password: true;
+                            text <=> root.draft-google-api-key;
+                        }
+                    }
+
+                    if root.draft-google-mode-index == 0 : SettingRow {
+                        label: @tr("Mirror URL");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-google-custom-url;
+                            placeholder: "https://translate.google.com";
+                        }
+                    }
+                }
+
+                if root.dialog-service == "wechat" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("WeChat OCR");
+                        }
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: @tr("Save");
+            variant: "solid";
+            color: "primary";
+            size: "md";
+            full-width: true;
+            clicked => {
+                root.save-service(
+                    root.dialog-kind,
+                    root.dialog-index,
+                    root.dialog-service,
+                    root.draft-label,
+                    root.draft-google-mode-index == 1 ? "custom_api" : (root.draft-google-mode-index == 2 ? "api" : "web"),
+                    root.draft-google-custom-url,
+                    root.draft-google-api-key,
+                    root.draft-google-custom-api-url
+                );
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+
+            Button {
+                text: @tr("Cancel");
+                variant: "light";
+                color: "danger";
+                size: "md";
+                clicked => {
+                    root.dialog = 0;
+                }
+            }
+        }
+    }
+}

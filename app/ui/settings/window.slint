@@ -1,6 +1,7 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
 import { ServicesPage, ServiceRow } from "services.slint";
+import { ServiceDialogs } from "service_dialogs.slint";
 import { TranslatePage } from "translate.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
@@ -111,7 +112,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> page: 0;
 
     in property <string> version: "";
-    in property <bool> autostart-enabled: false;
+    in-out property <bool> autostart-enabled: false;
     in property <bool> autostart-supported: true;
     in property <bool> checking-update: false;
     in property <string> credits-raw: @tr("Based on [pot-desktop](https://github.com/pot-app/pot-desktop) · UI/UX inspired by [Easydict](https://github.com/tisfeng/Easydict) · Tool logic drawn from [STranslate](https://github.com/STranslate/STranslate) · [GPL-3.0](https://github.com/BearKouber/TiLex/blob/HEAD/LICENSE) License");
@@ -149,8 +150,24 @@ export component SettingsWindow inherits Window {
     callback set-service-enabled(string, int, bool);
     callback remove-service(string, int);
     callback move-service(string, int, int);
-    callback add-service(string);
     callback edit-service(string, int);
+
+    // Service Dialog Chain
+    in-out property <int> dialog: 0;
+    in-out property <string> dialog-kind: "translate";
+    in-out property <string> dialog-service: "google";
+    in-out property <int> dialog-index: -1;
+
+    in-out property <string> draft-label: "";
+    in-out property <int> draft-google-mode-index: 0;
+    in-out property <string> draft-google-custom-url: "";
+    in-out property <string> draft-google-api-key: "";
+    in-out property <string> draft-google-custom-api-url: "";
+
+    in property <brush> wechat-icon-color;
+
+    callback add-ai-service(string);
+    callback save-service(string, int, string, string, string, string, string, string);
 
     public function show-least-services-warning() {
         toast.show(@tr("Please keep at least one translation service"), 2);
@@ -440,7 +457,10 @@ export component SettingsWindow inherits Window {
                             root.move-service(kind, from, to);
                         }
                         add-service(kind) => {
-                            root.add-service(kind);
+                            root.dialog-kind = kind;
+                            // 识别服务只有内置的（旧版 Recognize/index.jsx 也是一层），
+                            // 不走「内置 / AI」那层选择。
+                            root.dialog = kind == "recognize" ? 2 : 1;
                         }
                         edit-service(kind, idx) => {
                             root.edit-service(kind, idx);
@@ -458,7 +478,7 @@ export component SettingsWindow inherits Window {
 
                     if root.page == 3 : AboutPage {
                         version: root.version;
-                        autostart-enabled: root.autostart-enabled;
+                        autostart-enabled <=> root.autostart-enabled;
                         autostart-supported: root.autostart-supported;
                         checking-update: root.checking-update;
                         credits: root.credits;
@@ -473,6 +493,29 @@ export component SettingsWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    ServiceDialogs {
+        dialog <=> root.dialog;
+        dialog-kind <=> root.dialog-kind;
+        dialog-service <=> root.dialog-service;
+        dialog-index <=> root.dialog-index;
+
+        draft-label <=> root.draft-label;
+        draft-google-mode-index <=> root.draft-google-mode-index;
+        draft-google-custom-url <=> root.draft-google-custom-url;
+        draft-google-api-key <=> root.draft-google-api-key;
+        draft-google-custom-api-url <=> root.draft-google-custom-api-url;
+
+        window-height: root.height;
+        wechat-icon-color: root.wechat-icon-color;
+
+        add-ai-service(k) => {
+            root.add-ai-service(k);
+        }
+        save-service(kind, idx, service, label, mode, custom-url, api-key, custom-api-url) => {
+            root.save-service(kind, idx, service, label, mode, custom-url, api-key, custom-api-url);
         }
     }
 

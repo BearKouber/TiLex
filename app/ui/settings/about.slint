@@ -6,7 +6,9 @@ import { Theme } from "../common/theme.slint";
 
 export component AboutPage {
     in property <string> version: "";
-    in property <bool> autostart-enabled: false;
+    // Switch 会写自己的 `checked`，这一路必须双向绑定，否则第一次点击就把绑定打断，
+    // Rust 那边写失败时再 `set_autostart_enabled` 也拨不回开关（B2 F7 实测）。
+    in-out property <bool> autostart-enabled: false;
     in property <bool> autostart-supported: true;
     in property <bool> checking-update: false;
     in property <styled-text> credits;
@@ -125,7 +127,7 @@ export component AboutPage {
 
                 Switch {
                     size: "md";
-                    checked: root.autostart-enabled;
+                    checked <=> root.autostart-enabled;
                     enabled: root.autostart-supported;
                     toggled(on) => {
                         root.autostart-toggled(on);

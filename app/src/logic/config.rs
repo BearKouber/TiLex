@@ -184,6 +184,19 @@ impl<C: Default> Instance<C> {
     }
 }
 
+static INSTANCE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 新实例的 id，形如 `google@18ff0c3e1a2b3c4d0`（旧版是 `<kind>@<随机 base36>`）。
+/// 纳秒时间戳 + 进程内计数器，不引第三方随机数库；同一毫秒内连加多个也不会撞。
+pub fn new_instance_id(kind: &str) -> String {
+    let count = INSTANCE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{kind}@{nanos:x}{count:x}")
+}
+
 /// 旧 `normalizePopButtonDistance` / `button_distance()` 的契约：整数（含 JSON 的 `4.0`）保留，
 /// 越界的由 `normalize` 夹紧；缺失、null、布尔、字符串、数组、对象、小数都用默认值。
 fn distance<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
@@ -615,5 +628,14 @@ mod tests {
         }
         let missing: Config = serde_json::from_value(json!({"selection": {}})).unwrap();
         assert_eq!(missing.selection.button_distance, 10);
+    }
+
+    #[test]
+    fn test_new_instance_id_uniqueness() {
+        let id1 = new_instance_id("google");
+        let id2 = new_instance_id("google");
+        assert_ne!(id1, id2);
+        assert!(id1.starts_with("google@"));
+        assert!(id2.starts_with("google@"));
     }
 }

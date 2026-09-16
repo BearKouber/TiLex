@@ -351,6 +351,9 @@ export component GalleryGroup1 {
                     size: "md";
                     title: "Settings Dialog (md)";
                     dismissable: true;
+                    closed => {
+                        root.modal-md-open = false;
+                    }
 
                     Text {
                         text: "This is a medium modal with dismissable: true.\nYou can dismiss it by clicking the X button, clicking the dark overlay, or pressing Escape.";
@@ -388,6 +391,9 @@ export component GalleryGroup1 {
                     size: "sm";
                     title: "Delete Confirmation (sm)";
                     dismissable: false;
+                    closed => {
+                        root.modal-sm-open = false;
+                    }
 
                     Text {
                         text: "This is a small modal with dismissable: false.\nClicking the overlay or pressing Esc will NOT close it.\nYou must use the button below to close it.";
