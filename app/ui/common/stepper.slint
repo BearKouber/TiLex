@@ -54,22 +54,21 @@ export component Stepper {
     }
 
     function try-commit-float(f: float) {
-        if Math.round(f) == f {
-            // 为整数
-            if f >= root.minimum && f <= root.maximum {
-                if f != root.value {
-                    root.value = Math.round(f);
-                    root.draft-text = "" + root.value;
-                    root.committed(root.value);
-                    return;
-                } else {
-                    // 值未变（如输入了原值的等价表示），刷新草稿显示，不调回调
-                    root.draft-text = "" + root.value;
-                    return;
-                }
-            }
+        if Math.round(f) != f {
+            // 小数：恢复原显示，不调回调
+            root.draft-text = "" + root.value;
+            return;
         }
-        // 小数或超出范围：恢复原显示，不调回调
+        // 整数：超出范围就夹到边界（填 99 得 maximum、填 -5 得 minimum），不是恢复原值
+        root.commit-int(Math.max(root.minimum, Math.min(root.maximum, f)));
+    }
+
+    function commit-int(v: float) {
+        if v != root.value {
+            root.value = Math.round(v);
+            root.committed(root.value);
+        }
+        // 值没变（输入了原值的等价表示，或夹回了当前值）也要刷新草稿显示
         root.draft-text = "" + root.value;
     }
 

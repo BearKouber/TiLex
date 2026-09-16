@@ -31,6 +31,8 @@ export global Theme {
     out property <color> pop-button-bg: #d5e1fa;
     out property <color> pop-button-icon: #4a7dfc;
     out property <color> window-close-hover: #c42b1c;
+    // 滚动条滑块：旧版 `*::-webkit-scrollbar-thumb { background: #c0c1c550 }`，页面和下拉菜单同一个色
+    out property <color> scrollbar-thumb: dark ? #6b6b7566 : #c0c1c550;
 
     // 图标按用途取色（ui.md §1.3）。
     out property <color> icon-muted: default-400;

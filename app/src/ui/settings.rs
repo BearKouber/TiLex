@@ -10,7 +10,7 @@ use slint::{CloseRequestResponse, ComponentHandle};
 use crate::error::Error;
 use crate::logic::config;
 use crate::platform;
-use crate::slint_ui::SettingsWindow;
+use crate::slint_ui::{SettingsWindow, TranslateSettings};
 
 struct Settings {
     page: SettingsWindow,
@@ -64,6 +64,116 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     page.set_language(cfg.general.language.as_str().into());
     let scheme = super::resolve_color_scheme(page.window());
     page.set_color_scheme(scheme);
+
+    let ts = page.global::<TranslateSettings>();
+    debug_assert_eq!(
+        ts.get_language_option_count(),
+        SOURCE_LANGUAGES.len() as i32
+    );
+    debug_assert_eq!(
+        ts.get_target_language_option_count(),
+        TARGET_LANGUAGES.len() as i32
+    );
+
+    let source_idx = find_index(&SOURCE_LANGUAGES, &cfg.translate.source);
+    let target_idx = find_index(&TARGET_LANGUAGES, &cfg.translate.target);
+    let exclude_native_idx = if cfg.selection.exclude_native { 0 } else { 1 };
+    let detect_idx = find_index(&DETECT_ENGINES, &cfg.translate.detect_engine);
+    let pop_btn_idx = pop_button_to_index(&cfg.selection);
+    let pop_btn_pos_idx = find_index(&POP_BUTTON_POS, &cfg.selection.button_pos);
+    let pop_res_pos_idx = find_index(&POP_RESULT_POS, &cfg.selection.result_pos);
+    let screenshot_pos_idx = find_index(&SCREENSHOT_POS, &cfg.screenshot.result_pos);
+    let force_copy_idx = if cfg.selection.force_copy { 0 } else { 1 };
+    let distance = cfg.selection.button_distance.clamp(0, 20) as i32;
+
+    ts.set_source_lang_index(source_idx);
+    ts.set_target_lang_index(target_idx);
+    ts.set_exclude_native_index(exclude_native_idx);
+    ts.set_detect_engine_index(detect_idx);
+    ts.set_pop_button_index(pop_btn_idx);
+    ts.set_pop_button_pos_index(pop_btn_pos_idx);
+    ts.set_pop_result_pos_index(pop_res_pos_idx);
+    ts.set_screenshot_pos_index(screenshot_pos_idx);
+    ts.set_force_copy_index(force_copy_idx);
+    ts.set_button_distance(distance);
+    ts.set_blacklist(cfg.selection.blacklist.into());
+
+    let weak_source_lang = page.as_weak();
+    ts.on_source_lang_changed(move |idx| {
+        if let Some(page) = weak_source_lang.upgrade() {
+            handle_source_lang_change(&page, idx);
+        }
+    });
+
+    let weak_target_lang = page.as_weak();
+    ts.on_target_lang_changed(move |idx| {
+        if let Some(page) = weak_target_lang.upgrade() {
+            handle_target_lang_change(&page, idx);
+        }
+    });
+
+    let weak_exclude_native = page.as_weak();
+    ts.on_exclude_native_changed(move |idx| {
+        if let Some(page) = weak_exclude_native.upgrade() {
+            handle_exclude_native_change(&page, idx);
+        }
+    });
+
+    let weak_detect_engine = page.as_weak();
+    ts.on_detect_engine_changed(move |idx| {
+        if let Some(page) = weak_detect_engine.upgrade() {
+            handle_detect_engine_change(&page, idx);
+        }
+    });
+
+    let weak_pop_button = page.as_weak();
+    ts.on_pop_button_changed(move |idx| {
+        if let Some(page) = weak_pop_button.upgrade() {
+            handle_pop_button_change(&page, idx);
+        }
+    });
+
+    let weak_pop_btn_pos = page.as_weak();
+    ts.on_pop_button_pos_changed(move |idx| {
+        if let Some(page) = weak_pop_btn_pos.upgrade() {
+            handle_pop_button_pos_change(&page, idx);
+        }
+    });
+
+    let weak_pop_res_pos = page.as_weak();
+    ts.on_pop_result_pos_changed(move |idx| {
+        if let Some(page) = weak_pop_res_pos.upgrade() {
+            handle_pop_result_pos_change(&page, idx);
+        }
+    });
+
+    let weak_screenshot_pos = page.as_weak();
+    ts.on_screenshot_pos_changed(move |idx| {
+        if let Some(page) = weak_screenshot_pos.upgrade() {
+            handle_screenshot_pos_change(&page, idx);
+        }
+    });
+
+    let weak_force_copy = page.as_weak();
+    ts.on_force_copy_changed(move |idx| {
+        if let Some(page) = weak_force_copy.upgrade() {
+            handle_force_copy_change(&page, idx);
+        }
+    });
+
+    let weak_button_distance = page.as_weak();
+    ts.on_button_distance_changed(move |val| {
+        if let Some(page) = weak_button_distance.upgrade() {
+            handle_button_distance_change(&page, val);
+        }
+    });
+
+    let weak_blacklist = page.as_weak();
+    ts.on_blacklist_changed(move |text| {
+        if let Some(page) = weak_blacklist.upgrade() {
+            handle_blacklist_change(&page, text);
+        }
+    });
 
     let weak_theme = page.as_weak();
     page.on_cycle_theme(move || {
@@ -350,5 +460,208 @@ fn check_update(page: &SettingsWindow) {
         log::error!("Settings: spawn check-update thread failed: {e}");
         page.set_checking_update(false);
         page.invoke_show_update_failed(e.to_string().into());
+    }
+}
+
+// 对应 ui/settings/window.slint 的 language-options
+const SOURCE_LANGUAGES: [&str; 31] = [
+    "auto", "zh_cn", "zh_tw", "mn_mo", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr",
+    "pt_pt", "pt_br", "vi", "id", "th", "ms", "ar", "hi", "km", "mn_cy", "nb_no", "nn_no", "fa",
+    "sv", "pl", "nl", "uk", "he",
+];
+
+// 对应 ui/settings/window.slint 的 target-language-options
+const TARGET_LANGUAGES: [&str; 30] = [
+    "zh_cn", "zh_tw", "mn_mo", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr", "pt_pt",
+    "pt_br", "vi", "id", "th", "ms", "ar", "hi", "km", "mn_cy", "nb_no", "nn_no", "fa", "sv", "pl",
+    "nl", "uk", "he",
+];
+
+// 对应 ui/settings/translate.slint 的 detect-engine-options
+const DETECT_ENGINES: [&str; 4] = ["local", "niutrans", "baidu", "google"];
+
+// 对应 ui/settings/translate.slint 的 pop-button-pos-options
+const POP_BUTTON_POS: [&str; 4] = ["BottomLeft", "BottomRight", "TopRight", "TopLeft"];
+
+// 对应 ui/settings/translate.slint 的 pop-result-pos-options
+const POP_RESULT_POS: [&str; 4] = ["BottomRight", "BottomLeft", "TopRight", "TopLeft"];
+
+// 对应 ui/settings/translate.slint 的 screenshot-pos-options
+const SCREENSHOT_POS: [&str; 7] = [
+    "box_bottom_left",
+    "box_right_top",
+    "box_bottom_right",
+    "cursor_bottom_right",
+    "cursor_bottom_left",
+    "cursor_top_right",
+    "cursor_top_left",
+];
+
+fn find_index(list: &[&str], val: &str) -> i32 {
+    list.iter().position(|&x| x == val).unwrap_or(0) as i32
+}
+
+fn pop_button_to_index(sel: &crate::logic::config::Selection) -> i32 {
+    if !sel.enabled {
+        0
+    } else if sel.trigger == "click" {
+        2
+    } else {
+        1
+    }
+}
+
+/// 写配置；失败时 toast 一次并返回 false，由调用方把控件恢复成已保存的值。
+fn save(
+    page: &SettingsWindow,
+    what: &str,
+    change: impl FnOnce(&mut crate::logic::config::Config),
+) -> bool {
+    match config::update(change) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("Settings: save {what} failed: {e}");
+            page.invoke_show_save_error(e.to_string().into());
+            false
+        }
+    }
+}
+
+fn handle_source_lang_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&SOURCE_LANGUAGES, &old_cfg.translate.source);
+    if let Some(&code) = SOURCE_LANGUAGES.get(idx as usize)
+        && !save(page, "source language", |c| {
+            c.translate.source = code.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_source_lang_index(old_idx);
+    }
+}
+
+fn handle_target_lang_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&TARGET_LANGUAGES, &old_cfg.translate.target);
+    if let Some(&code) = TARGET_LANGUAGES.get(idx as usize)
+        && !save(page, "target language", |c| {
+            c.translate.target = code.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_target_lang_index(old_idx);
+    }
+}
+
+fn handle_exclude_native_change(page: &SettingsWindow, idx: i32) {
+    let old_val = config::snapshot().selection.exclude_native;
+    let old_idx = if old_val { 0 } else { 1 };
+    let new_val = idx == 0;
+    if !save(page, "exclude_native", |c| {
+        c.selection.exclude_native = new_val
+    }) {
+        page.global::<TranslateSettings>()
+            .set_exclude_native_index(old_idx);
+    }
+}
+
+fn handle_detect_engine_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&DETECT_ENGINES, &old_cfg.translate.detect_engine);
+    if let Some(&engine) = DETECT_ENGINES.get(idx as usize)
+        && !save(page, "detect_engine", |c| {
+            c.translate.detect_engine = engine.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_detect_engine_index(old_idx);
+    }
+}
+
+fn handle_pop_button_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = pop_button_to_index(&old_cfg.selection);
+    if !save(page, "pop_button", |c| {
+        if idx == 0 {
+            c.selection.enabled = false;
+        } else if idx == 1 {
+            c.selection.enabled = true;
+            c.selection.trigger = "hover".into();
+        } else if idx == 2 {
+            c.selection.enabled = true;
+            c.selection.trigger = "click".into();
+        }
+    }) {
+        page.global::<TranslateSettings>()
+            .set_pop_button_index(old_idx);
+    }
+}
+
+fn handle_pop_button_pos_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&POP_BUTTON_POS, &old_cfg.selection.button_pos);
+    if let Some(&pos) = POP_BUTTON_POS.get(idx as usize)
+        && !save(page, "button_pos", |c| {
+            c.selection.button_pos = pos.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_pop_button_pos_index(old_idx);
+    }
+}
+
+fn handle_pop_result_pos_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&POP_RESULT_POS, &old_cfg.selection.result_pos);
+    if let Some(&pos) = POP_RESULT_POS.get(idx as usize)
+        && !save(page, "result_pos", |c| {
+            c.selection.result_pos = pos.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_pop_result_pos_index(old_idx);
+    }
+}
+
+fn handle_screenshot_pos_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = find_index(&SCREENSHOT_POS, &old_cfg.screenshot.result_pos);
+    if let Some(&pos) = SCREENSHOT_POS.get(idx as usize)
+        && !save(page, "screenshot result_pos", |c| {
+            c.screenshot.result_pos = pos.to_owned()
+        })
+    {
+        page.global::<TranslateSettings>()
+            .set_screenshot_pos_index(old_idx);
+    }
+}
+
+fn handle_force_copy_change(page: &SettingsWindow, idx: i32) {
+    let old_val = config::snapshot().selection.force_copy;
+    let old_idx = if old_val { 0 } else { 1 };
+    let new_val = idx == 0;
+    if !save(page, "force_copy", |c| c.selection.force_copy = new_val) {
+        page.global::<TranslateSettings>()
+            .set_force_copy_index(old_idx);
+    }
+}
+
+fn handle_button_distance_change(page: &SettingsWindow, val: i32) {
+    let old_val = config::snapshot().selection.button_distance.clamp(0, 20) as i32;
+    if !save(page, "button_distance", |c| {
+        c.selection.button_distance = val as i64
+    }) {
+        page.global::<TranslateSettings>()
+            .set_button_distance(old_val);
+    }
+}
+
+fn handle_blacklist_change(page: &SettingsWindow, val: slint::SharedString) {
+    let old_val = config::snapshot().selection.blacklist;
+    if !save(page, "blacklist", |c| {
+        c.selection.blacklist = val.as_str().to_owned()
+    }) {
+        page.global::<TranslateSettings>()
+            .set_blacklist(old_val.into());
     }
 }

@@ -1,11 +1,13 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
+import { TranslatePage } from "translate.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
 import { Theme } from "../common/theme.slint";
 import { Toast } from "../common/toast.slint";
-import { Palette, ScrollView } from "std-widgets.slint";
+import { ScrollArea } from "../common/scroll_area.slint";
+import { Palette } from "std-widgets.slint";
 
 component LanguageButton {
     in property <string> language: "zh_CN";
@@ -98,6 +100,9 @@ export component SettingsWindow inherits Window {
     preferred-width: 800px;
     preferred-height: 600px;
     background: Theme.background;
+    // 旧版整套界面的中文落在「微软雅黑 Light」上（量过截图的墨量），Slint 默认 400 会挑 Regular，看着粗一圈。
+    // 显式写了 font-weight 的地方（标题 700、正文强调 600）不受影响。
+    default-font-weight: 300;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
     in property <string> theme-mode: "system";
@@ -364,55 +369,72 @@ export component SettingsWindow inherits Window {
             }
         }
 
-        ScrollView {
-            VerticalLayout {
-                padding-left: root.page == 3 ? 0px : 10px;
-                padding-right: root.page == 3 ? 0px : 10px;
-                padding-top: root.page == 3 ? 0px : 10px;
-                padding-bottom: root.page == 3 ? 0px : 10px;
-                alignment: start;
+        page-area := Rectangle {
+            vertical-stretch: 1;
 
-                if root.page == 0 : Card {
-                    content-padding: 12px;
-                    Text {
-                        text: @tr("Translate");
-                        font-size: 14px;
-                        color: Theme.default-400;
-                    }
+            // 点空白处收掉输入框焦点：Slint 只在点到另一个可聚焦控件时才转移焦点，
+            // 不然光标会一直留在黑名单输入框里（用户报的）。这个 FocusScope 只是个接焦点的空壳。
+            blur-catcher := FocusScope {
+                width: 0px;
+                height: 0px;
+                focus-on-tab-navigation: false;
+            }
+
+            // 放在 scroll 前面 = 画在底下，只有上面没人接的点击才落到这儿
+            TouchArea {
+                clicked => {
+                    blur-catcher.focus();
                 }
+            }
 
-                if root.page == 1 : Card {
-                    content-padding: 12px;
-                    Text {
-                        text: @tr("Services");
-                        font-size: 14px;
-                        color: Theme.default-400;
+            ScrollArea {
+                // ScrollView 自动算的 viewport 高度用的是子布局的 min-height（编译器 passes/flickable.rs），
+                // 而 SettingRow 写死 min-height: 40px，比实际行高小，算出来的 viewport 撑不到内容高度，页面就滚不动。
+                // 显式绑定 preferred-height 跳过那条自动规则；页面比可视区短时取可视高度，免得 viewport 比窗口还小。
+                viewport-height: max(self.visible-height, content.preferred-height);
+
+                content := VerticalLayout {
+                    padding-left: root.page == 3 ? 0px : 10px;
+                    padding-right: root.page == 3 ? 0px : 10px;
+                    padding-top: root.page == 3 ? 0px : 10px;
+                    padding-bottom: root.page == 3 ? 0px : 10px;
+                    alignment: start;
+
+                    if root.page == 0 : TranslatePage { }
+
+                    if root.page == 1 : Card {
+                        content-padding: 12px;
+                        Text {
+                            text: @tr("Services");
+                            font-size: 14px;
+                            color: Theme.default-400;
+                        }
                     }
-                }
 
-                if root.page == 2 : Card {
-                    content-padding: 12px;
-                    Text {
-                        text: @tr("Wordbook");
-                        font-size: 14px;
-                        color: Theme.default-400;
+                    if root.page == 2 : Card {
+                        content-padding: 12px;
+                        Text {
+                            text: @tr("Wordbook");
+                            font-size: 14px;
+                            color: Theme.default-400;
+                        }
                     }
-                }
 
-                if root.page == 3 : AboutPage {
-                    version: root.version;
-                    autostart-enabled: root.autostart-enabled;
-                    autostart-supported: root.autostart-supported;
-                    checking-update: root.checking-update;
-                    credits: root.credits;
-                    open-url(url) => { root.open-url(url); }
-                    open-github => { root.open-github(); }
-                    open-feedback => { root.open-feedback(); }
-                    open-releases => { root.open-releases(); }
-                    autostart-toggled(on) => { root.autostart-toggled(on); }
-                    check-update => { root.check-update(); }
-                    view-log => { root.view-log(); }
-                    view-config => { root.view-config(); }
+                    if root.page == 3 : AboutPage {
+                        version: root.version;
+                        autostart-enabled: root.autostart-enabled;
+                        autostart-supported: root.autostart-supported;
+                        checking-update: root.checking-update;
+                        credits: root.credits;
+                        open-url(url) => { root.open-url(url); }
+                        open-github => { root.open-github(); }
+                        open-feedback => { root.open-feedback(); }
+                        open-releases => { root.open-releases(); }
+                        autostart-toggled(on) => { root.autostart-toggled(on); }
+                        check-update => { root.check-update(); }
+                        view-log => { root.view-log(); }
+                        view-config => { root.view-config(); }
+                    }
                 }
             }
         }

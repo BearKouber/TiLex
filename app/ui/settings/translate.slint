@@ -1,0 +1,293 @@
+// ui.md §6.4 翻译设置页。旧版 TiLex/src/window/Config/pages/Translate/index.jsx。
+import { Card, SettingRow } from "../common/card.slint";
+import { Select } from "../common/select.slint";
+import { Stepper } from "../common/stepper.slint";
+import { TextField } from "../common/text_field.slint";
+
+export global TranslateSettings {
+    // 对应 src/ui/settings.rs 的 SOURCE_LANGUAGES
+    in property <[string]> source-language-options: [
+        @tr("Auto Detect"),
+        @tr("Simplified Chinese"),
+        @tr("Traditional Chinese"),
+        @tr("Mongolian"),
+        @tr("English"),
+        @tr("Japanese"),
+        @tr("Korean"),
+        @tr("French"),
+        @tr("Spanish"),
+        @tr("Russian"),
+        @tr("German"),
+        @tr("Italian"),
+        @tr("Turkish"),
+        @tr("Portuguese"),
+        @tr("Portuguese (Brazil)"),
+        @tr("Vietnamese"),
+        @tr("Indonesian"),
+        @tr("Thai"),
+        @tr("Malay"),
+        @tr("Arabic"),
+        @tr("Hindi"),
+        @tr("Khmer"),
+        @tr("Mongolian(Cyrillic)"),
+        @tr("Norwegian Bokmål"),
+        @tr("Norwegian Nynorsk"),
+        @tr("Persian"),
+        @tr("Swedish"),
+        @tr("Polish"),
+        @tr("Dutch"),
+        @tr("Ukrainian"),
+        @tr("Hebrew"),
+    ];
+
+    // 对应 src/ui/settings.rs 的 TARGET_LANGUAGES
+    in property <[string]> target-language-options: [
+        @tr("Simplified Chinese"),
+        @tr("Traditional Chinese"),
+        @tr("Mongolian"),
+        @tr("English"),
+        @tr("Japanese"),
+        @tr("Korean"),
+        @tr("French"),
+        @tr("Spanish"),
+        @tr("Russian"),
+        @tr("German"),
+        @tr("Italian"),
+        @tr("Turkish"),
+        @tr("Portuguese"),
+        @tr("Portuguese (Brazil)"),
+        @tr("Vietnamese"),
+        @tr("Indonesian"),
+        @tr("Thai"),
+        @tr("Malay"),
+        @tr("Arabic"),
+        @tr("Hindi"),
+        @tr("Khmer"),
+        @tr("Mongolian(Cyrillic)"),
+        @tr("Norwegian Bokmål"),
+        @tr("Norwegian Nynorsk"),
+        @tr("Persian"),
+        @tr("Swedish"),
+        @tr("Polish"),
+        @tr("Dutch"),
+        @tr("Ukrainian"),
+        @tr("Hebrew"),
+    ];
+
+    out property <int> language-option-count: self.source-language-options.length;
+    out property <int> target-language-option-count: self.target-language-options.length;
+
+    in-out property <int> source-lang-index: 0;
+    in-out property <int> target-lang-index: 0;
+    in-out property <int> exclude-native-index: 0;
+    in-out property <int> detect-engine-index: 0;
+    in-out property <int> pop-button-index: 0;
+    in-out property <int> pop-button-pos-index: 0;
+    in-out property <int> pop-result-pos-index: 0;
+    in-out property <int> screenshot-pos-index: 0;
+    in-out property <int> force-copy-index: 1;
+    in-out property <int> button-distance: 10;
+    in-out property <string> blacklist: "";
+
+    // 划词浮标关闭（index 0）时禁用 6 项
+    out property <bool> selection-enabled: self.pop-button-index != 0;
+
+    callback source-lang-changed(int);
+    callback target-lang-changed(int);
+    callback exclude-native-changed(int);
+    callback detect-engine-changed(int);
+    callback pop-button-changed(int);
+    callback pop-button-pos-changed(int);
+    callback pop-result-pos-changed(int);
+    callback screenshot-pos-changed(int);
+    callback force-copy-changed(int);
+    callback button-distance-changed(int);
+    callback blacklist-changed(string);
+}
+
+export component TranslatePage {
+    // 对应 src/ui/settings.rs 的 DETECT_ENGINES
+    in property <[string]> detect-engine-options: [
+        @tr("Local"),
+        @tr("NiuTrans"),
+        @tr("Baidu"),
+        @tr("Google"),
+    ];
+
+    // 对应 src/ui/settings.rs 的 划词浮标触发方式（off, hover, click）
+    in property <[string]> pop-button-options: [
+        @tr("Off"),
+        @tr("Hover"),
+        @tr("Click"),
+    ];
+
+    // 对应 src/ui/settings.rs 的 POP_BUTTON_POS
+    in property <[string]> pop-button-pos-options: [
+        @tr("Bottom Left of Cursor"),
+        @tr("Bottom Right of Cursor"),
+        @tr("Top Right of Cursor"),
+        @tr("Top Left of Cursor"),
+    ];
+
+    // 对应 src/ui/settings.rs 的 POP_RESULT_POS
+    in property <[string]> pop-result-pos-options: [
+        @tr("Opens Down-Right"),
+        @tr("Opens Down-Left"),
+        @tr("Opens Up-Right"),
+        @tr("Opens Up-Left"),
+    ];
+
+    // 对应 src/ui/settings.rs 的 SCREENSHOT_POS
+    in property <[string]> screenshot-pos-options: [
+        @tr("Below Selection"),
+        @tr("Right of Selection"),
+        @tr("Outside Bottom-Right of Selection"),
+        @tr("Down-Right from Cursor"),
+        @tr("Down-Left from Cursor"),
+        @tr("Up-Right from Cursor"),
+        @tr("Up-Left from Cursor"),
+    ];
+
+    in property <[string]> boolean-options: [
+        @tr("On"),
+        @tr("Off"),
+    ];
+
+    // 外面套一层 VerticalLayout：页面根是空元素，在设置窗口的竖布局里按内容宽度摆（卡片被挤在中间）。
+    // 布局元素的横向 stretch 默认是 1，套一层卡片就撑满整行，行内的标题靠左、控件靠右（关于页同样写法）。
+    VerticalLayout {
+        Card {
+            content-padding: 12px;
+
+            // 1. 源语言
+            SettingRow {
+                label: @tr("Source Language");
+                Select {
+                    options: TranslateSettings.source-language-options;
+                    current-index <=> TranslateSettings.source-lang-index;
+                    selected(idx) => { TranslateSettings.source-lang-changed(idx); }
+                }
+            }
+
+            // 2. 目标语言
+            SettingRow {
+                label: @tr("Target Language");
+                Select {
+                    options: TranslateSettings.target-language-options;
+                    current-index <=> TranslateSettings.target-lang-index;
+                    selected(idx) => { TranslateSettings.target-lang-changed(idx); }
+                }
+            }
+
+            // 3. 跳过目标语言（浮标关时禁用）
+            SettingRow {
+                label: @tr("Skip Target Language");
+                enabled: TranslateSettings.selection-enabled;
+                Select {
+                    options: root.boolean-options;
+                    current-index <=> TranslateSettings.exclude-native-index;
+                    enabled: TranslateSettings.selection-enabled;
+                    selected(idx) => { TranslateSettings.exclude-native-changed(idx); }
+                }
+            }
+
+            // 4. 语种检测引擎
+            SettingRow {
+                label: @tr("Language Detection Engine");
+                Select {
+                    options: root.detect-engine-options;
+                    current-index <=> TranslateSettings.detect-engine-index;
+                    selected(idx) => { TranslateSettings.detect-engine-changed(idx); }
+                }
+            }
+
+            // 5. 划词浮标（关闭 / 悬停 / 点击）
+            SettingRow {
+                label: @tr("Floating Icon");
+                Select {
+                    options: root.pop-button-options;
+                    current-index <=> TranslateSettings.pop-button-index;
+                    selected(idx) => { TranslateSettings.pop-button-changed(idx); }
+                }
+            }
+
+            // 6. 浮标位置（浮标关时禁用）
+            SettingRow {
+                label: @tr("Icon Position");
+                enabled: TranslateSettings.selection-enabled;
+                Select {
+                    options: root.pop-button-pos-options;
+                    current-index <=> TranslateSettings.pop-button-pos-index;
+                    enabled: TranslateSettings.selection-enabled;
+                    selected(idx) => { TranslateSettings.pop-button-pos-changed(idx); }
+                }
+            }
+
+            // 7. 划词弹窗（浮标关时禁用）
+            SettingRow {
+                label: @tr("Selection Window");
+                enabled: TranslateSettings.selection-enabled;
+                Select {
+                    options: root.pop-result-pos-options;
+                    current-index <=> TranslateSettings.pop-result-pos-index;
+                    enabled: TranslateSettings.selection-enabled;
+                    selected(idx) => { TranslateSettings.pop-result-pos-changed(idx); }
+                }
+            }
+
+            // 8. 截图弹窗
+            SettingRow {
+                label: @tr("Screenshot Window");
+                Select {
+                    options: root.screenshot-pos-options;
+                    current-index <=> TranslateSettings.screenshot-pos-index;
+                    selected(idx) => { TranslateSettings.screenshot-pos-changed(idx); }
+                }
+            }
+
+            // 9. 增强选中识别 + ⓘ（浮标关时禁用）
+            SettingRow {
+                z: 2;
+                label: @tr("Enhanced Selection");
+                info: @tr("Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy.");
+                enabled: TranslateSettings.selection-enabled;
+                Select {
+                    options: root.boolean-options;
+                    current-index <=> TranslateSettings.force-copy-index;
+                    enabled: TranslateSettings.selection-enabled;
+                    selected(idx) => { TranslateSettings.force-copy-changed(idx); }
+                }
+            }
+
+            // 10. 截图快捷键（本轮不做，下轮单独做，依赖 global-hotkey）
+
+            // 11. 浮标距离（浮标关时禁用）
+            SettingRow {
+                label: @tr("Icon Distance");
+                enabled: TranslateSettings.selection-enabled;
+                Stepper {
+                    value <=> TranslateSettings.button-distance;
+                    minimum: 0;
+                    maximum: 20;
+                    suffix: "px";
+                    enabled: TranslateSettings.selection-enabled;
+                    committed(val) => { TranslateSettings.button-distance-changed(val); }
+                }
+            }
+
+            // 12. 黑名单（浮标关时禁用）
+            SettingRow {
+                label: @tr("App Blacklist");
+                enabled: TranslateSettings.selection-enabled;
+                TextField {
+                    width: 200px;
+                    variant: "bordered";
+                    text <=> TranslateSettings.blacklist;
+                    placeholder: "notepad, code";
+                    enabled: TranslateSettings.selection-enabled;
+                    edited(text) => { TranslateSettings.blacklist-changed(text); }
+                }
+            }
+        }
+    }
+}

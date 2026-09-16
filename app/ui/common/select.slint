@@ -1,7 +1,7 @@
 // ui.md §5.4 Select。旧版 Dropdown 下拉菜单。
 import { Theme } from "theme.slint";
 import { Button } from "button.slint";
-import { ScrollView } from "std-widgets.slint";
+import { ScrollArea } from "scroll_area.slint";
 
 export component Select {
     // 选项列表
@@ -19,7 +19,7 @@ export component Select {
     // 打开下拉菜单
     public function open-popup() {
         if root.enabled && root.options.length > 0 {
-            root.highlighted-index = root.current-index;
+            root.highlighted-index = -1;
             popup.show();
         }
     }
@@ -29,8 +29,8 @@ export component Select {
         popup.close();
     }
 
-    // 内部高亮项（用于键盘 ↑↓ 导航）
-    property <int> highlighted-index: root.current-index;
+    // 内部高亮项：-1 = 没有。刚弹出时谁都不高亮，鼠标悬停或键盘 ↑↓ 才有
+    property <int> highlighted-index: -1;
 
     function select-item(idx: int) {
         if idx >= 0 && idx < root.options.length {
@@ -42,6 +42,8 @@ export component Select {
 
     forward-focus: trigger-fs;
     height: btn.height;
+    // 旧版按钮 md 最小宽 80（量过截图：两个字的"开启"也是 80×40），不给下限的话短选项会缩成一小条
+    min-width: 80px;
     horizontal-stretch: 1;
     accessible-role: combobox;
     accessible-value: root.current-index >= 0 && root.current-index < root.options.length ? root.options[root.current-index] : "";
@@ -62,10 +64,8 @@ export component Select {
         btn := Button {
             variant: "bordered";
             size: "md";
-            full-width: true;
             enabled: root.enabled;
             text: root.current-index >= 0 && root.current-index < root.options.length ? root.options[root.current-index] : "";
-            trailing-icon: @image-url("../icons/chevron-down.svg");
             clicked => {
                 root.open-popup();
             }
@@ -73,9 +73,12 @@ export component Select {
     }
 
     popup := PopupWindow {
-        x: 0;
+        // 右边跟触发按钮对齐、往左长（旧版一样）。左对齐的话菜单比按钮宽就会盖到页面右边的滚动条上
+        x: root.width - self.width;
         y: root.height + 4px;
-        width: root.width;
+        // 触发按钮按当前选项的文字收窄，菜单跟着窄就会把长选项截断（语言列表）。
+        // `for` 里的项不参与布局信息（编译器 #407），量不到最长项，所以给一个下限。
+        width: max(root.width, 180px);
         height: Math.min(root.options.length * 32px + 8px, root.max-menu-height);
         close-policy: close-on-click-outside;
 
@@ -89,17 +92,18 @@ export component Select {
 
             key-pressed(event) => {
                 if event.text == Key.UpArrow {
-                    if root.highlighted-index > 0 {
-                        root.highlighted-index -= 1;
-                    }
+                    // 还没高亮任何项时从当前选中项起步
+                    root.highlighted-index = root.highlighted-index < 0
+                        ? root.current-index
+                        : Math.max(0, root.highlighted-index - 1);
                     return accept;
                 } else if event.text == Key.DownArrow {
-                    if root.highlighted-index < root.options.length - 1 {
-                        root.highlighted-index += 1;
-                    }
+                    root.highlighted-index = root.highlighted-index < 0
+                        ? root.current-index
+                        : Math.min(root.options.length - 1, root.highlighted-index + 1);
                     return accept;
                 } else if event.text == Key.Return || event.text == " " {
-                    root.select-item(root.highlighted-index);
+                    root.select-item(root.highlighted-index < 0 ? root.current-index : root.highlighted-index);
                     return accept;
                 } else if event.text == Key.Escape {
                     popup.close();
@@ -109,6 +113,16 @@ export component Select {
             }
 
             Rectangle {
+                // 展开动画（旧版 framer-motion）：淡入 + 往下落 6px。
+                // 收起没有动画：PopupWindow 一 close 元素就销毁了，没东西可以动画。
+                property <bool> shown;
+                init => {
+                    self.shown = true;
+                }
+                opacity: self.shown ? 1.0 : 0.0;
+                y: self.shown ? 0px : -6px;
+                animate opacity, y { duration: 120ms; easing: ease-out; }
+
                 width: 100%;
                 height: 100%;
                 background: Theme.content1;
@@ -116,9 +130,22 @@ export component Select {
                 border-color: Theme.default-200;
                 border-radius: Theme.radius-medium;
 
-                ScrollView {
+                ScrollArea {
+                    // 菜单是圆角的，滑块顶到圆弧上不好看（旧版留了空当）
+                    track-inset: 8px;
+                    // 旧版滑块离菜单右边框 8px（量过截图），比页面那条离得远
+                    track-margin: 9px;
+                    // `for` 的子项不参与布局信息（编译器 #407），自动算的 viewport 高度不对，这里按项数直接给
+                    viewport-height: root.options.length * 32px + 8px;
+
                     VerticalLayout {
-                        padding: 4px;
+                        padding-left: 4px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        // 高亮条右边停在滑块左侧，不从滑块底下穿过去（旧版就是这样）。
+                        // 不能问 ScrollArea 有没有滚动条：内容宽度反过来依赖滚动条状态会绕成绑定环，
+                        // 所以按项数自己判断（跟 popup.height 同一个条件）。14px = 滑块 5 + 右边距 9
+                        padding-right: root.options.length * 32px + 8px > root.max-menu-height ? 14px : 4px;
                         spacing: 0px;
                         alignment: start;
 
@@ -134,6 +161,9 @@ export component Select {
                                 changed has-hover => {
                                     if self.has-hover {
                                         root.highlighted-index = idx;
+                                    } else if root.highlighted-index == idx {
+                                        // 移开就恢复白底，否则会一直留着最后悬停的那条
+                                        root.highlighted-index = -1;
                                     }
                                 }
                                 clicked => {
@@ -141,23 +171,17 @@ export component Select {
                                 }
                             }
 
+                            // 旧版菜单里选中项没有勾、也不加重，跟其它项长得一样
                             HorizontalLayout {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                spacing: 8px;
+                                padding-left: 12px;
+                                padding-right: 12px;
                                 cross-axis-alignment: center;
-
-                                Image {
-                                    width: 14px;
-                                    height: 14px;
-                                    source: @image-url("../icons/check.svg");
-                                    colorize: Theme.foreground;
-                                    opacity: idx == root.current-index ? 1 : 0;
-                                }
 
                                 Text {
                                     text: opt;
                                     font-size: 14px;
+                                    // 菜单在自己的 Window 里，继承不到设置窗的 default-font-weight
+                                    font-weight: 300;
                                     color: Theme.foreground;
                                     vertical-alignment: center;
                                     overflow: elide;

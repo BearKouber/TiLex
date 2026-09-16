@@ -1,0 +1,73 @@
+// ui.md §2.7 / §5 滚动条。fluent 的 ScrollView 滑块颜色偏深、宽 14px 贴着右边，
+// 跟旧版对不上（旧版 `*::-webkit-scrollbar { width: 5px }` + 半透明滑块），所以自绘。
+// 只做竖向：设置页和下拉菜单都只竖着滚。
+import { Theme } from "theme.slint";
+
+export component ScrollArea {
+    // 内容高度。不设就用 Flickable 自动算的（子布局 min-height，见 settings/window.slint 的注记）
+    in-out property <length> viewport-height <=> fl.viewport-height;
+    in-out property <length> viewport-y <=> fl.viewport-y;
+    out property <length> visible-height <=> fl.height;
+    out property <length> visible-width <=> fl.width;
+    // 滑块颜色：菜单里的比页面上的重一点（用户要求）
+    in property <color> thumb-color: Theme.scrollbar-thumb;
+    // 滚动条上下各留出的空当：圆角容器（下拉菜单）里要留，不然滑块顶到圆弧上
+    in property <length> track-inset: 0px;
+    // 滚动条离右边的距离
+    in property <length> track-margin: 2px;
+
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    preferred-width: 100%;
+    preferred-height: 100%;
+
+    // 能滚多远；为 0 时不画滚动条
+    property <length> max-offset: max(0px, fl.viewport-height - fl.height);
+
+    fl := Flickable {
+        // 鼠标拖内容平移关掉（滚轮不受影响，interactive 只管拖拽），否则拖选文字会带着页面跑
+        interactive: false;
+        width: 100%;
+        height: 100%;
+        @children
+    }
+
+    if root.max-offset > 0px : bar := Rectangle {
+        x: parent.width - self.width - root.track-margin;
+        y: root.track-inset;
+        width: 5px;
+        height: parent.height - 2 * root.track-inset;
+
+        thumb := Rectangle {
+            width: 100%;
+            // 内容再长滑块也留 24px，不然按不住
+            height: max(24px, parent.height * fl.height / fl.viewport-height);
+            y: (parent.height - self.height) * (-fl.viewport-y / root.max-offset);
+            border-radius: self.width / 2;
+            background: root.thumb-color;
+        }
+
+        touch := TouchArea {
+            // 按下时记住起点，moved 里按位移算（fluent 的实现只在按下时记，被别的元素抢过事件就会甩飞）
+            property <length> press-offset;
+            property <length> press-y;
+
+            mouse-cursor: default;
+
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    self.press-offset = -fl.viewport-y;
+                    self.press-y = self.mouse-y;
+                }
+            }
+
+            moved => {
+                if self.pressed {
+                    fl.viewport-y = -max(0px, min(root.max-offset,
+                        self.press-offset
+                            + (self.mouse-y - self.press-y) * root.max-offset / max(1px, bar.height - thumb.height)));
+                }
+            }
+        }
+    }
+}

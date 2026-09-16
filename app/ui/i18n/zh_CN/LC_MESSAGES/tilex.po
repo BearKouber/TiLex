@@ -156,3 +156,198 @@ msgstr "打开文件夹失败：{}"
 msgid "Could not change autostart setting: {}"
 msgstr "修改开机自启失败：{}"
 
+msgid "Auto Detect"
+msgstr "自动检测"
+
+msgid "Simplified Chinese"
+msgstr "简体中文"
+
+msgid "Traditional Chinese"
+msgstr "繁體中文"
+
+msgid "Mongolian"
+msgstr "蒙古语"
+
+msgid "English"
+msgstr "英语"
+
+msgid "Japanese"
+msgstr "日语"
+
+msgid "Korean"
+msgstr "韩语"
+
+msgid "French"
+msgstr "法语"
+
+msgid "Spanish"
+msgstr "西班牙语"
+
+msgid "Russian"
+msgstr "俄语"
+
+msgid "German"
+msgstr "德语"
+
+msgid "Italian"
+msgstr "意大利语"
+
+msgid "Turkish"
+msgstr "土耳其语"
+
+msgid "Portuguese"
+msgstr "葡萄牙语"
+
+msgid "Portuguese (Brazil)"
+msgstr "葡萄牙语 (巴西)"
+
+msgid "Vietnamese"
+msgstr "越南语"
+
+msgid "Indonesian"
+msgstr "印尼语"
+
+msgid "Thai"
+msgstr "泰语"
+
+msgid "Malay"
+msgstr "马来语"
+
+msgid "Arabic"
+msgstr "阿拉伯语"
+
+msgid "Hindi"
+msgstr "印地语"
+
+msgid "Khmer"
+msgstr "高棉语"
+
+msgid "Mongolian(Cyrillic)"
+msgstr "蒙古语(西里尔)"
+
+msgid "Norwegian Bokmål"
+msgstr "书面挪威语"
+
+msgid "Norwegian Nynorsk"
+msgstr "新挪威语"
+
+msgid "Persian"
+msgstr "波斯语"
+
+msgid "Swedish"
+msgstr "瑞典语"
+
+msgid "Polish"
+msgstr "波兰语"
+
+msgid "Dutch"
+msgstr "荷兰语"
+
+msgid "Ukrainian"
+msgstr "乌克兰语"
+
+msgid "Hebrew"
+msgstr "希伯来语"
+
+msgid "On"
+msgstr "开启"
+
+msgid "Off"
+msgstr "关闭"
+
+msgid "Hover"
+msgstr "悬停"
+
+msgid "Click"
+msgstr "点击"
+
+msgid "Local"
+msgstr "本地"
+
+msgid "NiuTrans"
+msgstr "小牛"
+
+msgid "Baidu"
+msgstr "百度"
+
+msgid "Bottom Left of Cursor"
+msgstr "光标左下"
+
+msgid "Bottom Right of Cursor"
+msgstr "光标右下"
+
+msgid "Top Right of Cursor"
+msgstr "光标右上"
+
+msgid "Top Left of Cursor"
+msgstr "光标左上"
+
+msgid "Opens Down-Right"
+msgstr "右下展开"
+
+msgid "Opens Down-Left"
+msgstr "左下展开"
+
+msgid "Opens Up-Right"
+msgstr "右上展开"
+
+msgid "Opens Up-Left"
+msgstr "左上展开"
+
+msgid "Below Selection"
+msgstr "选区下方"
+
+msgid "Right of Selection"
+msgstr "选区右侧"
+
+msgid "Outside Bottom-Right of Selection"
+msgstr "选区右下"
+
+msgid "Down-Right from Cursor"
+msgstr "光标右下"
+
+msgid "Down-Left from Cursor"
+msgstr "光标左下"
+
+msgid "Up-Right from Cursor"
+msgstr "光标右上"
+
+msgid "Up-Left from Cursor"
+msgstr "光标左上"
+
+msgid "Source Language"
+msgstr "源语言"
+
+msgid "Target Language"
+msgstr "目标语言"
+
+msgid "Skip Target Language"
+msgstr "跳过目标语言"
+
+msgid "Language Detection Engine"
+msgstr "语种检测引擎"
+
+msgid "Floating Icon"
+msgstr "划词浮标"
+
+msgid "Icon Position"
+msgstr "浮标位置"
+
+msgid "Selection Window"
+msgstr "划词弹窗"
+
+msgid "Screenshot Window"
+msgstr "截图弹窗"
+
+msgid "Enhanced Selection"
+msgstr "划词增强"
+
+msgid "Icon Distance"
+msgstr "浮标距离"
+
+msgid "App Blacklist"
+msgstr "应用黑名单"
+
+msgid "Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy."
+msgstr "部分程序（如微信聊天记录）无法直接读取选中文字。开启后，TiLex 会在这些程序中模拟一次复制来获取文字，随后自动恢复剪贴板原有内容。\n注意：剪贴板管理工具和 Win+V 历史中可能会留下这次复制的记录。"
+
