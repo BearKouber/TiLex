@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE,
-    DWMWCP_ROUND, DwmSetWindowAttribute,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
@@ -132,27 +132,37 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+pub fn attach_overlay_window(window: &slint::Window, x: i32, y: i32) -> Result<(), Error> {
     let h = super::hwnd(window)?;
     apply_styles(h);
-    // SAFETY: 刷新样式并置顶
-    // ignore: 刷新失败时样式照样生效
-    let _ = unsafe {
-        SetWindowPos(
-            h,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
-        )
-    };
+    disable_transitions(h);
+    // 从屏幕外挪到位并置顶。挪动窗口不播系统的开窗缩放动画，加上上面关掉的过渡，
+    // 遮罩是瞬间出现的（尺寸在 Slint 侧已经设成整个虚拟屏，这里只动位置）。
+    // SAFETY: h 来自活着的 Slint 窗口。
+    // ignore: 摆放失败时窗口仍在屏幕外，下面的抢前台会失败并记日志
+    let _ = unsafe { SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_FRAMECHANGED) };
     if !super::force_foreground(h) {
         log::warn!("Overlay: SetForegroundWindow refused");
     }
     log::info!("Overlay: window attached");
     Ok(())
+}
+
+/// 关掉这个窗口的 DWM 过渡动画。遮罩要瞬间出现，不许从中心缩放着展开。
+fn disable_transitions(h: HWND) {
+    let on = BOOL(1);
+    // SAFETY: h 来自活着的 Slint 窗口；on 在调用期间有效，长度与类型一致。
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            h,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            (&raw const on).cast::<c_void>(),
+            size_of::<BOOL>() as u32,
+        )
+    };
+    if let Err(e) = result {
+        log::warn!("Overlay: disable window transitions failed: {e}");
+    }
 }
 
 fn apply_styles(h: HWND) {

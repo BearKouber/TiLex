@@ -148,7 +148,7 @@ pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 
-pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
+pub fn attach_overlay_window(_window: &slint::Window, _x: i32, _y: i32) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 

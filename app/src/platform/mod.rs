@@ -215,10 +215,12 @@ pub fn result_window_focused() -> Option<bool> {
     imp::result_window_focused()
 }
 
-/// 把遮罩窗口交给平台层：无边框、置顶、不进任务栏，并强拉到前台拿焦点（UI 线程调）。
+/// 把遮罩窗口交给平台层：无边框、置顶、不进任务栏、关掉 DWM 过渡动画，
+/// 再把它从屏幕外挪到 `(x, y)`（物理像素）并强拉到前台拿焦点（UI 线程调）。
+/// **调用前窗口必须已经在屏幕外 `show()` 过**：在原位直接显示会播系统的开窗缩放动画。
 /// 原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。
-pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
-    imp::attach_overlay_window(window)
+pub fn attach_overlay_window(window: &slint::Window, x: i32, y: i32) -> Result<(), Error> {
+    imp::attach_overlay_window(window, x, y)
 }
 
 /// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。

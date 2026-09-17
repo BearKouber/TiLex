@@ -70,8 +70,10 @@ fn show_overlay(shot: Shot, trigger_time: Instant) -> Result<(), Error> {
     let window = overlay.window();
     let w = shot.pixels.width();
     let h = shot.pixels.height();
-    // 先设位置再设尺寸（跨 DPI 显示器摆放）
-    window.set_position(PhysicalPosition::new(shot.x, shot.y));
+    let (at_x, at_y) = (shot.x, shot.y);
+    // 第一次 show 在屏幕外：在真实位置直接显示会播系统的开窗缩放动画。
+    // 平台层拿到原生窗口后关掉这个窗口的 DWM 过渡，再把它挪到位（挪动不播动画）。
+    window.set_position(PhysicalPosition::new(-32000, -32000));
     window.set_size(PhysicalSize::new(w, h));
 
     let shot_rc = Rc::new(shot);
@@ -132,18 +134,24 @@ fn show_overlay(shot: Shot, trigger_time: Instant) -> Result<(), Error> {
         Ok(())
     })?;
 
-    attach_when_ready(weak, 1, trigger_time);
+    attach_when_ready(weak, 1, trigger_time, at_x, at_y);
 
     Ok(())
 }
 
-fn attach_when_ready(weak: slint::Weak<Overlay>, attempt: u32, trigger_time: Instant) {
+fn attach_when_ready(
+    weak: slint::Weak<Overlay>,
+    attempt: u32,
+    trigger_time: Instant,
+    at_x: i32,
+    at_y: i32,
+) {
     const MAX_ATTEMPTS: u32 = 50;
     slint::Timer::single_shot(Duration::from_millis(10), move || {
         let Some(overlay) = weak.upgrade() else {
             return;
         };
-        match platform::attach_overlay_window(overlay.window()) {
+        match platform::attach_overlay_window(overlay.window(), at_x, at_y) {
             Ok(()) => {
                 let elapsed_ms = trigger_time.elapsed().as_millis();
                 log::info!("Overlay: attached on attempt {attempt} ({elapsed_ms}ms since trigger)");
@@ -151,7 +159,7 @@ fn attach_when_ready(weak: slint::Weak<Overlay>, attempt: u32, trigger_time: Ins
             Err(e) if attempt >= MAX_ATTEMPTS => {
                 log::error!("Overlay: attach window failed after {attempt} tries: {e}");
             }
-            Err(_) => attach_when_ready(weak, attempt + 1, trigger_time),
+            Err(_) => attach_when_ready(weak, attempt + 1, trigger_time, at_x, at_y),
         }
     });
 }
