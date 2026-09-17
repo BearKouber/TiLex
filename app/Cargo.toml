@@ -38,6 +38,7 @@ lingua = { version = "1.8.0", optional = true, default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
 # 生词本（design §2.3）。Windows 没有可靠的系统 SQLite，所以 bundled。
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+global-hotkey = "0.8.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [

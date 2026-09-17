@@ -30,6 +30,11 @@ export component TextField {
         text-input.select-all();
     }
 
+    // 焦点状态（快捷键框要用）
+    out property <bool> has-focus: text-input.has-focus;
+    // 按键透传：返回 accept 就把这一下吃掉，TextInput 不再处理。默认 reject，不影响别的用法。
+    callback key-pressed(event: KeyEvent) -> EventResult;
+
     private property <bool> is-bordered: root.variant == "bordered";
     private property <bool> password-revealed: false;
     // 记录本轮编辑是否已触发过 editing-finished，避免 Enter 后失焦重复触发
@@ -124,6 +129,8 @@ export component TextField {
                             self.computed-x = parent.width - cursor-position.x - self.text-cursor-width;
                         }
                     }
+
+                    key-pressed(event) => { root.key-pressed(event) }
 
                     changed has-focus => {
                         if self.has-focus {

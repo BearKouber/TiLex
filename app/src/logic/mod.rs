@@ -2,6 +2,7 @@ pub mod ai_presets;
 pub mod benchmark;
 pub mod cache;
 pub mod config;
+pub mod hotkey;
 pub mod lang_detect;
 pub mod model_cache;
 pub mod placement;

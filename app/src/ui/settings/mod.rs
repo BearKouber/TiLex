@@ -99,6 +99,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.set_force_copy_index(force_copy_idx);
     ts.set_button_distance(distance);
     ts.set_blacklist(cfg.selection.blacklist.into());
+    ts.set_hotkey(cfg.screenshot.hotkey.as_str().into());
 
     let weak_source_lang = page.as_weak();
     ts.on_source_lang_changed(move |idx| {
@@ -174,6 +175,22 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.on_blacklist_changed(move |text| {
         if let Some(page) = weak_blacklist.upgrade() {
             handle_blacklist_change(&page, text);
+        }
+    });
+
+    let weak_hk_focus = page.as_weak();
+    ts.on_hotkey_focus_changed(move |focused| {
+        if let Some(page) = weak_hk_focus.upgrade() {
+            handle_hotkey_focus(&page, focused);
+        }
+    });
+
+    let weak_hk_key = page.as_weak();
+    ts.on_hotkey_key(move |text, ctrl, shift, alt, meta| {
+        if let Some(page) = weak_hk_key.upgrade() {
+            handle_hotkey_key(&page, text.as_str(), ctrl, shift, alt, meta)
+        } else {
+            false
         }
     });
 
@@ -364,6 +381,16 @@ fn close() {
         return;
     };
     drop(settings); // 已经隐藏过（关闭请求返回 HideWindow，或 schedule_close）
+
+    // 关窗时如果还在录制快捷键，当前键已经被注销了，而失焦回调不保证还会触发
+    // （Alt+F4、任务栏关闭都是直接销毁）。所有关闭路径都汇到这里，在这儿把配置里的键装回去。
+    // 没在录制时这一步是空操作：`apply` 发现要装的就是当前这个键会直接返回。
+    let cur = config::snapshot().screenshot.hotkey;
+    if !cur.is_empty()
+        && let Err(e) = crate::logic::hotkey::apply(&cur)
+    {
+        log::warn!("Settings: restore hotkey on close failed: {e}");
+    }
 
     log::info!("Settings: closed");
 }
@@ -695,4 +722,68 @@ fn handle_blacklist_change(page: &SettingsWindow, val: slint::SharedString) {
         page.global::<TranslateSettings>()
             .set_blacklist(old_val.into());
     }
+}
+
+fn handle_hotkey_focus(page: &SettingsWindow, focused: bool) {
+    let ts = page.global::<TranslateSettings>();
+    if focused {
+        ts.set_hotkey_recording(true);
+        ts.set_hotkey_draft("".into());
+        // 先把当前的键注销掉，否则录的时候按到它会直接触发截图
+        if let Err(e) = crate::logic::hotkey::apply("") {
+            log::warn!("Settings: unregister hotkey on focus failed: {e}");
+        }
+    } else {
+        if !ts.get_hotkey_recording() {
+            return;
+        }
+        ts.set_hotkey_recording(false);
+        ts.set_hotkey_draft("".into());
+        let cur = config::snapshot().screenshot.hotkey;
+        if let Err(e) = crate::logic::hotkey::apply(&cur) {
+            log::warn!("Settings: restore hotkey on blur failed: {e}");
+        }
+    }
+}
+
+fn handle_hotkey_key(
+    page: &SettingsWindow,
+    text: &str,
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+    meta: bool,
+) -> bool {
+    let ts = page.global::<TranslateSettings>();
+    let Some(accel) = crate::logic::hotkey::accelerator(text, ctrl, shift, alt, meta) else {
+        ts.set_hotkey_draft(crate::logic::hotkey::modifiers_only(ctrl, shift, alt, meta).into());
+        return false;
+    };
+
+    ts.set_hotkey_recording(false);
+    ts.set_hotkey_draft("".into());
+
+    let old_hotkey = config::snapshot().screenshot.hotkey;
+    match crate::logic::hotkey::apply(&accel) {
+        Ok(()) => {
+            if save(page, "hotkey", |c| c.screenshot.hotkey = accel.clone()) {
+                ts.set_hotkey(accel.as_str().into());
+                if !accel.is_empty() {
+                    let msg = ts.invoke_show_hotkey_ok();
+                    page.invoke_show_toast(msg, 1);
+                }
+            } else {
+                let _ = crate::logic::hotkey::apply(&old_hotkey); // ignore: 保存配置失败时恢复旧热键
+                ts.set_hotkey(old_hotkey.as_str().into());
+            }
+        }
+        Err(e) => {
+            let msg = ts.invoke_show_hotkey_error(e.to_string().into());
+            page.invoke_show_toast(msg, 2);
+            let _ = crate::logic::hotkey::apply(&old_hotkey); // ignore: 注册热键失败时恢复旧热键
+            ts.set_hotkey(old_hotkey.as_str().into());
+        }
+    }
+
+    true
 }

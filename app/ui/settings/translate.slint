@@ -103,6 +103,21 @@ export global TranslateSettings {
     callback force-copy-changed(int);
     callback button-distance-changed(int);
     callback blacklist-changed(string);
+
+    // 已保存的键，空串 = 未设置
+    in-out property <string> hotkey: "";
+    // 录制中显示的半成品（"Ctrl+Shift"），录制结束时 Rust 会清掉
+    in-out property <string> hotkey-draft: "";
+    in-out property <bool> hotkey-recording: false;
+
+    // 进 / 出录制（true = 刚拿到焦点，false = 失焦）
+    callback hotkey-focus-changed(bool);
+    // 一次按键。参数：KeyEvent.text、ctrl、shift、alt、meta。
+    // 返回 true = 这一轮录完了，界面把焦点收掉。
+    callback hotkey-key(string, bool, bool, bool, bool) -> bool;
+
+    public function show-hotkey-ok() -> string { @tr("Shortcut registered") }
+    public function show-hotkey-error(err: string) -> string { @tr("Could not register shortcut: {}", err) }
 }
 
 export component TranslatePage {
@@ -259,7 +274,37 @@ export component TranslatePage {
                 }
             }
 
-            // 10. 截图快捷键（本轮不做，下轮单独做，依赖 global-hotkey）
+            // 10. 截图快捷键
+            SettingRow {
+                label: @tr("Screenshot Translate");
+                hk := TextField {
+                    width: 130px;
+                    variant: "bordered";
+                    center: true;
+                    read-only: true;
+                    text: TranslateSettings.hotkey-recording
+                        ? TranslateSettings.hotkey-draft
+                        : TranslateSettings.hotkey;
+                    placeholder: TranslateSettings.hotkey-recording
+                        ? @tr("Press a key combination")
+                        : @tr("None");
+                    changed has-focus => {
+                        TranslateSettings.hotkey-focus-changed(self.has-focus);
+                    }
+                    key-pressed(event) => {
+                        if event.text == Key.Escape && !event.modifiers.control
+                            && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
+                            self.clear-focus();
+                            return EventResult.accept;
+                        }
+                        if TranslateSettings.hotkey-key(event.text, event.modifiers.control,
+                                event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
+                            self.clear-focus();
+                        }
+                        return EventResult.accept;
+                    }
+                }
+            }
 
             // 11. 浮标距离（浮标关时禁用）
             SettingRow {

@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use tilex::error::Error;
-use tilex::logic::{config, wordbook};
+use tilex::logic::{config, hotkey, wordbook};
 use tilex::{logger, platform, ui};
 
 fn main() {
@@ -44,6 +44,15 @@ fn run() -> Result<(), Error> {
     // 托盘必须先建：它是第一个 Slint 组件，建完才有事件循环和翻译上下文。
     let tray = ui::tray::create()?;
     ui::apply_language(&config::snapshot().general.language);
+    hotkey::init(|| {
+        log::info!("Hotkey: screenshot triggered (screenshot is B3)");
+    });
+    let hotkey_str = config::snapshot().screenshot.hotkey;
+    if !hotkey_str.is_empty()
+        && let Err(e) = hotkey::apply(&hotkey_str)
+    {
+        log::warn!("Main: hotkey register failed: {e}");
+    }
     // 划词浮标启动时就建好、一直不销毁（D12）。
     let pop_button = ui::pop_button::create()?;
     if pop_button.is_some() {

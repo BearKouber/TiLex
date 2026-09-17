@@ -513,3 +513,19 @@ msgstr "未测速"
 msgid "Cannot start speed test: {}"
 msgstr "启动测速失败: {}"
 
+msgid "Screenshot Translate"
+msgstr "截图翻译"
+
+msgid "Press a key combination"
+msgstr "按下快捷键"
+
+msgid "None"
+msgstr "未设置"
+
+msgid "Shortcut registered"
+msgstr "快捷键注册成功"
+
+msgid "Could not register shortcut: {}"
+msgstr "快捷键注册失败：{}"
+
+
