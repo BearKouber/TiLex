@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::error::Error;
+use crate::error::{Error, HttpKind};
 use crate::logic::config::{self, Service};
 use crate::platform;
 use crate::service::{self, umi};
@@ -54,6 +54,40 @@ pub fn run(image: &Path) -> Result<String, Error> {
         Err(e) => log::warn!("Recognize: {name} failed: {e}"),
     }
     result
+}
+
+/// 识别一张图，结果折成界面要的形状：出了字给文字，没出字给个编号让 `.slint` 选文案
+/// （Rust 不拼界面中文，design §2.9）。编号见 [`failure_code`]。后台线程调（R-5）。
+pub fn run_for_ui(image: &Path) -> Result<String, i32> {
+    let service = current();
+    let result = run(image);
+    match failure_code(&result, service) {
+        0 => result.map_err(|_| FAILED),
+        code => Err(code),
+    }
+}
+
+/// 图里没有文字（微信 OCR 一个非空块都没有 / Umi 的 code 101）。
+pub const NO_TEXT: i32 = 1;
+/// 识别服务列表里一个启用的都没有。
+pub const NO_SERVICE: i32 = 2;
+/// Umi-OCR 连不上，多半是用户没启动它。
+pub const UMI_OFFLINE: i32 = 3;
+/// 其余识别失败（没装微信、超时、响应形状不对……）。
+pub const FAILED: i32 = 4;
+
+/// 识别结果在界面上的编号，`0` = 出字了。`service` 是 [`current`] 给的服务名。
+fn failure_code(result: &Result<String, Error>, service: Option<&str>) -> i32 {
+    match result {
+        Ok(text) if !text.trim().is_empty() => 0,
+        Ok(_) => NO_TEXT,
+        Err(Error::NotConfigured("recognize_services")) => NO_SERVICE,
+        Err(Error::Http {
+            kind: HttpKind::Connect,
+            ..
+        }) if service == Some("umi") => UMI_OFFLINE,
+        Err(_) => FAILED,
+    }
 }
 
 /// 测试连接（设置界面按「测试连接」时调）。后台线程调，最长 30 秒（R-5）。
@@ -130,6 +164,33 @@ mod tests {
 
         let services = vec![unknown, umi.clone()];
         assert_eq!(first_enabled(&services), Some(&umi));
+    }
+
+    #[test]
+    fn failure_codes_cover_every_empty_result() {
+        assert_eq!(failure_code(&Ok("hello".into()), Some("wechat")), 0);
+        // 只有空白也算没出字
+        assert_eq!(failure_code(&Ok("  \n ".into()), Some("wechat")), NO_TEXT);
+        assert_eq!(failure_code(&Ok(String::new()), Some("umi")), NO_TEXT);
+        assert_eq!(
+            failure_code(&Err(Error::NotConfigured("recognize_services")), None),
+            NO_SERVICE
+        );
+        let offline = || Error::Http {
+            status: None,
+            kind: HttpKind::Connect,
+        };
+        assert_eq!(failure_code(&Err(offline()), Some("umi")), UMI_OFFLINE);
+        // 同样连不上，但用的不是 Umi：不能说「Umi-OCR 未运行」
+        assert_eq!(failure_code(&Err(offline()), Some("wechat")), FAILED);
+        assert_eq!(
+            failure_code(
+                &Err(Error::Platform("WeChat is not installed".into())),
+                Some("wechat")
+            ),
+            FAILED
+        );
+        assert_eq!(failure_code(&Err(Error::Timeout), Some("umi")), FAILED);
     }
 
     #[test]

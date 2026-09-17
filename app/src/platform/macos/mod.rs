@@ -156,6 +156,10 @@ pub fn show_overlay_window(_rect: super::geometry::Rect) {}
 
 pub fn hide_overlay_window() {}
 
+pub fn cursor_pos() -> (i32, i32) {
+    (0, 0)
+}
+
 pub fn show_result_window(_rect: super::geometry::Rect) {}
 
 pub fn move_result_window(_rect: super::geometry::Rect) {}

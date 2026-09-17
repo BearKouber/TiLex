@@ -170,8 +170,9 @@ fn parse_output(stdout: &[u8], stderr: &[u8], exit_code: Option<i32>) -> Result<
         }
     }
 
+    // 图里没字不是错误：和 Umi 的 code 101 一样返回空串，由界面统一说「图里没有文字」。
     if valid_blocks.is_empty() {
-        return Err(Error::Platform("OCR_NO_TEXT".into()));
+        return Ok(String::new());
     }
 
     valid_blocks.sort_by(|a, b| a.1.total_cmp(&b.1));
@@ -240,14 +241,15 @@ mod tests {
                 err_msg(super::parse_output(br#"{"errcode":2}"#, b"", exit)),
                 "WeChat OCR: errcode=2"
             );
+            // 图里没字：空串，不是错误
             for empty in [
                 r#"{"errcode":0,"ocr_response":[]}"#,
                 r#"{"errcode":0,"ocr_response":[{"text":"  "}]}"#,
             ] {
-                assert_eq!(
-                    err_msg(super::parse_output(empty.as_bytes(), b"", exit)),
-                    "OCR_NO_TEXT"
-                );
+                let Ok(text) = super::parse_output(empty.as_bytes(), b"", exit) else {
+                    panic!("expected Ok for {empty}");
+                };
+                assert_eq!(text, "");
             }
             for bad in [
                 "",

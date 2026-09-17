@@ -46,15 +46,11 @@ pub fn create() -> Result<(), Error> {
             return;
         };
         match crate::logic::screenshot::crop_region(&shot, l.into(), t.into(), r.into(), b.into()) {
-            Ok(region) => log::info!(
-                "Screenshot: selected rect [{}, {}, {}, {}] -> {:?}",
-                region.rect.l,
-                region.rect.t,
-                region.rect.r,
-                region.rect.b,
-                region.path,
-            ),
-            Err(e) => log::error!("Screenshot: crop_region failed: {e}"),
+            // 浮窗要在遮罩 hide() 之后才弹：hide() 里已经把前台还给用户原来的程序了，
+            // 浮窗这时记下的「原前台」才是对的。别为了快把它挪到前面去。
+            Ok(region) => super::pop_result::show_recognizing(region),
+            // 单击不拖（选区小于 4px）也走这里：只记一行，不弹任何东西，和旧版一致。
+            Err(e) => log::info!("Screenshot: no usable selection: {e}"),
         }
         crate::logic::screenshot::end();
     });

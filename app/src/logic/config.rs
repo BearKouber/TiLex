@@ -163,7 +163,9 @@ impl Default for Screenshot {
     fn default() -> Self {
         Self {
             hotkey: String::new(),
-            result_pos: "BottomRight".into(),
+            // 截图浮窗的位置是另一套值域（`box_*` / `cursor_*`，见 `ui::settings::SCREENSHOT_POS`），
+            // 不是划词浮窗那套驼峰角名。默认同旧版：面板左上角对准选区左下角。
+            result_pos: "box_bottom_left".into(),
         }
     }
 }

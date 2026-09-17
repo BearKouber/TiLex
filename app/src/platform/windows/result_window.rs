@@ -15,9 +15,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GWL_EXSTYLE, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
+    HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_EX_APPWINDOW,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
     WS_THICKFRAME,
@@ -44,6 +44,19 @@ fn result_hwnd() -> Option<HWND> {
 fn overlay_hwnd() -> Option<HWND> {
     let raw = OVERLAY_WINDOW.load(Ordering::SeqCst);
     (raw != 0).then_some(HWND(raw as *mut c_void))
+}
+
+/// 光标此刻在桌面上的物理坐标。取不到就当在原点（截图浮窗按光标摆放时用）。
+pub fn cursor_pos() -> (i32, i32) {
+    let mut point = POINT::default();
+    // SAFETY: 只写一个栈上的 POINT，无其他指针。
+    match unsafe { GetCursorPos(&mut point) } {
+        Ok(()) => (point.x, point.y),
+        Err(e) => {
+            log::warn!("Platform: GetCursorPos failed: {e}");
+            (0, 0)
+        }
+    }
 }
 
 /// (x, y) 所在显示器的工作区（物理像素，可为负坐标）和缩放比（DPI / 96）。

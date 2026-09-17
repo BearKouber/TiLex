@@ -182,6 +182,11 @@ pub fn monitor_at(x: i32, y: i32) -> Option<(geometry::Rect, f32)> {
     imp::monitor_at(x, y)
 }
 
+/// 光标此刻在桌面上的物理坐标（截图结果浮窗选「跟随光标」时按它摆放）。
+pub fn cursor_pos() -> (i32, i32) {
+    imp::cursor_pos()
+}
+
 /// 把结果浮窗交给平台层（UI 线程调）。应用无边框样式（WS_POPUP / WS_EX_TOOLWINDOW / WS_EX_TOPMOST）、
 /// 设置 Win11 小圆角并初始 DWM cloak 隐藏。
 /// 调用前窗口必须已经 `show()` 过一次；原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。

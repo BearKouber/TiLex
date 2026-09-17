@@ -30,6 +30,11 @@ export component PopResult inherits Window {
     in property <bool> is-pinned;
     in property <[ResultRow]> rows;
     in property <string> lang-badge: "";
+    // 截图识别的顶栏状态（原文还没出来时才显示）：识别中转圈，或者一句红字说明为什么没出字。
+    in property <bool> recognizing: false;
+    // 0 无 / 1 图里没有文字 / 2 没有可用的识别服务 / 3 Umi-OCR 未运行 / 4 识别失败
+    // （编号由 `logic::recognize` 给，Rust 不拼界面中文，design §2.9）
+    in property <int> recognize-error: 0;
     in property <int> speaking-key: -2;
     in property <int> copied-key: -2;
     in property <int> saved-row: -1;
@@ -95,12 +100,45 @@ export component PopResult inherits Window {
                             vertical-alignment: center;
                         }
 
-                        // 原文：11px 淡灰（旧版顶栏 text-[11px] text-default-400）
-                        Text {
+                        // 原文：11px 淡灰（旧版顶栏 text-[11px] text-default-400）。
+                        // 截图识别时原文要等识别完才有，这段位置先给「识别中」或失败说明（旧版 `PopResult:372-379`）。
+                        if root.source-text != "" || (!root.recognizing && root.recognize-error == 0) : Text {
                             text: root.source-text;
                             wrap: no-wrap;
                             overflow: elide;
                             color: Theme.default-400;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+
+                        if root.source-text == "" && root.recognizing : HorizontalLayout {
+                            spacing: 6px;
+                            cross-axis-alignment: center;
+                            horizontal-stretch: 1;
+
+                            LoadingDots {
+                                width: 16px;
+                                height: 4px;
+                            }
+
+                            Text {
+                                text: @tr("Recognizing…");
+                                color: Theme.default-400;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                        }
+
+                        if root.source-text == "" && !root.recognizing && root.recognize-error != 0 : Text {
+                            text: root.recognize-error == 1 ? @tr("No text found in the selected area")
+                                : root.recognize-error == 2 ? @tr("No text recognition service is enabled — turn one on in Service Settings")
+                                : root.recognize-error == 3 ? @tr("Cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224)")
+                                : @tr("Text recognition failed. Please try again.");
+                            wrap: no-wrap;
+                            overflow: elide;
+                            color: Theme.danger;
                             font-size: 11px;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
