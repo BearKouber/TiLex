@@ -41,6 +41,7 @@ export struct ServiceDraft {
     ai-protocol: string,
     ai-custom-instructions: string,
     ai-icon: string,
+    umi-url: string,
 }
 
 component BuiltinServiceItem {
@@ -344,12 +345,18 @@ export component ServiceDialogs {
     in-out property <brush> draft-ai-icon-color: Theme.foreground;
     in-out property <string> draft-ai-icon-letter: "";
 
+    // Umi-OCR 草稿属性
+    in-out property <string> draft-umi-url: "";
+
     in-out property <string> resolved-chat-url: "";
     in property <[AiPreset]> ai-presets: [];
     in property <string> default-ai-custom-instructions: "";
 
     in property <length> window-height;
     in property <brush> wechat-icon-color;
+    in property <brush> umi-icon-color;
+    in property <bool> recognize-has-wechat: false;
+    in property <bool> recognize-has-umi: false;
     in property <bool> testing: false;
     in property <bool> fetching: false;
     in property <[ModelRow]> ai-models: [];
@@ -407,6 +414,7 @@ export component ServiceDialogs {
             ai-protocol: root.current-protocol-str(),
             ai-custom-instructions: root.draft-ai-custom-instructions,
             ai-icon: root.draft-ai-icon,
+            umi-url: root.draft-umi-url,
         }
     }
 
@@ -518,7 +526,8 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-kind == "recognize" : BuiltinServiceItem {
+        // 识别服务每种只装一个：装过的这里就不再出现，两个都装了只剩一句说明（旧版行为）。
+        if root.dialog-kind == "recognize" && !root.recognize-has-wechat : BuiltinServiceItem {
             icon: @image-url("../icons/logo/wechat.svg");
             has-colorize: true;
             colorize: root.wechat-icon-color;
@@ -529,6 +538,27 @@ export component ServiceDialogs {
                 root.draft-label = "";
                 root.dialog = 3;
             }
+        }
+
+        if root.dialog-kind == "recognize" && !root.recognize-has-umi : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/umi.svg");
+            has-colorize: true;
+            colorize: root.umi-icon-color;
+            title: @tr("Umi-OCR");
+            clicked => {
+                root.dialog-service = "umi";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.draft-umi-url = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "recognize" && root.recognize-has-wechat && root.recognize-has-umi : Text {
+            text: @tr("All available text recognition services are already installed");
+            font-size: 14px;
+            color: Theme.default-500;
+            wrap: word-wrap;
         }
 
         HorizontalLayout {
@@ -706,6 +736,41 @@ export component ServiceDialogs {
                             text <=> root.draft-label;
                             placeholder: @tr("WeChat OCR");
                         }
+                    }
+                }
+
+                if root.dialog-service == "umi" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Umi-OCR");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Service URL");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-umi-url;
+                            placeholder: "http://127.0.0.1:1224/api/ocr";
+                        }
+                    }
+
+                    // 旧版把「怎么开」和「识别能力来自谁」都写在弹窗里（`Recognize/ConfigModal`），
+                    // 后者是 NOTICE 里的第三方声明，照搬过来。
+                    Text {
+                        text: @tr("Start Umi-OCR first and enable its HTTP service under Global Settings, default port 1224. Offline recognition is provided by the open-source project hiroi-sora/Umi-OCR.");
+                        font-size: 12px;
+                        color: Theme.default-400;
+                        wrap: word-wrap;
                     }
                 }
 
@@ -1173,18 +1238,7 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-service == "wechat" : Button {
-            text: @tr("Save");
-            variant: "solid";
-            color: "primary";
-            size: "md";
-            full-width: true;
-            clicked => {
-                root.save-service(root.current-draft());
-            }
-        }
-
-        if root.dialog-service != "wechat" : HorizontalLayout {
+        HorizontalLayout {
             spacing: 8px;
 
             // 平分宽度（ui.md §6.5）：两个按钮的文字长度不同，preferred-width 就不同，

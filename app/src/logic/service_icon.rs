@@ -122,6 +122,14 @@ pub const ICONS: &[IconInfo] = &[
         letter: "微",
         has_file: true,
     },
+    // Umi-OCR 没有品牌 logo，旧版用的也是通用「文字识别」图标配中性灰（text-default-600）
+    IconInfo {
+        id: "umi",
+        label: "Umi-OCR",
+        color: "#52525B",
+        letter: "U",
+        has_file: true,
+    },
 ];
 
 pub fn get_icon(id: &str) -> &'static IconInfo {
@@ -216,6 +224,10 @@ mod tests {
         assert_eq!(w.color, "#07C160");
         assert_eq!(w.letter, "微");
         assert!(w.has_file);
+
+        let u = get_icon("umi");
+        assert_eq!(u.letter, "U");
+        assert!(u.has_file);
 
         let s = get_icon("siliconflow");
         assert_eq!(s.color, "#6E56CF");

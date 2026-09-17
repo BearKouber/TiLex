@@ -32,6 +32,13 @@ export component ServiceIcon {
         source: @image-url("../icons/logo/wechat.svg");
         colorize: root.icon-color;
     }
+    // 同样是单色图标：Umi-OCR 没有 logo，旧版用的是通用「文字识别」图标
+    if root.id == "umi" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/umi.svg");
+        colorize: root.icon-color;
+    }
     if !root.has-logo : Rectangle {
         width: root.size;
         height: root.size;

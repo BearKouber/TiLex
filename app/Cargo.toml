@@ -9,6 +9,7 @@ publish = false
 
 # 独立 workspace，不和 src-tauri 共用 Cargo.lock（D10）。ocr-sidecar 在 B3 加进 members。
 [workspace]
+members = ["ocr-sidecar"]
 
 [dependencies]
 # 只开软件渲染（D11），GPU 渲染器根本不编进来。
@@ -39,6 +40,8 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls", "pla
 # 生词本（design §2.3）。Windows 没有可靠的系统 SQLite，所以 bundled。
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 global-hotkey = "0.8.0"
+png = "0.18"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [

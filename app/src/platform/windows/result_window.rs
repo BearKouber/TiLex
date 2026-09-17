@@ -7,17 +7,17 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
-    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_WINDOW_CORNER_PREFERENCE,
-    DWMWCP_ROUND, DwmSetWindowAttribute,
+    DWM_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GWL_EXSTYLE, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
+    HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_EX_APPWINDOW,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
     WS_THICKFRAME,
@@ -31,10 +31,32 @@ const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
 
 static RESULT_WINDOW: AtomicIsize = AtomicIsize::new(0);
 static PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
+/// 截图遮罩用自己的一份：它和结果浮窗会先后显示（框选完紧接着弹浮窗），
+/// 共用一个记录位会让浮窗关闭时把焦点还给已经隐藏的遮罩。
+static OVERLAY_WINDOW: AtomicIsize = AtomicIsize::new(0);
+static OVERLAY_PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
 
 fn result_hwnd() -> Option<HWND> {
     let raw = RESULT_WINDOW.load(Ordering::SeqCst);
     (raw != 0).then_some(HWND(raw as *mut c_void))
+}
+
+fn overlay_hwnd() -> Option<HWND> {
+    let raw = OVERLAY_WINDOW.load(Ordering::SeqCst);
+    (raw != 0).then_some(HWND(raw as *mut c_void))
+}
+
+/// 光标此刻在桌面上的物理坐标。取不到就当在原点（截图浮窗按光标摆放时用）。
+pub fn cursor_pos() -> (i32, i32) {
+    let mut point = POINT::default();
+    // SAFETY: 只写一个栈上的 POINT，无其他指针。
+    match unsafe { GetCursorPos(&mut point) } {
+        Ok(()) => (point.x, point.y),
+        Err(e) => {
+            log::warn!("Platform: GetCursorPos failed: {e}");
+            (0, 0)
+        }
+    }
 }
 
 /// (x, y) 所在显示器的工作区（物理像素，可为负坐标）和缩放比（DPI / 96）。
@@ -130,6 +152,126 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     RESULT_WINDOW.store(h.0 as isize, Ordering::SeqCst);
     log::info!("PopResult: window attached");
     Ok(())
+}
+
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+    let h = super::hwnd(window)?;
+    apply_styles(h);
+    disable_transitions(h);
+    cloak(h, true);
+    // SAFETY: 只刷新样式，不动位置、大小、激活。
+    // ignore: 刷新失败时样式照样生效
+    let _ = unsafe {
+        SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+    };
+    OVERLAY_WINDOW.store(h.0 as isize, Ordering::SeqCst);
+    log::info!("Overlay: window attached");
+    Ok(())
+}
+
+/// 返回 `false` = 原生窗口还没交给平台层（`attach_overlay_window` 还没成功），这次截图显示不了。
+/// 调用方必须收摊（清 `SHOT`、放开「正在截图」的位子），否则那个位子再也放不开。
+pub fn show_overlay_window(rect: Rect) -> bool {
+    let Some(h) = overlay_hwnd() else {
+        return false;
+    };
+    if !styles_intact(h) {
+        log::warn!("Overlay: window styles were reset, reapplying");
+        apply_styles(h);
+    }
+    // 显示前记下当时的前台窗口：取消截图时要还回去，选完截图时也要先还回去，
+    // 否则随后弹出的结果浮窗会把遮罩当成"用户原来在用的程序"。
+    // SAFETY: 无指针参数。
+    let fg = unsafe { GetForegroundWindow() };
+    if fg != h {
+        OVERLAY_PREV_FOREGROUND.store(fg.0 as isize, Ordering::SeqCst);
+    }
+    // 摆到位再解除 cloak，不会在旧位置闪。跨 DPI 显示器先只移动、再带尺寸。
+    // SAFETY: h 是活着的有效窗口。
+    unsafe {
+        // ignore: 移动失败下一行照样摆
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            rect.l,
+            rect.t,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        // ignore: 摆放尺寸失败不致命
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            rect.l,
+            rect.t,
+            rect.r - rect.l,
+            rect.b - rect.t,
+            SWP_NOACTIVATE,
+        );
+    }
+    cloak(h, false);
+    // 遮罩要焦点：Esc 取消靠键盘事件。
+    if !super::force_foreground(h) {
+        log::warn!("Overlay: SetForegroundWindow refused");
+    }
+    true
+}
+
+pub fn hide_overlay_window() {
+    let Some(h) = overlay_hwnd() else {
+        return;
+    };
+    // cloak 而不是 SW_HIDE：遮罩要瞬间消失，SW_HIDE 会播系统的关窗淡出。
+    cloak(h, true);
+    // SAFETY: h 是活着的窗口。
+    // ignore: 挪不回去也没关系，窗口已经看不见了
+    let _ = unsafe {
+        SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            -32000,
+            -32000,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    };
+    // 前台还是遮罩自己时把焦点还回去，否则键盘输入会进一个看不见的窗口。
+    // SAFETY: 无指针参数。
+    let fg = unsafe { GetForegroundWindow() };
+    let prev = OVERLAY_PREV_FOREGROUND.swap(0, Ordering::SeqCst);
+    if fg == h && prev != 0 {
+        let prev_h = HWND(prev as *mut c_void);
+        // SAFETY: 把前台还给之前记录的窗口。
+        // ignore: 目标窗口已销毁或拒绝前台不致命
+        let _ = unsafe { SetForegroundWindow(prev_h) };
+    }
+}
+
+/// 关掉这个窗口的 DWM 过渡动画。遮罩要瞬间出现，不许从中心缩放着展开。
+fn disable_transitions(h: HWND) {
+    let on = BOOL(1);
+    // SAFETY: h 来自活着的 Slint 窗口；on 在调用期间有效，长度与类型一致。
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            h,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            (&raw const on).cast::<c_void>(),
+            size_of::<BOOL>() as u32,
+        )
+    };
+    if let Err(e) = result {
+        log::warn!("Overlay: disable window transitions failed: {e}");
+    }
 }
 
 fn apply_styles(h: HWND) {

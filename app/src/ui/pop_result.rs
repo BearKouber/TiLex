@@ -14,6 +14,8 @@ use crate::error::Error;
 use crate::logic::config;
 use crate::logic::placement::{self, Pin};
 use crate::logic::popup_state::{Blur, BlurGuard};
+use crate::logic::recognize;
+use crate::logic::screenshot::Region;
 use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
@@ -212,70 +214,187 @@ pub fn show(text: &str, x: i32, y: i32) {
             return;
         };
 
-        GUARD.with(|g| g.borrow_mut().begin(Instant::now()));
-
-        let scheme = super::resolve_color_scheme(ui.window());
-        ui.set_color_scheme(scheme);
-        let query = translate::start(text, move |id, update| {
-            if let Err(e) = slint::invoke_from_event_loop(move || {
-                on_translate_update(id, update);
-            }) {
-                log::warn!("PopResult: invoke update from event loop failed: {e}");
-            }
-        });
-
-        let single_line_source = query.text.split_whitespace().collect::<Vec<_>>().join(" ");
-        ui.set_source_text(single_line_source.as_str().into());
-        ui.set_is_pinned(false);
-        platform::stop_speaking();
-        SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
-        ui.set_speaking_key(-2);
-        ui.set_copied_key(-2);
-        ui.set_saved_row(-1);
-        ui.set_lang_badge("".into());
-        ui.set_close_armed(false);
-        ARM_ORIGIN.set(None);
-
-        let row_items: Vec<ResultRow> = query
-            .rows
-            .iter()
-            .map(|r| ResultRow {
-                service_id: r.service_id.as_str().into(),
-                kind: r.kind.into(),
-                label: r.label.as_str().into(),
-                collapsed: false,
-                loading: true,
-                text: "".into(),
-                error: "".into(),
-                display: EntryView::default(),
-            })
-            .collect();
-        let model = Rc::new(VecModel::from(row_items));
-        ui.set_rows(model.clone().into());
-        MODEL.with(|m| *m.borrow_mut() = Some(model));
-        CURRENT_QUERY.with(|q| *q.borrow_mut() = Some(query));
-
-        let content_height = ui.get_content_height();
-        let Some((bounds, scale)) = platform::monitor_at(x, y) else {
-            log::warn!("PopResult: cannot find monitor at ({x}, {y})");
-            return;
-        };
+        reset_panel(ui);
+        ui.set_recognizing(false);
+        ui.set_recognize_error(0);
+        start_query(ui, text);
 
         let cfg = config::snapshot();
         let (sx, sy) =
             pop_button::corner(&cfg.selection.result_pos).unwrap_or((Side::After, Side::After));
-        let anchor = Rect::point(x, y);
-        let gap = 0;
-        let Some((rect, pin)) =
-            placement::first_placement(anchor, sx, sy, gap, content_height, scale, bounds)
-        else {
-            log::warn!("PopResult: first_placement calculation failed");
+        place(ui, Rect::point(x, y), sx, sy, 0);
+    });
+}
+
+/// 框选完调入（UI 线程）：浮窗先摆在选区旁边显示「识别中」，识别在后台线程上跑（prd F2）。
+/// 识别和划词共用一个 `query_id`：期间用户去划词，划词的新文字接管浮窗，这次的结果丢掉。
+pub fn show_recognizing(region: Region) {
+    let id = translate::invalidate();
+    POP_RESULT.with(|r| {
+        let binding = r.borrow();
+        let Some(ui) = binding.as_ref() else {
+            log::warn!("PopResult: window not available");
             return;
         };
 
-        PIN.with(|p| p.set(Some(pin)));
-        platform::show_result_window(rect);
+        reset_panel(ui);
+        ui.set_recognizing(true);
+        ui.set_recognize_error(0);
+        ui.set_source_text("".into());
+        ui.set_rows(Rc::new(VecModel::<ResultRow>::default()).into());
+        MODEL.with(|m| *m.borrow_mut() = None);
+        CURRENT_QUERY.with(|q| *q.borrow_mut() = None);
+
+        let cfg = config::snapshot();
+        let (anchor, sx, sy, gap) = screenshot_anchor(&cfg.screenshot.result_pos, region.rect);
+        place(ui, anchor, sx, sy, gap);
     });
+
+    // 临时图交给 Drop 删：识别线程起不来、或者识别中途 panic，文件照样清掉
+    // （直接写在闭包末尾的话这两条路都会跳过它，`ocr_region_*.png` 就留在缓存目录里了，B3 审查）。
+    let temp = TempImage(region.path);
+    if let Err(e) = std::thread::Builder::new()
+        .name("recognize".into())
+        .spawn(move || {
+            // 删除只发生在这之后：识别函数已经返回，谁也不在读它了。
+            let outcome = recognize::run_for_ui(&temp.0);
+            drop(temp);
+            // ignore: 事件循环没了就没人显示结果了
+            let _ = slint::invoke_from_event_loop(move || on_recognized(id, outcome));
+        })
+    {
+        log::error!("PopResult: spawn recognize thread failed: {e}");
+        on_recognized(id, Err(recognize::FAILED));
+    }
+}
+
+/// 一张截图临时图，离开作用域就删。结果作废（用户又截了一张 / 去划词）也照删。
+struct TempImage(std::path::PathBuf);
+
+impl Drop for TempImage {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.0) {
+            log::warn!("Recognize: remove temp image failed: {e}");
+        }
+    }
+}
+
+/// 识别有结果了（UI 线程）。这期间用户可能已经划了词或又截了一张图，
+/// 所以要再比一次代次：不是当前那次的结果直接丢掉（prd F2）。
+fn on_recognized(id: u64, outcome: Result<String, i32>) {
+    if id != translate::current() {
+        log::info!("Recognize: stale result discarded");
+        return;
+    }
+    POP_RESULT.with(|r| {
+        let binding = r.borrow();
+        let Some(ui) = binding.as_ref() else { return };
+        ui.set_recognizing(false);
+        match outcome {
+            Ok(text) => start_query(ui, &text),
+            Err(code) => ui.set_recognize_error(code),
+        }
+    });
+}
+
+/// 截图结果浮窗摆在哪（旧版 `pop_button.rs` 的 `show_screenshot_result`）：
+/// 返回锚点、两个轴的贴法和间距。认不出的配置值按旧版回落到 `box_bottom_left`。
+fn screenshot_anchor(pos: &str, sel: Rect) -> (Rect, Side, Side, i32) {
+    /// 选区和浮窗之间留的空（旧版 `GAP`）。
+    const GAP: i32 = 4;
+    match pos {
+        "box_right_top" => (sel, Side::After, Side::Start, GAP),
+        // 本该是 x = 选区右边、y = 选区底 + GAP。place 两轴共用一个 gap，
+        // 所以 x 也多出 GAP 个物理像素，看不出来（旧版原注）。
+        "box_bottom_right" => (sel, Side::After, Side::After, GAP),
+        _ => match cursor_corner(pos) {
+            Some((sx, sy)) => {
+                let (x, y) = platform::cursor_pos();
+                (Rect::point(x, y), sx, sy, 0)
+            }
+            // box_bottom_left，也是缺省和不认识的值：面板左上角对准选区左下角
+            None => (sel, Side::Start, Side::After, 0),
+        },
+    }
+}
+
+fn cursor_corner(pos: &str) -> Option<(Side, Side)> {
+    match pos.strip_prefix("cursor_")? {
+        "bottom_right" => Some((Side::After, Side::After)),
+        "bottom_left" => Some((Side::Before, Side::After)),
+        "top_right" => Some((Side::After, Side::Before)),
+        "top_left" => Some((Side::Before, Side::Before)),
+        _ => None,
+    }
+}
+
+/// 每次显示前的复位：焦点看护、朗读、各按钮状态、红三角起算点。
+fn reset_panel(ui: &PopResult) {
+    GUARD.with(|g| g.borrow_mut().begin(Instant::now()));
+    ui.set_color_scheme(super::resolve_color_scheme(ui.window()));
+    ui.set_is_pinned(false);
+    platform::stop_speaking();
+    SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
+    ui.set_speaking_key(-2);
+    ui.set_copied_key(-2);
+    ui.set_saved_row(-1);
+    ui.set_lang_badge("".into());
+    ui.set_close_armed(false);
+    ARM_ORIGIN.set(None);
+}
+
+/// 发起一次翻译并把面板换成它的行。截图那条路在识别出字之后才走到这里，
+/// 浮窗已经在屏幕上了，所以这里不摆位置 —— 高度变了由 `content-height-changed` 接着调。
+fn start_query(ui: &PopResult, text: &str) {
+    let query = translate::start(text, move |id, update| {
+        if let Err(e) = slint::invoke_from_event_loop(move || {
+            on_translate_update(id, update);
+        }) {
+            log::warn!("PopResult: invoke update from event loop failed: {e}");
+        }
+    });
+
+    let single_line_source = query.text.split_whitespace().collect::<Vec<_>>().join(" ");
+    ui.set_source_text(single_line_source.as_str().into());
+
+    let row_items: Vec<ResultRow> = query
+        .rows
+        .iter()
+        .map(|r| ResultRow {
+            service_id: r.service_id.as_str().into(),
+            kind: r.kind.into(),
+            label: r.label.as_str().into(),
+            collapsed: false,
+            loading: true,
+            text: "".into(),
+            error: "".into(),
+            display: EntryView::default(),
+        })
+        .collect();
+    let model = Rc::new(VecModel::from(row_items));
+    ui.set_rows(model.clone().into());
+    MODEL.with(|m| *m.borrow_mut() = Some(model));
+    CURRENT_QUERY.with(|q| *q.borrow_mut() = Some(query));
+}
+
+/// 按当前内容高度算出位置并把浮窗亮出来。
+fn place(ui: &PopResult, anchor: Rect, sx: Side, sy: Side, gap: i32) {
+    let cx = anchor.l + (anchor.r - anchor.l) / 2;
+    let cy = anchor.t + (anchor.b - anchor.t) / 2;
+    let Some((bounds, scale)) = platform::monitor_at(cx, cy) else {
+        log::warn!("PopResult: cannot find monitor at ({cx}, {cy})");
+        return;
+    };
+    let content_height = ui.get_content_height();
+    let Some((rect, pin)) =
+        placement::first_placement(anchor, sx, sy, gap, content_height, scale, bounds)
+    else {
+        log::warn!("PopResult: first_placement calculation failed");
+        return;
+    };
+
+    PIN.with(|p| p.set(Some(pin)));
+    platform::show_result_window(rect);
 }
 
 fn on_translate_update(id: u64, update: Update) {
@@ -507,6 +626,38 @@ mod tests {
             Some((Side::Before, Side::Before))
         );
         assert_eq!(pop_button::corner("unknown"), None);
+    }
+
+    #[test]
+    fn screenshot_anchor_matches_the_legacy_corners() {
+        let sel = Rect {
+            l: 100,
+            t: 200,
+            r: 300,
+            b: 400,
+        };
+        // 选区右侧、顶边齐平，留 4px
+        assert_eq!(
+            screenshot_anchor("box_right_top", sel),
+            (sel, Side::After, Side::Start, 4)
+        );
+        assert_eq!(
+            screenshot_anchor("box_bottom_right", sel),
+            (sel, Side::After, Side::After, 4)
+        );
+        // 缺省、写错的值、空串都回落到「面板左上角对准选区左下角」
+        for pos in ["box_bottom_left", "", "BottomRight", "cursor_nowhere"] {
+            assert_eq!(
+                screenshot_anchor(pos, sel),
+                (sel, Side::Start, Side::After, 0),
+                "{pos}"
+            );
+        }
+        // 跟随光标：锚点不再是选区，是个点
+        let (anchor, sx, sy, gap) = screenshot_anchor("cursor_top_left", sel);
+        assert_eq!((sx, sy, gap), (Side::Before, Side::Before, 0));
+        assert_eq!(anchor.l, anchor.r, "光标锚点是零宽的点");
+        assert_eq!(anchor.t, anchor.b);
     }
 
     #[test]

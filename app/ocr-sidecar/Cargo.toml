@@ -1,0 +1,14 @@
+# 独立 package，不是主程序的第二个 bin。
+#
+# 拆出来的原因：零依赖、Windows 专用、崩溃隔离。微信 OCR 必须在主线程调，
+# 独立进程的 main() 天然是主线程；闭源 wxocr.dll 崩了只带走这个小进程。
+#
+# 走 workspace 共享 target，产物仍然是 target/release/tilex-ocr.exe，
+# ocr.rs 的 sidecar() 查找路径不用改。
+[package]
+name = "tilex-ocr"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[dependencies]

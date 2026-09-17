@@ -3,6 +3,7 @@
 use std::cell::Cell;
 
 pub mod entry_view;
+pub mod overlay;
 pub mod pop_button;
 pub mod pop_result;
 pub mod settings;

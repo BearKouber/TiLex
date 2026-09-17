@@ -5,10 +5,11 @@ use slint::{ComponentHandle, Model, VecModel};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use crate::logic::config::{self, AiConfig, GoogleConfig, Service};
+use crate::error::{Error, HttpKind};
+use crate::logic::config::{self, AiConfig, GoogleConfig, Service, UmiConfig};
 use crate::logic::service_icon as icons;
 use crate::logic::translate;
-use crate::logic::{ai_presets, benchmark, model_cache};
+use crate::logic::{ai_presets, benchmark, model_cache, recognize};
 use crate::slint_ui::{ModelRow, ServiceRow, SettingsWindow};
 
 pub fn bind(page: &SettingsWindow) {
@@ -115,6 +116,21 @@ pub fn refresh(page: &SettingsWindow) {
 
     let wechat_info = icons::get_icon("wechat");
     page.set_wechat_icon_color(parse_hex_color(wechat_info.color));
+    let umi_info = icons::get_icon("umi");
+    page.set_umi_icon_color(parse_hex_color(umi_info.color));
+
+    // 识别服务每种只能装一个，装过的就从「添加内置服务」里去掉（旧版 `Recognize/index.jsx` 的 addable）。
+    // 翻译服务不受这条限制：同一家可以配多个实例（不同镜像、不同 key）。
+    page.set_recognize_has_wechat(
+        cfg.recognize_services
+            .iter()
+            .any(|s| matches!(s, Service::Wechat(_))),
+    );
+    page.set_recognize_has_umi(
+        cfg.recognize_services
+            .iter()
+            .any(|s| matches!(s, Service::Umi(_))),
+    );
 
     page.set_default_ai_custom_instructions(ai_presets::default_custom_instructions().into());
 
@@ -144,6 +160,7 @@ fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
             let (kind, icon_id, label, enabled) = match service {
                 Service::Google(i) => ("google", "google", &i.label, i.enabled),
                 Service::Wechat(i) => ("wechat", "wechat", &i.label, i.enabled),
+                Service::Umi(i) => ("umi", "umi", &i.label, i.enabled),
                 // 旧实例存过 icon 就照它显示，否则按地址 / 模型名猜厂商
                 Service::Ai(i) => (
                     "ai",
@@ -203,6 +220,7 @@ fn handle_set_service_enabled(page: &SettingsWindow, kind: &str, real_idx: i32, 
                 Service::Google(inst) => inst.enabled = enabled,
                 Service::Ai(inst) => inst.enabled = enabled,
                 Service::Wechat(inst) => inst.enabled = enabled,
+                Service::Umi(inst) => inst.enabled = enabled,
                 Service::Unknown(_) => {}
             }
         }
@@ -302,6 +320,14 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_dialog_index(real_idx);
                 page.set_dialog(3);
             }
+            Service::Umi(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_draft_umi_url(inst.config.url.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("umi".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
             Service::Ai(inst) => {
                 page.set_draft_label(inst.label.as_str().into());
                 page.set_draft_ai_base_url(inst.config.base_url.as_str().into());
@@ -365,6 +391,7 @@ struct ServiceDraft<'a> {
     ai_protocol: &'a str,
     ai_custom_instructions: &'a str,
     ai_icon: &'a str,
+    umi_url: &'a str,
 }
 
 impl<'a> From<&'a crate::slint_ui::ServiceDraft> for ServiceDraft<'a> {
@@ -384,6 +411,7 @@ impl<'a> From<&'a crate::slint_ui::ServiceDraft> for ServiceDraft<'a> {
             ai_protocol: d.ai_protocol.as_str(),
             ai_custom_instructions: d.ai_custom_instructions.as_str(),
             ai_icon: d.ai_icon.as_str(),
+            umi_url: d.umi_url.as_str(),
         }
     }
 }
@@ -407,6 +435,18 @@ fn draft_ai_config(draft: &ServiceDraft<'_>, base: Option<&AiConfig>) -> AiConfi
     config.protocol = draft.ai_protocol.trim().to_string();
     config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
     config
+}
+
+/// 地址留空就用默认的本地地址（`umi::Config::default()`），和旧版 `config.url || defaultConfig.url` 一致。
+fn draft_umi_config(draft: &ServiceDraft<'_>) -> UmiConfig {
+    let url = draft.umi_url.trim();
+    if url.is_empty() {
+        UmiConfig::default()
+    } else {
+        UmiConfig {
+            url: url.to_string(),
+        }
+    }
 }
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -444,6 +484,15 @@ fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
 enum TestTarget {
     Google(GoogleConfig),
     Ai(AiConfig),
+    Umi(UmiConfig),
+    Wechat,
+}
+
+/// 测试通了之后结果条上写什么：翻译服务回显译文，微信回显探到的版本，其余只报通没通。
+enum TestOk {
+    Translated(String),
+    WechatVersion(String),
+    Reached,
 }
 
 fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
@@ -465,6 +514,8 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                 });
             TestTarget::Ai(draft_ai_config(&draft, base.as_ref()))
         }
+        "umi" => TestTarget::Umi(draft_umi_config(&draft)),
+        "wechat" => TestTarget::Wechat,
         _ => {
             log::warn!(
                 "Settings: unexpected service kind for test: {}",
@@ -476,13 +527,17 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
     };
 
     let weak = page.as_weak();
+    // 识别服务没有译文可回显，结果条走另一句；连不上 Umi 又是单独一句（多半是没启动）。
+    let is_umi = matches!(target, TestTarget::Umi(_));
     if let Err(e) = std::thread::Builder::new()
         .name("service-test".into())
         .spawn(move || {
             let start = std::time::Instant::now();
             let res = match &target {
-                TestTarget::Google(c) => translate::test_google(c),
-                TestTarget::Ai(c) => translate::test_ai(c),
+                TestTarget::Google(c) => translate::test_google(c).map(TestOk::Translated),
+                TestTarget::Ai(c) => translate::test_ai(c).map(TestOk::Translated),
+                TestTarget::Umi(c) => recognize::test_umi(c).map(|()| TestOk::Reached),
+                TestTarget::Wechat => recognize::test_wechat().map(TestOk::WechatVersion),
             };
             let elapsed_ms = start.elapsed().as_millis().min(i32::MAX as u128) as i32;
             // ignore: window might be closed during async test
@@ -490,10 +545,18 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                 let Some(page) = weak.upgrade() else { return };
                 page.set_testing_service(false);
                 match res {
-                    Ok(text) => {
+                    Ok(TestOk::Translated(text)) => {
                         let truncated = truncate_chars(&text, 80);
                         page.invoke_show_test_success(truncated.into(), elapsed_ms);
                     }
+                    Ok(TestOk::WechatVersion(version)) => {
+                        page.invoke_show_wechat_test_success(version.as_str().into(), elapsed_ms);
+                    }
+                    Ok(TestOk::Reached) => page.invoke_show_recognize_test_success(elapsed_ms),
+                    Err(Error::Http {
+                        kind: HttpKind::Connect,
+                        ..
+                    }) if is_umi => page.invoke_show_umi_not_running(elapsed_ms),
                     Err(e) => {
                         page.invoke_show_test_failed(e.to_string().into(), elapsed_ms);
                     }
@@ -740,6 +803,13 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 inst.label = draft.label.trim().to_string();
                 list.push(Service::Wechat(inst));
             }
+            "umi" => {
+                let mut inst = config::Instance::<UmiConfig>::new(&config::new_instance_id("umi"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_umi_config(draft);
+                list.push(Service::Umi(inst));
+            }
             "ai" => {
                 let mut inst = config::Instance::<AiConfig>::new(&config::new_instance_id("ai"));
                 inst.enabled = false;
@@ -764,6 +834,10 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
             }
             Service::Wechat(inst) => {
                 inst.label = draft.label.trim().to_string();
+            }
+            Service::Umi(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_umi_config(draft);
             }
             Service::Ai(inst) => {
                 inst.label = draft.label.trim().to_string();
@@ -879,6 +953,7 @@ mod tests {
                 Service::Google(inst) => &inst.id,
                 Service::Ai(inst) => &inst.id,
                 Service::Wechat(inst) => &inst.id,
+                Service::Umi(inst) => &inst.id,
                 Service::Unknown(_) => "unknown",
             }
         }
@@ -905,6 +980,7 @@ mod tests {
             ai_protocol: "openai_chat",
             ai_custom_instructions: "",
             ai_icon: "",
+            umi_url: "",
         }
     }
 
@@ -967,6 +1043,42 @@ mod tests {
             panic!("expected ai service");
         };
         assert_eq!(inst2.extra.get("icon"), None);
+    }
+
+    #[test]
+    fn apply_draft_umi_url_defaults_when_blank() {
+        let mut list = Vec::new();
+        // 地址留空：回落到默认的本地地址，不能存成空串（旧版 `config.url || defaultConfig.url`）
+        apply_draft(&mut list, &draft(-1, "umi", "  Local OCR  ", ""));
+        let Service::Umi(inst) = &list[0] else {
+            panic!("expected umi service");
+        };
+        assert!(!inst.enabled, "新加的识别服务默认关闭");
+        assert!(inst.id.starts_with("umi@"));
+        assert_eq!(inst.label, "Local OCR");
+        assert_eq!(
+            inst.config.url,
+            crate::logic::config::UmiConfig::default().url
+        );
+
+        // 填了地址就用它，两侧空白去掉
+        let mut custom = draft(-1, "umi", "Remote", "");
+        custom.umi_url = "  http://192.168.1.9:1224/api/ocr  ";
+        apply_draft(&mut list, &custom);
+        let Service::Umi(inst) = &list[1] else {
+            panic!("expected umi service");
+        };
+        assert_eq!(inst.config.url, "http://192.168.1.9:1224/api/ocr");
+
+        // 编辑已有实例：改地址，enabled 不动
+        let mut edit = draft(0, "umi", "Local OCR", "");
+        edit.umi_url = "http://127.0.0.1:2224/api/ocr";
+        apply_draft(&mut list, &edit);
+        let Service::Umi(inst) = &list[0] else {
+            panic!("expected umi service");
+        };
+        assert_eq!(inst.config.url, "http://127.0.0.1:2224/api/ocr");
+        assert!(!inst.enabled);
     }
 
     #[test]

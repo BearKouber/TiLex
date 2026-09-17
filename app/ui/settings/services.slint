@@ -158,7 +158,8 @@ export component ServicesPage inherits VerticalLayout {
                             text: item.label != "" ? item.label : (
                                 item.kind == "google" ? @tr("Google Translate") :
                                 item.kind == "ai" ? @tr("AI Translation") :
-                                item.kind == "wechat" ? @tr("WeChat OCR") : ""
+                                item.kind == "wechat" ? @tr("WeChat OCR") :
+                                item.kind == "umi" ? @tr("Umi-OCR") : ""
                             );
                             font-size: 16px;
                             color: Theme.foreground;

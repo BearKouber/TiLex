@@ -7,6 +7,7 @@ use crate::slint_ui::Tray;
 /// 建托盘。调用方持有返回值直到退出：drop 时图标从通知区域移除。
 pub fn create() -> Result<Tray, Error> {
     let tray = Tray::new()?;
+    tray.on_screenshot(super::overlay::start);
     tray.on_open_settings(super::settings::open);
     tray.on_open_logs(|| {
         if let Err(e) = super::open_log_dir() {

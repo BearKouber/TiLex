@@ -30,6 +30,12 @@ pub fn data_dir() -> Result<PathBuf, Error> {
     imp::data_dir()
 }
 
+/// 缓存目录：Windows `%LOCALAPPDATA%\TiLex\cache`，macOS `~/Library/Caches/TiLex`（design §2.2）。
+/// OCR 的临时图落在这里。只拼路径，不创建。
+pub fn cache_dir() -> Result<PathBuf, Error> {
+    imp::cache_dir()
+}
+
 /// 抢单实例。拿到返回 `Ok(true)`；已有实例在跑时通知它打开设置窗口，返回 `Ok(false)`，调用方应直接退出。
 /// `wait`：等已有实例退出的时间（重启时用，平时是 0）。
 pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
@@ -176,6 +182,11 @@ pub fn monitor_at(x: i32, y: i32) -> Option<(geometry::Rect, f32)> {
     imp::monitor_at(x, y)
 }
 
+/// 光标此刻在桌面上的物理坐标（截图结果浮窗选「跟随光标」时按它摆放）。
+pub fn cursor_pos() -> (i32, i32) {
+    imp::cursor_pos()
+}
+
 /// 把结果浮窗交给平台层（UI 线程调）。应用无边框样式（WS_POPUP / WS_EX_TOOLWINDOW / WS_EX_TOPMOST）、
 /// 设置 Win11 小圆角并初始 DWM cloak 隐藏。
 /// 调用前窗口必须已经 `show()` 过一次；原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。
@@ -209,7 +220,53 @@ pub fn result_window_focused() -> Option<bool> {
     imp::result_window_focused()
 }
 
+/// 把截图遮罩交给平台层（UI 线程调，启动时一次）。应用无边框样式、置顶，并 cloak 隐藏。
+/// 之后它的显示、隐藏、位置只由平台层管，**调用方再也不能调它的 `show()`/`hide()`**：
+/// 走 `ShowWindow` 会播系统的开窗缩放动画（design §1.4）。
+/// 调用前窗口必须已经在屏幕外 `show()` 过一次；原生窗口尚未创建时返回 `Error::Platform`，
+/// 调用方用 Timer 重试。
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+    imp::attach_overlay_window(window)
+}
+
+/// 把遮罩摆到 `rect`（物理像素，整个虚拟屏）并显示、抢焦点（UI 线程调）。
+/// 显示前记下当时的前台窗口，隐藏时还回去。
+/// **返回 `false` = 还没 attach，这次显示不了**，调用方必须自己收摊（见 `ui::overlay::show`）。
+pub fn show_overlay_window(rect: geometry::Rect) -> bool {
+    imp::show_overlay_window(rect)
+}
+
+/// 隐藏遮罩并挪回屏幕外（UI 线程调，DWM cloak）。
+/// 前台仍是遮罩自己时，把焦点还给显示前记下的那个窗口 —— 否则用户的键盘输入
+/// 会进一个看不见的窗口，而且随后弹出的结果浮窗会把遮罩当成"原来的程序"。
+pub fn hide_overlay_window() {
+    imp::hide_overlay_window()
+}
+
 /// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。
 pub fn copy_text(text: &str) -> Result<(), Error> {
     imp::copy_text(text)
+}
+
+/// 抓下来的整个虚拟屏（物理像素）。`x`/`y` 是虚拟屏左上角在桌面坐标系里的位置，多屏时可以是负数。
+pub struct Shot {
+    pub x: i32,
+    pub y: i32,
+    pub pixels: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+}
+
+/// 抓整个虚拟屏。几十毫秒，**不要在 UI 线程上调**（R-5）。
+pub fn capture_screen() -> Result<Shot, Error> {
+    imp::capture_screen()
+}
+
+/// 微信 OCR 识别一张图，返回图里的文字。几百毫秒到几秒，**不要在 UI 线程上调**（R-5）。
+/// 没装微信、没下过 OCR 插件、识别不出字都返回 `Error::Platform`，消息是给用户看的。
+pub fn wechat_ocr(image: &Path) -> Result<String, Error> {
+    imp::wechat_ocr(image)
+}
+
+/// 微信 OCR 能不能用。能用返回微信版本号（04 的识别服务列表要显示），不能用返回缺什么。
+pub fn wechat_ocr_status() -> Result<String, Error> {
+    imp::wechat_ocr_status()
 }

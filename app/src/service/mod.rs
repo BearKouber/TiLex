@@ -4,3 +4,4 @@
 pub mod ai;
 pub mod google;
 pub mod http;
+pub mod umi;

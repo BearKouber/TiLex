@@ -12,10 +12,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::service::{ai, google};
+use crate::service::{ai, google, umi};
 
 pub use crate::service::ai::Config as AiConfig;
 pub use crate::service::google::Config as GoogleConfig;
+pub use crate::service::umi::Config as UmiConfig;
 
 /// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
 pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
@@ -81,6 +82,7 @@ pub enum Service {
     Google(Instance<google::Config>),
     Ai(Instance<ai::Config>),
     Wechat(Instance<NoSettings>),
+    Umi(Instance<umi::Config>),
     /// 认不出的 kind（例如从新版降级回来）或字段对不上的：原样保留、原样写回，界面不显示。
     /// 不因为认不出就丢掉用户的 API key。
     #[serde(untagged)]
@@ -161,7 +163,9 @@ impl Default for Screenshot {
     fn default() -> Self {
         Self {
             hotkey: String::new(),
-            result_pos: "BottomRight".into(),
+            // 截图浮窗的位置是另一套值域（`box_*` / `cursor_*`，见 `ui::settings::SCREENSHOT_POS`），
+            // 不是划词浮窗那套驼峰角名。默认同旧版：面板左上角对准选区左下角。
+            result_pos: "box_bottom_left".into(),
         }
     }
 }
@@ -576,6 +580,34 @@ mod tests {
         assert_eq!(out["translate_services"][0], ai);
         assert_eq!(out["translate_services"][1], google);
         assert_eq!(out["recognize_services"][0], wechat);
+    }
+
+    #[test]
+    fn umi_service_config_round_trip() {
+        let umi = json!({
+            "id": "umi@123",
+            "kind": "umi",
+            "enabled": true,
+            "url": "http://192.168.1.100:1224/api/ocr",
+            "extra_field": "preserved"
+        });
+        let input = json!({
+            "recognize_services": [umi]
+        });
+        let config: Config = serde_json::from_value(input).unwrap();
+        let Service::Umi(instance) = &config.recognize_services[0] else {
+            panic!(
+                "umi entry not recognized: {:?}",
+                config.recognize_services[0]
+            );
+        };
+        assert_eq!(instance.id, "umi@123");
+        assert!(instance.enabled);
+        assert_eq!(instance.config.url, "http://192.168.1.100:1224/api/ocr");
+        assert_eq!(instance.extra.get("extra_field"), Some(&json!("preserved")));
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["recognize_services"][0], umi);
     }
 
     #[test]

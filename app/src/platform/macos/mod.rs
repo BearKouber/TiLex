@@ -17,6 +17,11 @@ pub fn data_dir() -> Result<PathBuf, Error> {
     Ok(PathBuf::from(home).join("Library/Application Support/TiLex"))
 }
 
+pub fn cache_dir() -> Result<PathBuf, Error> {
+    let home = std::env::var_os("HOME").ok_or_else(|| Error::Platform("HOME is not set".into()))?;
+    Ok(PathBuf::from(home).join("Library/Caches/TiLex"))
+}
+
 /// `flock` 锁文件判定谁是第一个；第二个连一下第一个的 Unix socket 就算通知。
 pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
     let dir = data_dir()?;
@@ -143,6 +148,20 @@ pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 
+pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn show_overlay_window(_rect: super::geometry::Rect) -> bool {
+    false
+}
+
+pub fn hide_overlay_window() {}
+
+pub fn cursor_pos() -> (i32, i32) {
+    (0, 0)
+}
+
 pub fn show_result_window(_rect: super::geometry::Rect) {}
 
 pub fn move_result_window(_rect: super::geometry::Rect) {}
@@ -155,5 +174,18 @@ pub fn result_window_focused() -> Option<bool> {
 
 // B6：`pbcopy` 子进程
 pub fn copy_text(_text: &str) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
+// B6：`screencapture -i` 子进程
+pub fn capture_screen() -> Result<super::Shot, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn wechat_ocr(_image: &Path) -> Result<String, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn wechat_ocr_status() -> Result<String, Error> {
     Err(Error::Unsupported)
 }

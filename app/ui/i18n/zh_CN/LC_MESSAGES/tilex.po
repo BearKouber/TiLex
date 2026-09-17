@@ -528,4 +528,43 @@ msgstr "快捷键注册成功"
 msgid "Could not register shortcut: {}"
 msgstr "快捷键注册失败：{}"
 
+msgid "Drag to select an area, Esc to cancel"
+msgstr "拖动选择区域，Esc 取消"
 
+
+
+msgid "Umi-OCR"
+msgstr "Umi-OCR"
+
+msgid "Service URL"
+msgstr "服务地址"
+
+msgid "Start Umi-OCR first and enable its HTTP service under Global Settings, default port 1224. Offline recognition is provided by the open-source project hiroi-sora/Umi-OCR."
+msgstr "需要先启动 Umi-OCR 并在「全局设置 → HTTP 服务」里打开接口，默认端口 1224。离线识别由开源项目 hiroi-sora/Umi-OCR 提供。"
+
+msgid "Connection OK ({}ms)"
+msgstr "连接正常（{}ms）"
+
+msgid "Test failed: cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224) ({}ms)"
+msgstr "测试失败：无法连接 Umi-OCR，请先启动 Umi-OCR 并开启 HTTP 接口（默认端口 1224）（{}ms）"
+
+msgid "Recognizing…"
+msgstr "识别中…"
+
+msgid "No text found in the selected area"
+msgstr "选区里没认出文字"
+
+msgid "No text recognition service is enabled — turn one on in Service Settings"
+msgstr "没有启用的文本识别服务 —— 去「服务设置」里开一个"
+
+msgid "Cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224)"
+msgstr "无法连接 Umi-OCR，请先启动 Umi-OCR 并开启 HTTP 接口（默认端口 1224）"
+
+msgid "Text recognition failed. Please try again."
+msgstr "文字识别失败，请重试。"
+
+msgid "WeChat {} found ({}ms)"
+msgstr "找到微信 {}（{}ms）"
+
+msgid "All available text recognition services are already installed"
+msgstr "可选的识别服务都已经装上了"
