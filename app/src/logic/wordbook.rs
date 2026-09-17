@@ -1,7 +1,10 @@
 //! 生词本（design §2.3）：`<数据目录>/wordbook.db`，一个生词本线程独占 SQLite 连接，按 channel 顺序执行。
 //! FIFO 天然保证同一条目「新增 → 晚到更新」有序，不需要单独的写队列。
 //! 打开失败不缓存失败状态：下次操作重试打开（旧规范「失败的 dbPromise 不能缓存」）。
-//! 页面（列表、详情、批量删除界面、导出）在 B4。
+//!
+//! 列表一次取全（几千条摘要几百 KB），筛选和搜索是内存里的纯函数 [`visible`]，
+//! 跟旧 `wordbook_selection.js` 一一对应：「全选当前可见」和「删除后顺延」都按同一份可见顺序算。
+//! `detail` 只在查列表时用来算摘要，不留在内存里；右卡和导出各自再查。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,9 +13,10 @@ use std::sync::mpsc::{self, Sender};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, params, params_from_iter};
+use serde_json::Value;
 
 use crate::error::Error;
-use crate::logic::result::Kind;
+use crate::logic::result::{Kind, entry_display};
 use crate::logic::saved_entry::Snapshot;
 
 pub const FILE: &str = "wordbook.db";
@@ -34,12 +38,68 @@ CREATE INDEX IF NOT EXISTS idx_entries_kind ON entries(kind, deleted);
 PRAGMA user_version = 1;
 ";
 
-/// 列表只拿摘要，点开再取详情（B4）。
+/// 列表只拿摘要，点开再取详情。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Summary {
     pub id: i64,
     pub kind: Kind,
     pub text: String,
+    /// 列表次行：单词取释义摘要，没有就退回译文（旧版 `wordSummary(detail) || translation`）。
+    pub preview: String,
+    /// 搜索匹配的那串：原文 + 译文 + 释义摘要，已经小写。
+    search: String,
+}
+
+/// 一条完整记录：右卡详情和导出共用。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entry {
+    pub id: i64,
+    pub kind: Kind,
+    pub text: String,
+    pub translation: String,
+    pub detail: Option<Value>,
+    pub service: String,
+    pub created_at: i64,
+}
+
+/// 单词的 detail 就是浮窗存下的词典结果，摘要 = 各词性的释义拼一行（旧 `wordSummary`）。
+fn summarize(detail: Option<&Value>, translation: &str) -> String {
+    entry_display(detail, translation)
+        .explanations
+        .iter()
+        .map(|e| e.explains.join(", "))
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// 当前可见顺序：先按 kind 筛，再按关键词搜原文 / 译文 / 释义三处（旧 `matchEntry`）。
+/// 关键词自己 trim + 小写，调用方不用预处理。
+pub fn visible<'a>(entries: &'a [Summary], keyword: &str, kind: Option<Kind>) -> Vec<&'a Summary> {
+    let kw = keyword.trim().to_lowercase();
+    entries
+        .iter()
+        .filter(|e| kind.is_none_or(|k| k == e.kind))
+        .filter(|e| kw.is_empty() || e.search.contains(&kw))
+        .collect()
+}
+
+/// 删除之后预览停在哪条：还在就不动；被删了就往下找第一条没被删的，没有再往上找，都没有就空。
+/// `visible` 是**删除前**的可见顺序；选中项不在里面（或没选）时从首项算起，和旧版 `?? list[0]` 一致。
+pub fn next_selected(visible: &[i64], removed: &[i64], selected: Option<i64>) -> Option<i64> {
+    let gone = |id: &i64| removed.contains(id);
+    let index = selected
+        .and_then(|id| visible.iter().position(|v| *v == id))
+        .unwrap_or(0);
+    let &current = visible.get(index)?;
+    if !gone(&current) {
+        return Some(current);
+    }
+    visible[index + 1..]
+        .iter()
+        .find(|id| !gone(id))
+        .or_else(|| visible[..index].iter().rev().find(|id| !gone(id)))
+        .copied()
 }
 
 /// 一个生词本文件和它的连接。线程外（测试）也能直接用。
@@ -133,22 +193,74 @@ impl Db {
     pub fn list(&mut self) -> Result<Vec<Summary>, Error> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, kind, text FROM entries WHERE deleted = 0 ORDER BY created_at DESC, id DESC",
+            "SELECT id, kind, text, translation, detail FROM entries WHERE deleted = 0 \
+             ORDER BY created_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], |row| {
-            let kind: String = row.get(1)?;
+            let text: String = row.get(2)?;
+            let translation: String = row.get(3)?;
+            let detail = parse_detail(row.get(4)?);
+            let summary = summarize(detail.as_ref(), &translation);
             Ok(Summary {
                 id: row.get(0)?,
-                kind: if kind == "sentence" {
-                    Kind::Sentence
+                kind: kind_of(&row.get::<_, String>(1)?),
+                search: format!("{text} {translation} {summary}").to_lowercase(),
+                preview: if summary.is_empty() {
+                    translation
                 } else {
-                    Kind::Word
+                    summary
                 },
-                text: row.get(2)?,
+                text,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+
+    /// 一条完整记录，给右卡详情。已删除的取不到。
+    pub fn entry(&mut self, id: i64) -> Result<Option<Entry>, Error> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(&format!("{ENTRY_COLUMNS} AND id = ?1"))?;
+        let mut rows = stmt.query_map([id], read_entry)?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    /// 全部未删除记录（含 detail），顺序同 [`Db::list`]。导出用。
+    pub fn all(&mut self) -> Result<Vec<Entry>, Error> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(&format!(
+            "{ENTRY_COLUMNS} ORDER BY created_at DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map([], read_entry)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}
+
+const ENTRY_COLUMNS: &str = "SELECT id, kind, text, translation, detail, service, created_at \
+                             FROM entries WHERE deleted = 0";
+
+fn kind_of(s: &str) -> Kind {
+    if s == "sentence" {
+        Kind::Sentence
+    } else {
+        Kind::Word
+    }
+}
+
+/// 坏掉的 detail 当没有：界面和导出退回纯译文那条路（旧规范「损坏 detail 使用唯一译文」）。
+fn parse_detail(raw: Option<String>) -> Option<Value> {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn read_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
+    Ok(Entry {
+        id: row.get(0)?,
+        kind: kind_of(&row.get::<_, String>(1)?),
+        text: row.get(2)?,
+        translation: row.get(3)?,
+        detail: parse_detail(row.get(4)?),
+        service: row.get(5)?,
+        created_at: row.get(6)?,
+    })
 }
 
 type Job = Box<dyn FnOnce(Result<&mut Db, Error>) + Send>;
@@ -205,6 +317,16 @@ pub fn delete(ids: Vec<i64>, done: impl FnOnce(Result<usize, Error>) + Send + 's
 /// 列表摘要（见 [`Db::list`]）。`done` 在生词本线程上调用。
 pub fn list(done: impl FnOnce(Result<Vec<Summary>, Error>) + Send + 'static) {
     submit(Box::new(move |db| done(db.and_then(Db::list))));
+}
+
+/// 一条详情（见 [`Db::entry`]）。`done` 在生词本线程上调用。
+pub fn entry(id: i64, done: impl FnOnce(Result<Option<Entry>, Error>) + Send + 'static) {
+    submit(Box::new(move |db| done(db.and_then(|db| db.entry(id)))));
+}
+
+/// 全部记录（见 [`Db::all`]）。`done` 在生词本线程上调用。
+pub fn all(done: impl FnOnce(Result<Vec<Entry>, Error>) + Send + 'static) {
+    submit(Box::new(move |db| done(db.and_then(Db::all))));
 }
 
 #[cfg(test)]
@@ -305,6 +427,97 @@ mod tests {
         );
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn summary_previews_and_searches_three_places() {
+        let (dir, mut db) = temp_db("summary");
+        let mut word = snap("open-source", "开源");
+        word.detail = Some(json!({
+            "kind": "word",
+            "explanations": [{"trait": "adj.", "explains": ["开源的", "开放源码"]},
+                             {"trait": "v.", "explains": ["开放源码"]}],
+        }));
+        db.save(1, &word).unwrap();
+        db.save(2, &snap("Latency matters.", "延迟很重要。"))
+            .unwrap();
+
+        let list = db.list().unwrap();
+        // 单词次行是释义摘要；句子没有释义，退回译文
+        assert_eq!(list[1].preview, "开源的, 开放源码; 开放源码");
+        assert_eq!(list[0].preview, "延迟很重要。");
+        // 原文、译文、释义三处都能搜到；大小写无关、两头空白无关
+        for kw in ["  OPEN-Source ", "开源", "开放源码"] {
+            let hit = visible(&list, kw, None);
+            assert_eq!(hit.len(), 1, "{kw} 应只命中单词那条");
+            assert_eq!(hit[0].text, "open-source");
+        }
+        assert!(visible(&list, "没有这个词", None).is_empty());
+        assert_eq!(visible(&list, "", Some(Kind::Sentence)).len(), 1);
+        assert_eq!(visible(&list, "开源", Some(Kind::Sentence)).len(), 0);
+        assert_eq!(visible(&list, "", None).len(), 2);
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn entry_reads_detail_and_skips_broken_json() {
+        let (dir, mut db) = temp_db("entry");
+        let mut good = snap("gemini", "双子座");
+        good.detail = Some(json!({"kind": "word", "pronunciations": [{"symbol": "/ˈdʒɛmɪnaɪ/"}]}));
+        let id = db.save(1, &good).unwrap();
+        let broken = db.save(2, &snap("broken", "坏的")).unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "UPDATE entries SET detail = '{oops' WHERE id = ?1",
+                [broken],
+            )
+            .unwrap();
+
+        let e = db.entry(id).unwrap().unwrap();
+        assert_eq!(
+            (e.id, e.kind, e.service.as_str()),
+            (id, Kind::Word, "google")
+        );
+        assert_eq!(
+            e.detail.unwrap()["pronunciations"][0]["symbol"],
+            "/ˈdʒɛmɪnaɪ/"
+        );
+        assert!(
+            db.entry(broken).unwrap().unwrap().detail.is_none(),
+            "坏 detail 当没有"
+        );
+        assert!(db.list().unwrap().iter().any(|s| s.preview == "坏的"));
+
+        assert_eq!(db.all().unwrap().len(), 2);
+        db.soft_delete(&[broken]).unwrap();
+        assert!(db.entry(broken).unwrap().is_none(), "删掉的取不到");
+        assert_eq!(db.all().unwrap().len(), 1);
+        assert!(db.entry(999).unwrap().is_none());
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn preview_moves_down_then_up_after_delete() {
+        let view = [1, 2, 3, 4, 5];
+        // 没被删就不动
+        assert_eq!(next_selected(&view, &[4], Some(2)), Some(2));
+        // 删第三项 → 原第四项
+        assert_eq!(next_selected(&view, &[3], Some(3)), Some(4));
+        // 批量：跳过整个删除集合
+        assert_eq!(next_selected(&view, &[3, 4], Some(3)), Some(5));
+        // 删末项 → 往上找
+        assert_eq!(next_selected(&view, &[5], Some(5)), Some(4));
+        assert_eq!(next_selected(&view, &[4, 5], Some(5)), Some(3));
+        // 全删 → 空
+        assert_eq!(next_selected(&view, &view, Some(3)), None);
+        // 没选过 / 选的项已不在可见列表里：从首项算起
+        assert_eq!(next_selected(&view, &[], None), Some(1));
+        assert_eq!(next_selected(&view, &[1], Some(99)), Some(2));
+        // 空列表
+        assert_eq!(next_selected(&[], &[1], Some(1)), None);
     }
 
     #[test]
