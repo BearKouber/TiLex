@@ -31,9 +31,18 @@ const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
 
 static RESULT_WINDOW: AtomicIsize = AtomicIsize::new(0);
 static PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
+/// 截图遮罩用自己的一份：它和结果浮窗会先后显示（框选完紧接着弹浮窗），
+/// 共用一个记录位会让浮窗关闭时把焦点还给已经隐藏的遮罩。
+static OVERLAY_WINDOW: AtomicIsize = AtomicIsize::new(0);
+static OVERLAY_PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
 
 fn result_hwnd() -> Option<HWND> {
     let raw = RESULT_WINDOW.load(Ordering::SeqCst);
+    (raw != 0).then_some(HWND(raw as *mut c_void))
+}
+
+fn overlay_hwnd() -> Option<HWND> {
+    let raw = OVERLAY_WINDOW.load(Ordering::SeqCst);
     (raw != 0).then_some(HWND(raw as *mut c_void))
 }
 
@@ -132,20 +141,104 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn attach_overlay_window(window: &slint::Window, x: i32, y: i32) -> Result<(), Error> {
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
     let h = super::hwnd(window)?;
     apply_styles(h);
     disable_transitions(h);
-    // 从屏幕外挪到位并置顶。挪动窗口不播系统的开窗缩放动画，加上上面关掉的过渡，
-    // 遮罩是瞬间出现的（尺寸在 Slint 侧已经设成整个虚拟屏，这里只动位置）。
-    // SAFETY: h 来自活着的 Slint 窗口。
-    // ignore: 摆放失败时窗口仍在屏幕外，下面的抢前台会失败并记日志
-    let _ = unsafe { SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_FRAMECHANGED) };
+    cloak(h, true);
+    // SAFETY: 只刷新样式，不动位置、大小、激活。
+    // ignore: 刷新失败时样式照样生效
+    let _ = unsafe {
+        SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+    };
+    OVERLAY_WINDOW.store(h.0 as isize, Ordering::SeqCst);
+    log::info!("Overlay: window attached");
+    Ok(())
+}
+
+pub fn show_overlay_window(rect: Rect) {
+    let Some(h) = overlay_hwnd() else {
+        return;
+    };
+    if !styles_intact(h) {
+        log::warn!("Overlay: window styles were reset, reapplying");
+        apply_styles(h);
+    }
+    // 显示前记下当时的前台窗口：取消截图时要还回去，选完截图时也要先还回去，
+    // 否则随后弹出的结果浮窗会把遮罩当成"用户原来在用的程序"。
+    // SAFETY: 无指针参数。
+    let fg = unsafe { GetForegroundWindow() };
+    if fg != h {
+        OVERLAY_PREV_FOREGROUND.store(fg.0 as isize, Ordering::SeqCst);
+    }
+    // 摆到位再解除 cloak，不会在旧位置闪。跨 DPI 显示器先只移动、再带尺寸。
+    // SAFETY: h 是活着的有效窗口。
+    unsafe {
+        // ignore: 移动失败下一行照样摆
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            rect.l,
+            rect.t,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        // ignore: 摆放尺寸失败不致命
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            rect.l,
+            rect.t,
+            rect.r - rect.l,
+            rect.b - rect.t,
+            SWP_NOACTIVATE,
+        );
+    }
+    cloak(h, false);
+    // 遮罩要焦点：Esc 取消靠键盘事件。
     if !super::force_foreground(h) {
         log::warn!("Overlay: SetForegroundWindow refused");
     }
-    log::info!("Overlay: window attached");
-    Ok(())
+}
+
+pub fn hide_overlay_window() {
+    let Some(h) = overlay_hwnd() else {
+        return;
+    };
+    // cloak 而不是 SW_HIDE：遮罩要瞬间消失，SW_HIDE 会播系统的关窗淡出。
+    cloak(h, true);
+    // SAFETY: h 是活着的窗口。
+    // ignore: 挪不回去也没关系，窗口已经看不见了
+    let _ = unsafe {
+        SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            -32000,
+            -32000,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    };
+    // 前台还是遮罩自己时把焦点还回去，否则键盘输入会进一个看不见的窗口。
+    // SAFETY: 无指针参数。
+    let fg = unsafe { GetForegroundWindow() };
+    let prev = OVERLAY_PREV_FOREGROUND.swap(0, Ordering::SeqCst);
+    if fg == h && prev != 0 {
+        let prev_h = HWND(prev as *mut c_void);
+        // SAFETY: 把前台还给之前记录的窗口。
+        // ignore: 目标窗口已销毁或拒绝前台不致命
+        let _ = unsafe { SetForegroundWindow(prev_h) };
+    }
 }
 
 /// 关掉这个窗口的 DWM 过渡动画。遮罩要瞬间出现，不许从中心缩放着展开。

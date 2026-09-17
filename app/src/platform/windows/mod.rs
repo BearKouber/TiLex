@@ -38,8 +38,8 @@ pub fn copy_text(text: &str) -> Result<(), Error> {
 
 mod result_window;
 pub use result_window::{
-    attach_overlay_window, attach_result_window, hide_result_window, monitor_at,
-    move_result_window, result_window_focused, show_result_window,
+    attach_overlay_window, attach_result_window, hide_overlay_window, hide_result_window,
+    monitor_at, move_result_window, result_window_focused, show_overlay_window, show_result_window,
 };
 
 mod tts;
@@ -53,6 +53,9 @@ pub use autostart::{autostart_enabled, set_autostart};
 
 mod screenshot;
 pub use screenshot::capture_screen;
+
+mod ocr;
+pub use ocr::{wechat_ocr, wechat_ocr_status};
 
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");

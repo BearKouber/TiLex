@@ -148,9 +148,13 @@ pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 
-pub fn attach_overlay_window(_window: &slint::Window, _x: i32, _y: i32) -> Result<(), Error> {
+pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
+
+pub fn show_overlay_window(_rect: super::geometry::Rect) {}
+
+pub fn hide_overlay_window() {}
 
 pub fn show_result_window(_rect: super::geometry::Rect) {}
 
@@ -169,5 +173,13 @@ pub fn copy_text(_text: &str) -> Result<(), Error> {
 
 // B6：`screencapture -i` 子进程
 pub fn capture_screen() -> Result<super::Shot, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn wechat_ocr(_image: &Path) -> Result<String, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn wechat_ocr_status() -> Result<String, Error> {
     Err(Error::Unsupported)
 }

@@ -26,6 +26,17 @@ export component Overlay inherits Window {
     private property <length> sel-h: root.start-y < root.current-y ? root.current-y - root.start-y : root.start-y - root.current-y;
     private property <bool> has-selection: root.selecting && (root.sel-w > 0px || root.sel-h > 0px);
 
+    // 窗口是常驻的（design §1.4：走 show() 会播系统的开窗动画），每次截图前清一次上一轮的状态。
+    public function reset() {
+        root.done = false;
+        root.selecting = false;
+        root.start-x = 0px;
+        root.start-y = 0px;
+        root.current-x = 0px;
+        root.current-y = 0px;
+        fs.focus();
+    }
+
     public function finish() {
         if root.done { return; }
         root.done = true;

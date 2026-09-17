@@ -9,6 +9,7 @@ publish = false
 
 # 独立 workspace，不和 src-tauri 共用 Cargo.lock（D10）。ocr-sidecar 在 B3 加进 members。
 [workspace]
+members = ["ocr-sidecar"]
 
 [dependencies]
 # 只开软件渲染（D11），GPU 渲染器根本不编进来。

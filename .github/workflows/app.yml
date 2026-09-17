@@ -39,12 +39,15 @@ jobs:
       # R-10：测试用 --release 跑；source_rules.rs / unicode_paths.rs 在这里面。
       - run: cargo test -p tilex --release
       - run: cargo build -p tilex --release
+      - name: Build OCR sidecar (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release -p tilex-ocr
 
       # B3 起 zip 里再加 tilex-ocr.exe 和 wcocr.dll。
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path target/release/tilex.exe -DestinationPath ../tilex-windows-x64.zip
+        run: Compress-Archive -Path target/release/tilex.exe, target/release/tilex-ocr.exe, vendor/wcocr.dll -DestinationPath ../tilex-windows-x64.zip
 
       - name: Package (macOS)
         if: runner.os == 'macOS'

@@ -56,6 +56,11 @@ fn run() -> Result<(), Error> {
     if pop_button.is_some() {
         ui::pop_result::create()?;
     }
+    // 截图遮罩也是启动时建好、常驻（design §1.4）：每次现建会走 ShowWindow，
+    // Windows 给它播 200ms 的开窗动画。
+    if let Err(e) = ui::overlay::create() {
+        log::error!("Main: create screenshot overlay failed: {e}");
+    }
     // 听不到第二实例的通知只是"再开 exe 不弹设置"，不值得让整个程序起不来（macOS 上 socket bind 可能失败）。
     if let Err(e) = platform::listen_activation(|| {
         if let Err(e) = slint::invoke_from_event_loop(ui::settings::open) {

@@ -215,12 +215,26 @@ pub fn result_window_focused() -> Option<bool> {
     imp::result_window_focused()
 }
 
-/// 把遮罩窗口交给平台层：无边框、置顶、不进任务栏、关掉 DWM 过渡动画，
-/// 再把它从屏幕外挪到 `(x, y)`（物理像素）并强拉到前台拿焦点（UI 线程调）。
-/// **调用前窗口必须已经在屏幕外 `show()` 过**：在原位直接显示会播系统的开窗缩放动画。
-/// 原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。
-pub fn attach_overlay_window(window: &slint::Window, x: i32, y: i32) -> Result<(), Error> {
-    imp::attach_overlay_window(window, x, y)
+/// 把截图遮罩交给平台层（UI 线程调，启动时一次）。应用无边框样式、置顶，并 cloak 隐藏。
+/// 之后它的显示、隐藏、位置只由平台层管，**调用方再也不能调它的 `show()`/`hide()`**：
+/// 走 `ShowWindow` 会播系统的开窗缩放动画（design §1.4）。
+/// 调用前窗口必须已经在屏幕外 `show()` 过一次；原生窗口尚未创建时返回 `Error::Platform`，
+/// 调用方用 Timer 重试。
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+    imp::attach_overlay_window(window)
+}
+
+/// 把遮罩摆到 `rect`（物理像素，整个虚拟屏）并显示、抢焦点（UI 线程调）。
+/// 尚未 attach 时什么都不做。显示前记下当时的前台窗口，隐藏时还回去。
+pub fn show_overlay_window(rect: geometry::Rect) {
+    imp::show_overlay_window(rect)
+}
+
+/// 隐藏遮罩并挪回屏幕外（UI 线程调，DWM cloak）。
+/// 前台仍是遮罩自己时，把焦点还给显示前记下的那个窗口 —— 否则用户的键盘输入
+/// 会进一个看不见的窗口，而且随后弹出的结果浮窗会把遮罩当成"原来的程序"。
+pub fn hide_overlay_window() {
+    imp::hide_overlay_window()
 }
 
 /// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。
@@ -238,4 +252,15 @@ pub struct Shot {
 /// 抓整个虚拟屏。几十毫秒，**不要在 UI 线程上调**（R-5）。
 pub fn capture_screen() -> Result<Shot, Error> {
     imp::capture_screen()
+}
+
+/// 微信 OCR 识别一张图，返回图里的文字。几百毫秒到几秒，**不要在 UI 线程上调**（R-5）。
+/// 没装微信、没下过 OCR 插件、识别不出字都返回 `Error::Platform`，消息是给用户看的。
+pub fn wechat_ocr(image: &Path) -> Result<String, Error> {
+    imp::wechat_ocr(image)
+}
+
+/// 微信 OCR 能不能用。能用返回微信版本号（04 的识别服务列表要显示），不能用返回缺什么。
+pub fn wechat_ocr_status() -> Result<String, Error> {
+    imp::wechat_ocr_status()
 }
