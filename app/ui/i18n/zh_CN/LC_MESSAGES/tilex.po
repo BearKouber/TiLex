@@ -568,3 +568,27 @@ msgstr "找到微信 {}（{}ms）"
 
 msgid "All available text recognition services are already installed"
 msgstr "可选的识别服务都已经装上了"
+
+msgid "Export to Markdown"
+msgstr "导出为 Markdown"
+
+msgid "Select"
+msgstr "多选"
+
+msgid "Search words, definitions, sentences"
+msgstr "搜索生词、释义、原句"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Word"
+msgstr "生词"
+
+msgid "Sentence"
+msgstr "长难句"
+
+msgid "No matching entries"
+msgstr "没有匹配的条目"
+
+msgid "Wordbook is empty"
+msgstr "生词本还是空的"

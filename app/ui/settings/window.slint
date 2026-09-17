@@ -4,6 +4,8 @@ import { ServicesPage, ServiceRow } from "services.slint";
 import { ServiceDialogs, ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
 export { ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
 import { TranslatePage } from "translate.slint";
+import { WordbookPage, WordbookState, WordbookRow } from "wordbook.slint";
+export { WordbookState, WordbookRow } from "wordbook.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
@@ -539,13 +541,9 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    if root.page == 2 : Card {
-                        content-padding: 12px;
-                        Text {
-                            text: @tr("Wordbook");
-                            font-size: 14px;
-                            color: Theme.default-400;
-                        }
+                    // 撑满可视区（减掉 content 的上下 padding），同 ServicesPage
+                    if root.page == 2 : WordbookPage {
+                        height: scroll.visible-height - 20px;
                     }
 
                     if root.page == 3 : AboutPage {

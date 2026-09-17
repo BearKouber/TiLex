@@ -1,6 +1,8 @@
 // build.rs 只编译这一个入口，所有要给 Rust 用的组件从这里导出。
 export { SettingsWindow } from "settings/window.slint";
 export { TranslateSettings } from "settings/translate.slint";
+// global 要给 Rust 用，必须从这个入口导出：struct 能顺着 window.slint 的 re-export 出来，global 不行
+export { WordbookState } from "settings/wordbook.slint";
 export { Tray } from "tray.slint";
 export { PopButton } from "pop_button.slint";
 export { PopResult, ResultRow } from "pop_result.slint";

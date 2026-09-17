@@ -1,0 +1,260 @@
+// ui.md §6.6 生词本页。旧版 TiLex/src/window/Config/pages/Wordbook/index.jsx。
+import { Card } from "../common/card.slint";
+import { Button } from "../common/button.slint";
+import { IconButton } from "../common/icon_button.slint";
+import { TextField } from "../common/text_field.slint";
+import { PillTabs } from "../common/pill_tabs.slint";
+import { Theme } from "../common/theme.slint";
+import { ScrollArea } from "../common/scroll_area.slint";
+import { EntryBody, EntryView } from "../common/entry_view.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct WordbookRow {
+    id: int,
+    text: string,
+    preview: string,
+}
+
+export global WordbookState {
+    in property <[WordbookRow]> rows;
+    in property <int> selected-id;           // 0 = 没选中
+    in property <string> detail-text;        // 右卡标题：原文
+    in property <bool> detail-is-word;       // 决定右卡用哪套版式
+    in property <string> detail-category;    // 已经是「英文 · 01 定语从句类」这种成品字符串，空 = 不出
+    in property <int> detail-difficulty;     // 0 = 不出
+    in property <string> detail-difficulty-reason;
+    in property <EntryView> detail-entry;    // 正文交给 EntryBody
+    in property <bool> speaking;
+    in-out property <string> keyword;
+    in-out property <int> filter;            // 0 全部 / 1 生词 / 2 长难句
+    callback search();                       // keyword 变了
+    callback filter-changed();
+    callback select(int);
+    callback speak();
+}
+
+export component WordbookPage inherits VerticalLayout {
+    // 高度由 window.slint 按可视区传进来：这一页不跟着 ScrollArea 滚（列表自己滚），
+    // 写死高度的话窗口一放大下面就留白。
+    padding: 0px;
+
+    function stars(n: int) -> string {
+        if n == 1 { return "★"; }
+        if n == 2 { return "★★"; }
+        if n == 3 { return "★★★"; }
+        if n == 4 { return "★★★★"; }
+        if n >= 5 { return "★★★★★"; }
+        ""
+    }
+
+    function diff-text(diff: int, reason: string) -> string {
+        if diff <= 0 { return ""; }
+        if reason == "" { return root.stars(diff); }
+        root.stars(diff) + " " + reason
+    }
+
+    function format-sentence-tag(cat: string, diff: int, reason: string) -> string {
+        if cat != "" && diff > 0 {
+            return cat + " · " + root.diff-text(diff, reason);
+        }
+        if cat != "" {
+            return cat;
+        }
+        root.diff-text(diff, reason)
+    }
+
+    HorizontalLayout {
+        spacing: 10px;
+
+        // 左卡：宽 280，内边距 8，间距 8，边框 default-100
+        Card {
+            width: 280px;
+            content-padding: 8px;
+            spacing: 8px;
+            border-color: Theme.default-100;
+
+            // 1. 工具行：高 32，导出（bordered sm 撑满）+ 多选（light sm），本轮均 enabled: false
+            HorizontalLayout {
+                height: 32px;
+                spacing: 4px;
+
+                Button {
+                    size: "sm";
+                    variant: "bordered";
+                    text: @tr("Export to Markdown");
+                    full-width: true;
+                    enabled: false;
+                }
+
+                Button {
+                    size: "sm";
+                    variant: "light";
+                    text: @tr("Select");
+                    enabled: false;
+                }
+            }
+
+            // 2. 搜索框：TextField flat sm 可清除
+            TextField {
+                variant: "flat";
+                text <=> WordbookState.keyword;
+                placeholder: @tr("Search words, definitions, sentences");
+                clearable: true;
+                edited(val) => {
+                    WordbookState.search();
+                }
+            }
+
+            // 3. 筛选：PillTabs default full-width
+            PillTabs {
+                tabs: [
+                    @tr("All"),
+                    @tr("Word"),
+                    @tr("Sentence"),
+                ];
+                current <=> WordbookState.filter;
+                full-width: true;
+                changed-tab(idx) => {
+                    WordbookState.filter-changed();
+                }
+            }
+
+            // 4. 列表：ListView 或空列表提示
+            if WordbookState.rows.length == 0 : Rectangle {
+                vertical-stretch: 1;
+
+                Text {
+                    text: WordbookState.keyword != "" ? @tr("No matching entries") : @tr("Wordbook is empty");
+                    font-size: 13px;
+                    color: Theme.default-400;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if WordbookState.rows.length > 0 : ListView {
+                vertical-stretch: 1;
+
+                for row in WordbookState.rows : Rectangle {
+                    property <bool> is-selected: row.id == WordbookState.selected-id;
+                    height: 50px;
+
+                    row-inner := Rectangle {
+                        x: 0px;
+                        y: 2px;
+                        width: 100%;
+                        height: 46px;
+                        border-radius: Theme.radius-small;
+                        background: is-selected
+                            ? Theme.primary.with-alpha(0.1)
+                            : (touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0));
+                        animate background { duration: 150ms; }
+
+                        touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                WordbookState.select(row.id);
+                            }
+                        }
+
+                        VerticalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            padding-top: 6px;
+                            padding-bottom: 6px;
+                            spacing: 2px;
+                            alignment: center;
+
+                            Text {
+                                text: row.text;
+                                font-size: 13px;
+                                color: Theme.foreground;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: row.preview;
+                                font-size: 11px;
+                                color: Theme.default-400;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 右卡：Card 撑满，内边距 20，边框 default-100
+        Card {
+            horizontal-stretch: 1;
+            content-padding: 20px;
+            spacing: 0px;
+            border-color: Theme.default-100;
+
+            if WordbookState.selected-id != 0 : ScrollArea {
+                viewport-height: max(self.visible-height, detail-content.preferred-height);
+
+                detail-content := VerticalLayout {
+                    spacing: 0px;
+                    alignment: start;
+
+                    // 顶栏一行：左标题，右朗读
+                    HorizontalLayout {
+                        alignment: space-between;
+                        cross-axis-alignment: center;
+
+                        Text {
+                            text: WordbookState.detail-text;
+                            font-size: WordbookState.detail-is-word ? 18px : 16px;
+                            font-weight: 600;
+                            color: Theme.foreground;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+
+                        IconButton {
+                            size: "sm";
+                            icon: @image-url("../icons/volume-2.svg");
+                            checked: WordbookState.speaking;
+                            label: @tr("Speak");
+                            clicked => {
+                                WordbookState.speak();
+                            }
+                        }
+                    }
+
+                    // 长难句才有的「难度 / 分类」一行
+                    if !WordbookState.detail-is-word && (WordbookState.detail-category != "" || WordbookState.detail-difficulty > 0) : VerticalLayout {
+                        padding-top: 14px;
+                        spacing: 12px;
+
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.default-200;
+                        }
+
+                        Text {
+                            text: root.format-sentence-tag(
+                                WordbookState.detail-category,
+                                WordbookState.detail-difficulty,
+                                WordbookState.detail-difficulty-reason
+                            );
+                            font-size: 12px;
+                            color: Theme.default-400;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    // 下面接 EntryBody，上边距 12
+                    VerticalLayout {
+                        padding-top: 12px;
+
+                        EntryBody {
+                            entry: WordbookState.detail-entry;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
