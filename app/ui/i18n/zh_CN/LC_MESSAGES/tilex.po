@@ -532,3 +532,18 @@ msgid "Drag to select an area, Esc to cancel"
 msgstr "拖动选择区域，Esc 取消"
 
 
+
+msgid "Umi-OCR"
+msgstr "Umi-OCR"
+
+msgid "Service URL"
+msgstr "服务地址"
+
+msgid "Start Umi-OCR first and enable its HTTP service under Global Settings, default port 1224. Offline recognition is provided by the open-source project hiroi-sora/Umi-OCR."
+msgstr "需要先启动 Umi-OCR 并在「全局设置 → HTTP 服务」里打开接口，默认端口 1224。离线识别由开源项目 hiroi-sora/Umi-OCR 提供。"
+
+msgid "Connection OK ({}ms)"
+msgstr "连接正常（{}ms）"
+
+msgid "Test failed: cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224) ({}ms)"
+msgstr "测试失败：无法连接 Umi-OCR，请先启动 Umi-OCR 并开启 HTTP 接口（默认端口 1224）（{}ms）"

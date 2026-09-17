@@ -41,6 +41,7 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls", "pla
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 global-hotkey = "0.8.0"
 png = "0.18"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [

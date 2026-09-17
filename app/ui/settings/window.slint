@@ -184,11 +184,15 @@ export component SettingsWindow inherits Window {
     in-out property <brush> draft-ai-icon-color: Theme.foreground;
     in-out property <string> draft-ai-icon-letter: "";
 
+    // Umi-OCR Draft Properties
+    in-out property <string> draft-umi-url: "";
+
     in-out property <string> resolved-chat-url: "";
     in property <[AiPreset]> ai-presets: [];
     in property <string> default-ai-custom-instructions: "";
 
     in property <brush> wechat-icon-color;
+    in property <brush> umi-icon-color;
 
     callback save-service(ServiceDraft);
     callback test-service(ServiceDraft);
@@ -209,6 +213,16 @@ export component SettingsWindow inherits Window {
 
     public function show-test-failed(err: string, ms: int) {
         dialogs.show-test-result(@tr("Test failed: {} ({}ms)", err, ms), false);
+    }
+
+    // 识别服务没有「译文」可显示，只报通没通。
+    public function show-recognize-test-success(ms: int) {
+        dialogs.show-test-result(@tr("Connection OK ({}ms)", ms), true);
+    }
+
+    // 连不上 Umi 是最常见的一种失败（用户压根没启动它），单独给一句说得清的话。
+    public function show-umi-not-running(ms: int) {
+        dialogs.show-test-result(@tr("Test failed: cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224) ({}ms)", ms), false);
     }
 
     public function show-fetch-success(count: int) {
@@ -568,12 +582,15 @@ export component SettingsWindow inherits Window {
         draft-ai-icon-color <=> root.draft-ai-icon-color;
         draft-ai-icon-letter <=> root.draft-ai-icon-letter;
 
+        draft-umi-url <=> root.draft-umi-url;
+
         resolved-chat-url <=> root.resolved-chat-url;
         ai-presets: root.ai-presets;
         default-ai-custom-instructions: root.default-ai-custom-instructions;
 
         window-height: root.height;
         wechat-icon-color: root.wechat-icon-color;
+        umi-icon-color: root.umi-icon-color;
         testing: root.testing-service;
         fetching: root.fetching-models;
         ai-models: root.ai-models;

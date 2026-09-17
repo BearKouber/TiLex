@@ -7,6 +7,7 @@ pub mod lang_detect;
 pub mod model_cache;
 pub mod placement;
 pub mod popup_state;
+pub mod recognize;
 pub mod result;
 pub mod saved_entry;
 pub mod screenshot;
