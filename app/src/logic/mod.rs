@@ -1,4 +1,5 @@
 pub mod ai_presets;
+pub mod benchmark;
 pub mod cache;
 pub mod config;
 pub mod lang_detect;

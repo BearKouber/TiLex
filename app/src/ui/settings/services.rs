@@ -1,14 +1,15 @@
 //! 设置窗口：服务设置页（列表、启用开关、删除、拖动排序）。
 //! 不在 model 里保留 `Service::Unknown`，但保持真实下标以原样保留它们在 `config.json` 里。
 
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, VecModel};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::logic::config::{self, AiConfig, GoogleConfig, Service};
 use crate::logic::service_icon as icons;
 use crate::logic::translate;
-use crate::logic::{ai_presets, model_cache};
-use crate::slint_ui::{ServiceRow, SettingsWindow};
+use crate::logic::{ai_presets, benchmark, model_cache};
+use crate::slint_ui::{ModelRow, ServiceRow, SettingsWindow};
 
 pub fn bind(page: &SettingsWindow) {
     refresh(page);
@@ -53,9 +54,7 @@ pub fn bind(page: &SettingsWindow) {
             page.set_draft_ai_icon_color(parse_hex_color(info.color));
             page.set_draft_ai_icon_letter(info.letter.into());
 
-            let endpoint = model_cache::endpoint_of(base.as_str(), protocol.as_str());
-            let cached = model_cache::models(&endpoint);
-            page.set_ai_models(model_options(&cached, model.as_str()));
+            refresh_models_panel(&page, base.as_str(), protocol.as_str(), model.as_str());
         }
     });
 
@@ -77,6 +76,31 @@ pub fn bind(page: &SettingsWindow) {
     page.on_fetch_models(move |draft| {
         if let Some(page) = weak.upgrade() {
             handle_fetch_models(&page, ServiceDraft::from(&draft));
+        }
+    });
+
+    let weak = page.as_weak();
+    benchmark::set_notifier(Box::new(move || {
+        let weak = weak.clone();
+        // ignore: 窗口可能已经关了，测速照样跑完
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(page) = weak.upgrade() {
+                refresh_models_panel_from_page(&page);
+            }
+        });
+    }));
+
+    let weak = page.as_weak();
+    page.on_start_benchmark(move |draft, force| {
+        if let Some(page) = weak.upgrade() {
+            handle_start_benchmark(&page, ServiceDraft::from(&draft), force);
+        }
+    });
+
+    let weak = page.as_weak();
+    page.on_stop_benchmark(move |draft| {
+        if let Some(page) = weak.upgrade() {
+            handle_stop_benchmark(&page, ServiceDraft::from(&draft));
         }
     });
 }
@@ -283,13 +307,7 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_draft_ai_base_url(inst.config.base_url.as_str().into());
                 page.set_draft_ai_api_key(inst.config.api_key.as_str().into());
                 page.set_draft_ai_model(inst.config.model.as_str().into());
-                let proto_idx = match inst.config.protocol.as_str() {
-                    "openai_responses" => 1,
-                    "anthropic" => 2,
-                    "google" => 3,
-                    _ => 0,
-                };
-                page.set_draft_ai_protocol_index(proto_idx);
+                page.set_draft_ai_protocol_index(protocol_to_index(&inst.config.protocol));
                 page.set_draft_ai_custom_instructions(
                     inst.config.custom_instructions.as_str().into(),
                 );
@@ -314,10 +332,12 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                     &inst.config.protocol,
                 );
                 page.set_resolved_chat_url(resolved.into());
-                let endpoint =
-                    model_cache::endpoint_of(&inst.config.base_url, &inst.config.protocol);
-                let cached = model_cache::models(&endpoint);
-                page.set_ai_models(model_options(&cached, &inst.config.model));
+                refresh_models_panel(
+                    page,
+                    &inst.config.base_url,
+                    &inst.config.protocol,
+                    &inst.config.model,
+                );
                 page.set_dialog_kind(kind.into());
                 page.set_dialog_service("ai".into());
                 page.set_dialog_index(real_idx);
@@ -487,16 +507,146 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
     }
 }
 
-fn model_options(cached: &[String], current_model: &str) -> ModelRc<SharedString> {
-    let current = current_model.trim();
-    let mut list: Vec<SharedString> = Vec::new();
+fn protocol_from_index(i: i32) -> &'static str {
+    match i {
+        1 => "openai_responses",
+        2 => "anthropic",
+        3 => "google",
+        _ => "openai_chat",
+    }
+}
+
+fn protocol_to_index(protocol: &str) -> i32 {
+    match protocol {
+        "openai_responses" => 1,
+        "anthropic" => 2,
+        "google" => 3,
+        _ => 0,
+    }
+}
+
+/// 面板的一行。排序和排名都在 Rust 算好，`.slint` 只管画。
+/// state: "ms" | "testing" | "untested" | "failed"
+fn model_rows(
+    listed: &[String],
+    latencies: &BTreeMap<String, Option<u32>>,
+    testing: &[String],
+) -> Vec<ModelRow> {
+    struct TempRow {
+        name: String,
+        state: &'static str,
+        ms: i32,
+        category: u8,
+    }
+
+    let mut rows: Vec<TempRow> = listed
+        .iter()
+        .map(|m| {
+            let name = m.clone();
+            let is_testing = testing.iter().any(|t| t == m);
+            if is_testing {
+                TempRow {
+                    name,
+                    state: "testing",
+                    ms: 0,
+                    category: 1,
+                }
+            } else {
+                match latencies.get(m) {
+                    Some(Some(ms)) => TempRow {
+                        name,
+                        state: "ms",
+                        ms: *ms as i32,
+                        category: 0,
+                    },
+                    Some(None) => TempRow {
+                        name,
+                        state: "failed",
+                        ms: 0,
+                        category: 3,
+                    },
+                    None => TempRow {
+                        name,
+                        state: "untested",
+                        ms: 0,
+                        category: 2,
+                    },
+                }
+            }
+        })
+        .collect();
+
+    // 排序（旧版 ModelBenchmark.jsx:32-50）：
+    // 1. 有数值的排最前，按毫秒升序；
+    // 2. 正在测的（progress.current == name）排在有数值的后面；
+    // 3. 没测过的；
+    // 4. 失败的排最底下。
+    rows.sort_by(|a, b| {
+        if a.category == 0 && b.category == 0 {
+            a.ms.cmp(&b.ms)
+        } else {
+            a.category.cmp(&b.category)
+        }
+    });
+
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let rank = if r.state == "ms" { (i + 1) as i32 } else { 0 };
+            ModelRow {
+                name: r.name.into(),
+                state: r.state.into(),
+                ms: r.ms,
+                rank,
+            }
+        })
+        .collect()
+}
+
+/// 重算面板的行 + 进度 + 汇总，四个入口共用。
+fn refresh_models_panel(page: &SettingsWindow, base: &str, protocol: &str, model: &str) {
+    let endpoint = model_cache::endpoint_of(base, protocol);
+    let cached = if endpoint.is_empty() {
+        Vec::new()
+    } else {
+        model_cache::models(&endpoint)
+    };
+    let current = model.trim();
+    let mut listed = Vec::new();
     if !current.is_empty() && !cached.iter().any(|m| m == current) {
-        list.push(current.into());
+        listed.push(current.to_owned());
     }
-    for m in cached {
-        list.push(m.as_str().into());
-    }
-    Rc::new(VecModel::from(list)).into()
+    listed.extend(cached);
+
+    let latencies = if endpoint.is_empty() {
+        BTreeMap::new()
+    } else {
+        model_cache::latencies(&endpoint)
+    };
+    let progress = if endpoint.is_empty() {
+        benchmark::Progress::default()
+    } else {
+        benchmark::progress(&endpoint)
+    };
+
+    let rows = model_rows(&listed, &latencies, &progress.testing);
+    let tested_count = rows.iter().filter(|r| r.state.as_str() == "ms").count() as i32;
+    let failed_count = rows.iter().filter(|r| r.state.as_str() == "failed").count() as i32;
+
+    page.set_ai_models(Rc::new(VecModel::from(rows)).into());
+    page.set_bench_running(progress.running);
+    page.set_bench_current(progress.current.into());
+    page.set_bench_remaining(progress.remaining as i32);
+    page.set_bench_tested(tested_count);
+    page.set_bench_failed(failed_count);
+}
+
+/// 从窗口属性上读 base / protocol / model 再调上面那个（给通知回调用）。
+fn refresh_models_panel_from_page(page: &SettingsWindow) {
+    let base = page.get_draft_ai_base_url();
+    let protocol = protocol_from_index(page.get_draft_ai_protocol_index());
+    let model = page.get_draft_ai_model();
+    refresh_models_panel(page, base.as_str(), protocol, model.as_str());
 }
 
 fn handle_fetch_models(page: &SettingsWindow, draft: ServiceDraft<'_>) {
@@ -513,7 +663,6 @@ fn handle_fetch_models(page: &SettingsWindow, draft: ServiceDraft<'_>) {
             _ => None,
         });
     let ai_config = draft_ai_config(&draft, base.as_ref());
-    let current_model = draft.ai_model.to_string();
 
     let weak = page.as_weak();
     if let Err(e) = std::thread::Builder::new()
@@ -527,7 +676,7 @@ fn handle_fetch_models(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                 match res {
                     Ok(list) => {
                         let count = list.len() as i32;
-                        page.set_ai_models(model_options(&list, &current_model));
+                        refresh_models_panel_from_page(&page);
                         page.invoke_show_fetch_success(count);
                     }
                     Err(e) => {
@@ -541,6 +690,34 @@ fn handle_fetch_models(page: &SettingsWindow, draft: ServiceDraft<'_>) {
         page.set_fetching_models(false);
         page.invoke_show_fetch_failed(e.to_string().into());
     }
+}
+
+fn handle_start_benchmark(page: &SettingsWindow, draft: ServiceDraft<'_>, force: bool) {
+    let base = config::snapshot()
+        .translate_services
+        .get(usize::try_from(draft.real_idx).unwrap_or(usize::MAX))
+        .and_then(|s| match s {
+            Service::Ai(inst) => Some(inst.config.clone()),
+            _ => None,
+        });
+    let ai_config = draft_ai_config(&draft, base.as_ref());
+    let endpoint = model_cache::endpoint_of(&ai_config.base_url, &ai_config.protocol);
+    if endpoint.is_empty() {
+        page.invoke_show_bench_error("base_url is required".into());
+        return;
+    }
+    let models_model = page.get_ai_models();
+    let models: Vec<String> = (0..models_model.row_count())
+        .filter_map(|i| models_model.row_data(i).map(|r| r.name.to_string()))
+        .collect();
+    benchmark::start(&ai_config, models, force);
+    refresh_models_panel_from_page(page);
+}
+
+fn handle_stop_benchmark(page: &SettingsWindow, draft: ServiceDraft<'_>) {
+    let endpoint = model_cache::endpoint_of(draft.ai_base_url, draft.ai_protocol);
+    benchmark::stop(&endpoint);
+    refresh_models_panel_from_page(page);
 }
 
 /// 把对话框的草稿写进服务列表：`real_idx == -1` 追加一个新实例（默认关闭，由用户手动开启），
@@ -935,5 +1112,59 @@ mod tests {
             resolve_draft_icon("zhipu", "https://api.deepseek.com", "").id,
             "zhipu"
         );
+    }
+
+    #[test]
+    fn test_model_rows_ranking_and_order() {
+        let listed = vec![
+            "model-c".to_string(),
+            "model-b".to_string(),
+            "model-a".to_string(),
+            "model-testing".to_string(),
+            "model-untested".to_string(),
+            "model-failed".to_string(),
+        ];
+        let mut latencies = BTreeMap::new();
+        latencies.insert("model-c".to_string(), Some(800));
+        latencies.insert("model-b".to_string(), Some(120));
+        latencies.insert("model-a".to_string(), Some(450));
+        latencies.insert("model-failed".to_string(), None);
+
+        let rows = model_rows(&listed, &latencies, &["model-testing".to_string()]);
+        assert_eq!(rows.len(), 6);
+
+        // 1. 数值升序排最前：model-b (120ms, #1), model-a (450ms, #2), model-c (800ms, #3)
+        assert_eq!(rows[0].name.as_str(), "model-b");
+        assert_eq!(rows[0].state.as_str(), "ms");
+        assert_eq!(rows[0].ms, 120);
+        assert_eq!(rows[0].rank, 1);
+
+        assert_eq!(rows[1].name.as_str(), "model-a");
+        assert_eq!(rows[1].state.as_str(), "ms");
+        assert_eq!(rows[1].ms, 450);
+        assert_eq!(rows[1].rank, 2);
+
+        assert_eq!(rows[2].name.as_str(), "model-c");
+        assert_eq!(rows[2].state.as_str(), "ms");
+        assert_eq!(rows[2].ms, 800);
+        assert_eq!(rows[2].rank, 3);
+
+        // 2. 测试中排在数值后，rank = 0
+        assert_eq!(rows[3].name.as_str(), "model-testing");
+        assert_eq!(rows[3].state.as_str(), "testing");
+        assert_eq!(rows[3].ms, 0);
+        assert_eq!(rows[3].rank, 0);
+
+        // 3. 未测排在测试中后面
+        assert_eq!(rows[4].name.as_str(), "model-untested");
+        assert_eq!(rows[4].state.as_str(), "untested");
+        assert_eq!(rows[4].ms, 0);
+        assert_eq!(rows[4].rank, 0);
+
+        // 4. 失败排在最底下
+        assert_eq!(rows[5].name.as_str(), "model-failed");
+        assert_eq!(rows[5].state.as_str(), "failed");
+        assert_eq!(rows[5].ms, 0);
+        assert_eq!(rows[5].rank, 0);
     }
 }

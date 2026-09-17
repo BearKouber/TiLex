@@ -477,3 +477,39 @@ msgstr "获取模型失败: {}"
 msgid "Click refresh to load the model list"
 msgstr "点击刷新按钮获取模型列表"
 
+msgid "Model Speed Test"
+msgstr "模型测速与优选"
+
+msgid "Testing..."
+msgstr "测速中..."
+
+msgid "({}/{} available)"
+msgstr "({}/{} 可用)"
+
+msgid "({}/{} available, {} failed)"
+msgstr "({}/{} 可用，{} 失败)"
+
+msgid "Stop"
+msgstr "停止测速"
+
+msgid "Start speed test"
+msgstr "开始测速"
+
+msgid "Retest all"
+msgstr "重新全部测速"
+
+msgid "Sequential probe, fastest first"
+msgstr "单并发防限流，按延迟排序"
+
+msgid "{} left"
+msgstr "剩余 {}"
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "Untested"
+msgstr "未测速"
+
+msgid "Cannot start speed test: {}"
+msgstr "启动测速失败: {}"
+

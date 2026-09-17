@@ -258,6 +258,66 @@ pub fn list_models(config: &Config) -> Result<Vec<String>, Error> {
     Ok(list)
 }
 
+pub(crate) fn probe_body(protocol: Protocol, model: &str, bare: bool) -> Value {
+    let messages = [Message {
+        role: "user",
+        content: "Hello".to_owned(),
+    }];
+    let mut args = Map::new();
+    if !bare {
+        args.insert("max_tokens".into(), 5.into());
+    }
+    protocol.body(model, &messages, &args)
+}
+
+/// 限流、网关抽风、连不上、超时 —— 不是模型的问题，等一下重来。
+pub(crate) fn is_transient(e: &Error) -> bool {
+    match e {
+        Error::Http { kind, status } => match kind {
+            HttpKind::Timeout | HttpKind::Connect | HttpKind::Server => true,
+            HttpKind::Client => *status == Some(429),
+            HttpKind::Format => false,
+        },
+        _ => false,
+    }
+}
+
+fn probe_once(
+    protocol: Protocol,
+    url: &str,
+    headers: &[(&str, &str)],
+    model: &str,
+    bare: bool,
+) -> Result<u32, Error> {
+    let body = probe_body(protocol, model, bare);
+    let start = std::time::Instant::now();
+    http::post_json(url, headers, &body, http::TIMEOUT_TRANSLATE)?;
+    let elapsed = start.elapsed().as_millis();
+    Ok(u32::try_from(elapsed).unwrap_or(u32::MAX))
+}
+
+/// 对一个模型发一次极短请求，返回往返毫秒数。旧版 `latency.js:112-145`。
+/// 一次探测最多打两枪，第二枪的形态取决于第一枪怎么死的。
+pub fn probe_latency(config: &Config, model: &str) -> Result<u32, Error> {
+    let eff = config.effective();
+    if eff.base_url.is_empty() {
+        return Err(Error::NotConfigured("base_url"));
+    }
+    let protocol = eff.protocol;
+    let url = protocol.chat_url(&eff.base_url, model)?;
+    let raw_headers = protocol.headers(&eff.api_key);
+    let headers: Vec<(&str, &str)> = raw_headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    match probe_once(protocol, &url, &headers, model, false) {
+        Ok(ms) => Ok(ms),
+        Err(e) if is_transient(&e) => {
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+            probe_once(protocol, &url, &headers, model, false)
+        }
+        Err(_) => probe_once(protocol, &url, &headers, model, true),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,5 +487,84 @@ mod tests {
             list_models(&cfg),
             Err(Error::NotConfigured("base_url"))
         ));
+        assert!(matches!(
+            probe_latency(&cfg, "model"),
+            Err(Error::NotConfigured("base_url"))
+        ));
+    }
+
+    #[test]
+    fn is_transient_classification() {
+        assert!(is_transient(&Error::Http {
+            status: None,
+            kind: HttpKind::Timeout
+        }));
+        assert!(is_transient(&Error::Http {
+            status: None,
+            kind: HttpKind::Connect
+        }));
+        assert!(is_transient(&Error::Http {
+            status: Some(500),
+            kind: HttpKind::Server
+        }));
+        assert!(is_transient(&Error::Http {
+            status: Some(502),
+            kind: HttpKind::Server
+        }));
+        assert!(is_transient(&Error::Http {
+            status: Some(429),
+            kind: HttpKind::Client
+        }));
+
+        assert!(!is_transient(&Error::Http {
+            status: Some(400),
+            kind: HttpKind::Client
+        }));
+        assert!(!is_transient(&Error::Http {
+            status: Some(401),
+            kind: HttpKind::Client
+        }));
+        assert!(!is_transient(&Error::Http {
+            status: Some(404),
+            kind: HttpKind::Client
+        }));
+        assert!(!is_transient(&Error::Http {
+            status: Some(200),
+            kind: HttpKind::Format
+        }));
+        assert!(!is_transient(&Error::NotConfigured("base_url")));
+        assert!(!is_transient(&Error::LanguageUnsupported));
+        assert!(!is_transient(&Error::Unsupported));
+    }
+
+    #[test]
+    fn probe_body_shapes() {
+        // OpenAI Chat 形状里 max_tokens == 5、bare 时没有 max_tokens 键；
+        let normal_openai = probe_body(Protocol::OpenaiChat, "gpt-4", false);
+        assert_eq!(normal_openai["max_tokens"], 5);
+        assert_eq!(normal_openai["model"], "gpt-4");
+        assert_eq!(normal_openai["stream"], false);
+        assert_eq!(normal_openai["messages"][0]["role"], "user");
+        assert_eq!(normal_openai["messages"][0]["content"], "Hello");
+        assert_eq!(normal_openai["messages"].as_array().unwrap().len(), 1);
+
+        let bare_openai = probe_body(Protocol::OpenaiChat, "gpt-4", true);
+        assert!(bare_openai.get("max_tokens").is_none());
+        assert_eq!(bare_openai["model"], "gpt-4");
+        assert_eq!(bare_openai["stream"], false);
+
+        // Google 形状里 generationConfig.maxOutputTokens == 5；
+        let normal_google = probe_body(Protocol::Google, "gemini-1.5", false);
+        assert_eq!(normal_google["generationConfig"]["maxOutputTokens"], 5);
+        assert_eq!(normal_google["contents"][0]["role"], "user");
+        assert_eq!(normal_google["contents"][0]["parts"][0]["text"], "Hello");
+        assert_eq!(normal_google["contents"].as_array().unwrap().len(), 1);
+
+        let bare_google = probe_body(Protocol::Google, "gemini-1.5", true);
+        assert!(
+            bare_google["generationConfig"]
+                .get("maxOutputTokens")
+                .is_none()
+        );
     }
 }

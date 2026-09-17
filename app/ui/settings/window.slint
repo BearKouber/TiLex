@@ -1,8 +1,8 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
 import { ServicesPage, ServiceRow } from "services.slint";
-import { ServiceDialogs, ServiceDraft, AiPreset } from "service_dialogs.slint";
-export { ServiceDraft, AiPreset } from "service_dialogs.slint";
+import { ServiceDialogs, ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
+export { ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
 import { TranslatePage } from "translate.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
@@ -160,7 +160,12 @@ export component SettingsWindow inherits Window {
     in-out property <int> dialog-index: -1;
     in-out property <bool> testing-service: false;
     in-out property <bool> fetching-models: false;
-    in property <[string]> ai-models: [];
+    in property <[ModelRow]> ai-models: [];
+    in property <bool> bench-running: false;
+    in property <string> bench-current: "";
+    in property <int> bench-remaining: 0;
+    in property <int> bench-tested: 0;
+    in property <int> bench-failed: 0;
 
     in-out property <string> draft-label: "";
     in-out property <int> draft-google-mode-index: 0;
@@ -189,6 +194,12 @@ export component SettingsWindow inherits Window {
     callback test-service(ServiceDraft);
     callback fetch-models(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
+    callback start-benchmark(ServiceDraft, bool);
+    callback stop-benchmark(ServiceDraft);
+
+    public function show-bench-error(err: string) {
+        dialogs.show-test-result(@tr("Cannot start speed test: {}", err), false);
+    }
 
     // 测试结果不走 Toast：Toast 钉在窗口正中，会压住对话框里的控件，关掉对话框还浮在那。
     // 旧版是在表单里加一行结果条（`google/Config.jsx:194-204`），跟着对话框走。
@@ -566,6 +577,11 @@ export component SettingsWindow inherits Window {
         testing: root.testing-service;
         fetching: root.fetching-models;
         ai-models: root.ai-models;
+        bench-running: root.bench-running;
+        bench-current: root.bench-current;
+        bench-remaining: root.bench-remaining;
+        bench-tested: root.bench-tested;
+        bench-failed: root.bench-failed;
 
         refresh-resolved-url(base, model, protocol, locked-icon) => {
             root.refresh-resolved-url(base, model, protocol, locked-icon);
@@ -578,6 +594,12 @@ export component SettingsWindow inherits Window {
         }
         fetch-models(draft) => {
             root.fetch-models(draft);
+        }
+        start-benchmark(draft, force) => {
+            root.start-benchmark(draft, force);
+        }
+        stop-benchmark(draft) => {
+            root.stop-benchmark(draft);
         }
     }
 

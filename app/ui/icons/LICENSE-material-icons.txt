@@ -1,5 +1,5 @@
 volume-2.svg (volume_up), copy.svg (content_copy), check.svg (check),
-star.svg (star_border), square.svg (stop),
+star.svg (star_border), square.svg (stop), play-arrow.svg (play_arrow),
 settings-brightness.svg (settings_brightness), light-mode.svg (light_mode),
 dark-mode.svg (dark_mode), drag_handle.svg (drag_handle), edit.svg (edit),
 delete.svg (delete) — Material Design Icons

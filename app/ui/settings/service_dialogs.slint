@@ -6,7 +6,15 @@ import { SettingRow } from "../common/card.slint";
 import { Select } from "../common/select.slint";
 import { TextField, TextArea } from "../common/text_field.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
+import { LoadingDots } from "../common/loading_dots.slint";
 import { ServiceIcon } from "service_icon.slint";
+
+export struct ModelRow {
+    name: string,
+    state: string,   // "ms" | "testing" | "untested" | "failed"
+    ms: int,
+    rank: int,       // 0 = 不显示排名
+}
 
 export struct AiPreset {
     id: string,
@@ -344,12 +352,19 @@ export component ServiceDialogs {
     in property <brush> wechat-icon-color;
     in property <bool> testing: false;
     in property <bool> fetching: false;
-    in property <[string]> ai-models: [];
+    in property <[ModelRow]> ai-models: [];
+    in property <bool> bench-running: false;
+    in property <string> bench-current: "";
+    in property <int> bench-remaining: 0;
+    in property <int> bench-tested: 0;
+    in property <int> bench-failed: 0;
 
     callback save-service(ServiceDraft);
     callback test-service(ServiceDraft);
     callback fetch-models(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
+    callback start-benchmark(ServiceDraft, bool);
+    callback stop-benchmark(ServiceDraft);
 
     // 测试连接的结果条（旧版 `google/Config.jsx:194-204`）。组件自己写自己的**普通**属性，
     // 不是 `in-out`（U-11），值由调用方通过下面这个 public function 送进来，跟 `Toast` 同一个路子。
@@ -865,13 +880,38 @@ export component ServiceDialogs {
                                         cross-axis-alignment: center;
 
                                         Text {
-                                            text: @tr("Models");
+                                            text: @tr("Model Speed Test");
                                             font-size: 13px;
                                             color: Theme.foreground;
                                             vertical-alignment: center;
                                         }
 
-                                        Text {
+                                        if root.bench-running : HorizontalLayout {
+                                            spacing: 4px;
+                                            cross-axis-alignment: center;
+
+                                            // 三点自己没有固有尺寸（内部是 `for`，不参与布局信息，§3 第 17 条），
+                                            // 横排里 cross-axis-alignment: center 拿 preferred 会压成 0 —— 必须给死尺寸。
+                                            LoadingDots { width: 16px; height: 4px; }
+
+                                            Text {
+                                                text: root.bench-current != "" ? root.bench-current : @tr("Testing...");
+                                                font-size: 11px;
+                                                color: Theme.primary;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        if !root.bench-running && root.bench-tested > 0 : Text {
+                                            text: root.bench-failed > 0
+                                                ? @tr("({}/{} available, {} failed)", root.bench-tested, root.ai-models.length, root.bench-failed)
+                                                : @tr("({}/{} available)", root.bench-tested, root.ai-models.length);
+                                            font-size: 11px;
+                                            color: Theme.default-400;
+                                            vertical-alignment: center;
+                                        }
+
+                                        if !root.bench-running && root.bench-tested == 0 : Text {
                                             text: "(" + root.ai-models.length + ")";
                                             font-size: 11px;
                                             color: Theme.default-400;
@@ -909,6 +949,64 @@ export component ServiceDialogs {
                                 padding-top: 4px;
                                 spacing: 6px;
 
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    cross-axis-alignment: center;
+                                    spacing: 8px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        cross-axis-alignment: center;
+                                        horizontal-stretch: 1;
+
+                                        if root.bench-running : Button {
+                                            size: "sm";
+                                            variant: "light";
+                                            color: "danger";
+                                            icon: @image-url("../icons/square.svg");
+                                            text: @tr("Stop");
+                                            clicked => { root.stop-benchmark(root.current-draft()); }
+                                        }
+                                        if !root.bench-running : Button {
+                                            size: "sm";
+                                            variant: "light";
+                                            color: "primary";
+                                            icon: @image-url("../icons/play-arrow.svg");
+                                            text: root.bench-tested > 0 ? @tr("Retest all") : @tr("Start speed test");
+                                            enabled: root.ai-models.length > 0;
+                                            clicked => {
+                                                root.test-result = "";
+                                                root.start-benchmark(root.current-draft(), root.bench-tested > 0);
+                                            }
+                                        }
+
+                                        // U-12：`alignment: space-between` 不分剩余空间，孩子一律按 preferred 摆，
+                                        // 说明文字够长就会把右边的「剩余 N」顶出 clip 之外。用已知定宽自己算，
+                                        // 剩下的 230px 留给按钮和剩余数。
+                                        Text {
+                                            width: cfg-modal.content-width - 230px;
+                                            text: @tr("Sequential probe, fastest first");
+                                            font-size: 11px;
+                                            color: Theme.default-400;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    if root.bench-running : Text {
+                                        text: @tr("{} left", root.bench-remaining);
+                                        font-size: 11px;
+                                        color: Theme.primary;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 0;
+                                    }
+                                }
+
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.default-200;
+                                }
+
                                 if root.ai-models.length == 0 : Rectangle {
                                     height: 36px;
 
@@ -925,10 +1023,10 @@ export component ServiceDialogs {
                                     height: 32px;
                                     border-radius: Theme.radius-small;
                                     border-width: 1px;
-                                    border-color: m == root.draft-ai-model
+                                    border-color: m.name == root.draft-ai-model
                                         ? Theme.primary.with-alpha(0.5)
                                         : Theme.default-200;
-                                    background: m == root.draft-ai-model
+                                    background: m.name == root.draft-ai-model
                                         ? Theme.primary.with-alpha(0.1)
                                         : Colors.transparent;
 
@@ -938,8 +1036,47 @@ export component ServiceDialogs {
                                         spacing: 8px;
                                         cross-axis-alignment: center;
 
+                                        Rectangle {
+                                            width: 32px;
+                                            // U-10：非布局元素不会被子元素撑开，横排里又是按 preferred 居中，
+                                            // 不写死高度会塌成 0，里面按 parent.height 算的 y 会跑到行外。
+                                            height: 32px;
+
+                                            if m.state == "ms" : Text {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                                text: "#" + m.rank;
+                                                font-size: 11px;
+                                                color: Theme.default-500;
+                                            }
+                                            if m.state == "testing" : HorizontalLayout {
+                                                alignment: center;
+                                                cross-axis-alignment: center;
+                                                LoadingDots { width: 16px; height: 4px; }
+                                            }
+                                            if m.state == "failed" : Image {
+                                                width: 12px;
+                                                height: 12px;
+                                                source: @image-url("../icons/x.svg");
+                                                colorize: Theme.danger;
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                            }
+                                            if m.state != "ms" && m.state != "testing" && m.state != "failed" : Text {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                                text: "-";
+                                                font-size: 11px;
+                                                color: Theme.default-300;
+                                            }
+                                        }
+
                                         Text {
-                                            text: m;
+                                            text: m.name;
                                             font-size: 12px;
                                             color: Theme.foreground;
                                             overflow: elide;
@@ -947,17 +1084,37 @@ export component ServiceDialogs {
                                             vertical-alignment: center;
                                         }
 
+                                        Text {
+                                            width: 64px;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                            font-size: 11px;
+                                            text: m.state == "ms" ? (m.ms + "ms") :
+                                                  m.state == "testing" ? @tr("Testing...") :
+                                                  m.state == "failed" ? @tr("Unavailable") :
+                                                  @tr("Untested");
+                                            color: m.state == "ms" ? (
+                                                m.ms < 350 ? Theme.success :
+                                                m.ms < 800 ? Theme.primary :
+                                                m.ms < 1500 ? Theme.warning :
+                                                Theme.danger
+                                            ) :
+                                            m.state == "testing" ? Theme.primary :
+                                            m.state == "failed" ? Theme.danger :
+                                            Theme.default-400;
+                                        }
+
                                         Button {
                                             size: "sm";
-                                            variant: m == root.draft-ai-model ? "solid" : "bordered";
+                                            variant: m.name == root.draft-ai-model ? "solid" : "bordered";
                                             color: "primary";
-                                            text: m == root.draft-ai-model ? @tr("In use") : @tr("Use");
-                                            enabled: m != root.draft-ai-model;
+                                            text: m.name == root.draft-ai-model ? @tr("In use") : @tr("Use");
+                                            enabled: m.name != root.draft-ai-model && m.state != "failed";
                                             clicked => {
-                                                root.draft-ai-model = m;
+                                                root.draft-ai-model = m.name;
                                                 root.refresh-resolved-url(
                                                     root.draft-ai-base-url,
-                                                    m,
+                                                    m.name,
                                                     root.current-protocol-str(),
                                                     root.draft-ai-icon
                                                 );
