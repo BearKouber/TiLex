@@ -35,7 +35,7 @@ fn run() -> Result<(), Error> {
         "============== Start TiLex {} ==============",
         env!("CARGO_PKG_VERSION")
     );
-    let backup = config::init(&data)?;
+    let startup = config::init(&data)?;
     if let Err(e) = wordbook::init(&data) {
         log::error!("Main: wordbook init failed: {e}");
     }
@@ -66,8 +66,14 @@ fn run() -> Result<(), Error> {
     }) {
         log::error!("Main: listen for second instance failed: {e}");
     }
-    if let Some(backup) = backup {
-        ui::settings::open_with_notice(&backup);
+    // 设置窗口要在托盘和浮标之后建（它们先占住事件循环和翻译上下文）。
+    match startup {
+        config::Startup::Normal => {}
+        config::Startup::FirstRun => {
+            log::info!("Main: first run, opening settings");
+            ui::settings::open();
+        }
+        config::Startup::Recovered(backup) => ui::settings::open_with_notice(&backup),
     }
 
     // 没有窗口时事件循环也不退出，只有托盘"退出"才结束（design §1.4）。

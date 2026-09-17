@@ -358,6 +358,13 @@ fn style_when_ready(weak: slint::Weak<SettingsWindow>, attempt: u32) {
                 // 原生窗口这时才有：show() 之前问不到系统主题，"跟随系统"要在这里再算一次
                 page.set_color_scheme(super::resolve_color_scheme(page.window()));
                 center_on_screen(page.window());
+                // 也是在这里才抢得到前台。从托盘点开时我们不是前台进程，Windows 不让直接抢焦点，
+                // 光 show() 只会在任务栏闪一个按钮，还得用户再点一下（用户实测）。
+                // 窗口已经开着的那条路在 `open_inner` 里抢过了，这里管的是第一次建窗口。
+                match platform::bring_to_front(page.window()) {
+                    Ok(()) | Err(Error::Unsupported) => {}
+                    Err(e) => log::warn!("Settings: bring to front after create failed: {e}"),
+                }
             }
             Err(e) if attempt >= MAX_ATTEMPTS => {
                 log::warn!("Settings: style frameless window failed after {attempt} tries: {e}");

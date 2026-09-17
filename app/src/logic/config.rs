@@ -315,13 +315,29 @@ fn write_atomic(path: &Path, config: &Config) -> Result<(), Error> {
 
 static STORE: OnceLock<Store> = OnceLock::new();
 
-/// 启动时调一次。返回损坏文件的备份路径（有的话），给设置窗口提示。
-pub fn init(dir: &Path) -> Result<Option<PathBuf>, Error> {
+/// `init` 看到的启动情形，决定要不要自己弹设置窗口。
+pub enum Startup {
+    /// 配置文件读出来了，静默启动，只进托盘。
+    Normal,
+    /// 数据目录里还没有配置文件：首次运行，弹设置窗口（F11）。
+    FirstRun,
+    /// 配置文件读不出来，已改名备份、换成默认值：弹设置窗口并提示备份文件名。
+    Recovered(PathBuf),
+}
+
+/// 启动时调一次。
+pub fn init(dir: &Path) -> Result<Startup, Error> {
+    // 在 `Store::open` 之前问：它发现文件不存在就会把默认配置写下去，之后再问就永远是"存在"。
+    let first_run = !dir.join(FILE).exists();
     let (store, backup) = Store::open(dir)?;
     STORE
         .set(store)
         .map_err(|_| Error::Platform("config already initialized".into()))?;
-    Ok(backup)
+    Ok(match backup {
+        Some(path) => Startup::Recovered(path),
+        None if first_run => Startup::FirstRun,
+        None => Startup::Normal,
+    })
 }
 
 /// 全局配置的拷贝。没初始化时返回默认值。
