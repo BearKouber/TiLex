@@ -51,6 +51,9 @@ pub use proxy::system_proxy;
 mod autostart;
 pub use autostart::{autostart_enabled, set_autostart};
 
+mod screenshot;
+pub use screenshot::capture_screen;
+
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");
@@ -62,6 +65,12 @@ pub fn data_dir() -> Result<PathBuf, Error> {
     let appdata =
         std::env::var_os("APPDATA").ok_or_else(|| Error::Platform("APPDATA is not set".into()))?;
     Ok(PathBuf::from(appdata).join("TiLex"))
+}
+
+pub fn cache_dir() -> Result<PathBuf, Error> {
+    let localappdata = std::env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| Error::Platform("LOCALAPPDATA is not set".into()))?;
+    Ok(PathBuf::from(localappdata).join("TiLex").join("cache"))
 }
 
 pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {

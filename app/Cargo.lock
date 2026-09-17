@@ -5125,6 +5125,7 @@ dependencies = [
  "global-hotkey",
  "lingua",
  "log",
+ "png",
  "raw-window-handle",
  "rusqlite",
  "serde",

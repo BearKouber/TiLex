@@ -39,6 +39,7 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls", "pla
 # 生词本（design §2.3）。Windows 没有可靠的系统 SQLite，所以 bundled。
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 global-hotkey = "0.8.0"
+png = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [

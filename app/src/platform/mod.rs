@@ -30,6 +30,12 @@ pub fn data_dir() -> Result<PathBuf, Error> {
     imp::data_dir()
 }
 
+/// 缓存目录：Windows `%LOCALAPPDATA%\TiLex\cache`，macOS `~/Library/Caches/TiLex`（design §2.2）。
+/// OCR 的临时图落在这里。只拼路径，不创建。
+pub fn cache_dir() -> Result<PathBuf, Error> {
+    imp::cache_dir()
+}
+
 /// 抢单实例。拿到返回 `Ok(true)`；已有实例在跑时通知它打开设置窗口，返回 `Ok(false)`，调用方应直接退出。
 /// `wait`：等已有实例退出的时间（重启时用，平时是 0）。
 pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
@@ -212,4 +218,16 @@ pub fn result_window_focused() -> Option<bool> {
 /// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。
 pub fn copy_text(text: &str) -> Result<(), Error> {
     imp::copy_text(text)
+}
+
+/// 抓下来的整个虚拟屏（物理像素）。`x`/`y` 是虚拟屏左上角在桌面坐标系里的位置，多屏时可以是负数。
+pub struct Shot {
+    pub x: i32,
+    pub y: i32,
+    pub pixels: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+}
+
+/// 抓整个虚拟屏。几十毫秒，**不要在 UI 线程上调**（R-5）。
+pub fn capture_screen() -> Result<Shot, Error> {
+    imp::capture_screen()
 }

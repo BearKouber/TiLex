@@ -9,6 +9,7 @@ pub mod placement;
 pub mod popup_state;
 pub mod result;
 pub mod saved_entry;
+pub mod screenshot;
 pub mod service_icon;
 pub mod translate;
 pub mod update;
