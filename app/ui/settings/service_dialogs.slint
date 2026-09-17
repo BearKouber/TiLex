@@ -342,9 +342,26 @@ export component ServiceDialogs {
 
     in property <length> window-height;
     in property <brush> wechat-icon-color;
+    in property <bool> testing: false;
 
     callback save-service(ServiceDraft);
+    callback test-service(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
+
+    // 测试连接的结果条（旧版 `google/Config.jsx:194-204`）。组件自己写自己的**普通**属性，
+    // 不是 `in-out`（U-11），值由调用方通过下面这个 public function 送进来，跟 `Toast` 同一个路子。
+    property <string> test-result: "";
+    property <bool> test-ok: false;
+
+    public function show-test-result(message: string, ok: bool) {
+        root.test-result = message;
+        root.test-ok = ok;
+    }
+
+    // 换对话框（打开、关闭、退回上一层）一律把上一次的结果丢掉
+    changed dialog => {
+        root.test-result = "";
+    }
 
     function current-protocol-str() -> string {
         root.draft-ai-protocol-index == 1 ? "openai_responses" : (
@@ -352,6 +369,25 @@ export component ServiceDialogs {
                 root.draft-ai-protocol-index == 3 ? "google" : "openai_chat"
             )
         )
+    }
+
+    function current-draft() -> ServiceDraft {
+        {
+            kind: root.dialog-kind,
+            real-index: root.dialog-index,
+            service: root.dialog-service,
+            label: root.draft-label,
+            google-mode: root.draft-google-mode-index == 1 ? "custom_api" : (root.draft-google-mode-index == 2 ? "api" : "web"),
+            google-custom-url: root.draft-google-custom-url,
+            google-api-key: root.draft-google-api-key,
+            google-custom-api-url: root.draft-google-custom-api-url,
+            ai-base-url: root.draft-ai-base-url,
+            ai-api-key: root.draft-ai-api-key,
+            ai-model: root.draft-ai-model,
+            ai-protocol: root.current-protocol-str(),
+            ai-custom-instructions: root.draft-ai-custom-instructions,
+            ai-icon: root.draft-ai-icon,
+        }
     }
 
     function select-preset(p: AiPreset) {
@@ -558,9 +594,11 @@ export component ServiceDialogs {
         scroll := ScrollArea {
             // 高度跟表单走，长了才夹到上限并滚动。ScrollArea 的 preferred-height 是 100%，
             // 不显式给高度会把对话框撑满（B2 F7 实测）。
+            // 结果条是卡片里多出来的一行（连同它上面那 12px 间距），表单要给它让出这点高度，
+            // 否则卡片会顶到 Modal 的 80% 上限，底下的按钮被挤出去。
             height: min(
                 form-layout.preferred-height,
-                max(100px, root.window-height * 0.75 - 192px)
+                max(100px, root.window-height * 0.75 - 192px - result-box.height - 12px)
             );
             // 滚动条默认画在 ScrollArea 自己的右边缘，也就是 Modal 内容区 24px 内边距的里侧，
             // 正好压在右列控件上（旧版是贴卡片边缘的）。用负值把它推出内边距：
@@ -787,29 +825,75 @@ export component ServiceDialogs {
             }
         }
 
-        Button {
+        // 测试结果条。空的时候高 0（Slint 里 `visible: false` 照样占位，要自己把高度归零）。
+        result-box := Rectangle {
+            height: root.test-result == "" ? 0px : result-layout.preferred-height;
+            visible: root.test-result != "";
+            background: root.test-ok
+                ? Theme.success.with-alpha(0.12)
+                : Theme.danger.with-alpha(0.12);
+            border-width: root.test-result == "" ? 0px : 1px;
+            border-color: root.test-ok
+                ? Theme.success.with-alpha(0.4)
+                : Theme.danger.with-alpha(0.4);
+            border-radius: Theme.radius-medium;
+
+            result-layout := VerticalLayout {
+                padding: 12px;
+
+                Text {
+                    text: root.test-result;
+                    font-size: 12px;
+                    // 亮色下原色太亮，压暗一档才看得清（旧版是 success-700 / danger-700）
+                    color: root.test-ok
+                        ? (Theme.dark ? Theme.success : Theme.success.darker(0.35))
+                        : (Theme.dark ? Theme.danger.brighter(0.3) : Theme.danger);
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.dialog-service == "wechat" : Button {
             text: @tr("Save");
             variant: "solid";
             color: "primary";
             size: "md";
             full-width: true;
             clicked => {
-                root.save-service({
-                    kind: root.dialog-kind,
-                    real-index: root.dialog-index,
-                    service: root.dialog-service,
-                    label: root.draft-label,
-                    google-mode: root.draft-google-mode-index == 1 ? "custom_api" : (root.draft-google-mode-index == 2 ? "api" : "web"),
-                    google-custom-url: root.draft-google-custom-url,
-                    google-api-key: root.draft-google-api-key,
-                    google-custom-api-url: root.draft-google-custom-api-url,
-                    ai-base-url: root.draft-ai-base-url,
-                    ai-api-key: root.draft-ai-api-key,
-                    ai-model: root.draft-ai-model,
-                    ai-protocol: root.current-protocol-str(),
-                    ai-custom-instructions: root.draft-ai-custom-instructions,
-                    ai-icon: root.draft-ai-icon,
-                });
+                root.save-service(root.current-draft());
+            }
+        }
+
+        if root.dialog-service != "wechat" : HorizontalLayout {
+            spacing: 8px;
+
+            // 平分宽度（ui.md §6.5）：两个按钮的文字长度不同，preferred-width 就不同，
+            // 光给 horizontal-stretch 只会平分**剩余**空间（§3.15），测试那个会宽一截。
+            // 按 U-12 用外层已知的定宽自己算。
+            property <length> half: (cfg-modal.content-width - 8px) / 2;
+
+            Button {
+                width: parent.half;
+                text: @tr("Test Connection");
+                variant: "bordered";
+                size: "md";
+                loading: root.testing;
+                clicked => {
+                    root.test-result = "";
+                    root.test-service(root.current-draft());
+                }
+            }
+
+            Button {
+                width: parent.half;
+                text: @tr("Save");
+                variant: "solid";
+                color: "primary";
+                size: "md";
+                enabled: !root.testing;
+                clicked => {
+                    root.save-service(root.current-draft());
+                }
             }
         }
 

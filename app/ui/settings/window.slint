@@ -158,6 +158,7 @@ export component SettingsWindow inherits Window {
     in-out property <string> dialog-kind: "translate";
     in-out property <string> dialog-service: "google";
     in-out property <int> dialog-index: -1;
+    in-out property <bool> testing-service: false;
 
     in-out property <string> draft-label: "";
     in-out property <int> draft-google-mode-index: 0;
@@ -183,7 +184,18 @@ export component SettingsWindow inherits Window {
     in property <brush> wechat-icon-color;
 
     callback save-service(ServiceDraft);
+    callback test-service(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
+
+    // 测试结果不走 Toast：Toast 钉在窗口正中，会压住对话框里的控件，关掉对话框还浮在那。
+    // 旧版是在表单里加一行结果条（`google/Config.jsx:194-204`），跟着对话框走。
+    public function show-test-success(text: string, ms: int) {
+        dialogs.show-test-result(@tr("Connection OK: \"Hello world\" → \"{}\" ({}ms)", text, ms), true);
+    }
+
+    public function show-test-failed(err: string, ms: int) {
+        dialogs.show-test-result(@tr("Test failed: {} ({}ms)", err, ms), false);
+    }
 
     public function show-least-services-warning() {
         toast.show(@tr("Please keep at least one translation service"), 2);
@@ -512,7 +524,7 @@ export component SettingsWindow inherits Window {
         }
     }
 
-    ServiceDialogs {
+    dialogs := ServiceDialogs {
         dialog <=> root.dialog;
         dialog-kind <=> root.dialog-kind;
         dialog-service <=> root.dialog-service;
@@ -540,12 +552,16 @@ export component SettingsWindow inherits Window {
 
         window-height: root.height;
         wechat-icon-color: root.wechat-icon-color;
+        testing: root.testing-service;
 
         refresh-resolved-url(base, model, protocol, locked-icon) => {
             root.refresh-resolved-url(base, model, protocol, locked-icon);
         }
         save-service(draft) => {
             root.save-service(draft);
+        }
+        test-service(draft) => {
+            root.test-service(draft);
         }
     }
 

@@ -444,3 +444,12 @@ msgstr "模型"
 msgid "Custom Instructions"
 msgstr "自定义要求"
 
+msgid "Test Connection"
+msgstr "测试连通性"
+
+msgid "Connection OK: \"Hello world\" → \"{}\" ({}ms)"
+msgstr "连接正常: \"Hello world\" → \"{}\" ({}ms)"
+
+msgid "Test failed: {} ({}ms)"
+msgstr "测试失败: {} ({}ms)"
+

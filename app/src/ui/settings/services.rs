@@ -5,8 +5,9 @@ use slint::{ComponentHandle, VecModel};
 use std::rc::Rc;
 
 use crate::logic::ai_presets;
-use crate::logic::config::{self, Service};
+use crate::logic::config::{self, AiConfig, GoogleConfig, Service};
 use crate::logic::service_icon as icons;
+use crate::logic::translate;
 use crate::slint_ui::{ServiceRow, SettingsWindow};
 
 pub fn bind(page: &SettingsWindow) {
@@ -57,25 +58,14 @@ pub fn bind(page: &SettingsWindow) {
     let weak = page.as_weak();
     page.on_save_service(move |draft| {
         if let Some(page) = weak.upgrade() {
-            handle_save_service(
-                &page,
-                ServiceDraft {
-                    kind: draft.kind.as_str(),
-                    real_idx: draft.real_index,
-                    service: draft.service.as_str(),
-                    label: draft.label.as_str(),
-                    mode: draft.google_mode.as_str(),
-                    custom_url: draft.google_custom_url.as_str(),
-                    api_key: draft.google_api_key.as_str(),
-                    custom_api_url: draft.google_custom_api_url.as_str(),
-                    ai_base_url: draft.ai_base_url.as_str(),
-                    ai_api_key: draft.ai_api_key.as_str(),
-                    ai_model: draft.ai_model.as_str(),
-                    ai_protocol: draft.ai_protocol.as_str(),
-                    ai_custom_instructions: draft.ai_custom_instructions.as_str(),
-                    ai_icon: draft.ai_icon.as_str(),
-                },
-            );
+            handle_save_service(&page, ServiceDraft::from(&draft));
+        }
+    });
+
+    let weak = page.as_weak();
+    page.on_test_service(move |draft| {
+        if let Some(page) = weak.upgrade() {
+            handle_test_service(&page, ServiceDraft::from(&draft));
         }
     });
 }
@@ -342,6 +332,58 @@ struct ServiceDraft<'a> {
     ai_icon: &'a str,
 }
 
+impl<'a> From<&'a crate::slint_ui::ServiceDraft> for ServiceDraft<'a> {
+    fn from(d: &'a crate::slint_ui::ServiceDraft) -> Self {
+        Self {
+            kind: d.kind.as_str(),
+            real_idx: d.real_index,
+            service: d.service.as_str(),
+            label: d.label.as_str(),
+            mode: d.google_mode.as_str(),
+            custom_url: d.google_custom_url.as_str(),
+            api_key: d.google_api_key.as_str(),
+            custom_api_url: d.google_custom_api_url.as_str(),
+            ai_base_url: d.ai_base_url.as_str(),
+            ai_api_key: d.ai_api_key.as_str(),
+            ai_model: d.ai_model.as_str(),
+            ai_protocol: d.ai_protocol.as_str(),
+            ai_custom_instructions: d.ai_custom_instructions.as_str(),
+            ai_icon: d.ai_icon.as_str(),
+        }
+    }
+}
+
+fn draft_google_config(draft: &ServiceDraft<'_>) -> GoogleConfig {
+    GoogleConfig {
+        mode: draft.mode.to_string(),
+        custom_url: draft.custom_url.trim().to_string(),
+        api_key: draft.api_key.trim().to_string(),
+        custom_api_url: draft.custom_api_url.trim().to_string(),
+    }
+}
+
+/// `base`：编辑已有实例时传它现在的配置，界面上编不到的字段（`request_arguments`、
+/// `legacy_reference_instructions`）原样保留；新建传 `None` 用 `AiConfig::default()`。
+fn draft_ai_config(draft: &ServiceDraft<'_>, base: Option<&AiConfig>) -> AiConfig {
+    let mut config = base.cloned().unwrap_or_default();
+    config.base_url = draft.ai_base_url.trim().to_string();
+    config.api_key = draft.ai_api_key.trim().to_string();
+    config.model = draft.ai_model.trim().to_string();
+    config.protocol = draft.ai_protocol.trim().to_string();
+    config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
+    config
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        let mut truncated: String = s.chars().take(max_chars).collect();
+        truncated.push('…');
+        truncated
+    } else {
+        s.to_string()
+    }
+}
+
 fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
     let res = config::update(|c| {
         let list = match draft.kind {
@@ -364,21 +406,83 @@ fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
     }
 }
 
+enum TestTarget {
+    Google(GoogleConfig),
+    Ai(AiConfig),
+}
+
+fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
+    if page.get_testing_service() {
+        return;
+    }
+    page.set_testing_service(true);
+
+    let target = match draft.service {
+        "google" => TestTarget::Google(draft_google_config(&draft)),
+        "ai" => {
+            // 编辑已有实例时，界面上编不到的字段（request_arguments 等）从它现在的配置里接着用。
+            let base = config::snapshot()
+                .translate_services
+                .get(usize::try_from(draft.real_idx).unwrap_or(usize::MAX))
+                .and_then(|s| match s {
+                    Service::Ai(inst) => Some(inst.config.clone()),
+                    _ => None,
+                });
+            TestTarget::Ai(draft_ai_config(&draft, base.as_ref()))
+        }
+        _ => {
+            log::warn!(
+                "Settings: unexpected service kind for test: {}",
+                draft.service
+            );
+            page.set_testing_service(false);
+            return;
+        }
+    };
+
+    let weak = page.as_weak();
+    if let Err(e) = std::thread::Builder::new()
+        .name("service-test".into())
+        .spawn(move || {
+            let start = std::time::Instant::now();
+            let res = match &target {
+                TestTarget::Google(c) => translate::test_google(c),
+                TestTarget::Ai(c) => translate::test_ai(c),
+            };
+            let elapsed_ms = start.elapsed().as_millis().min(i32::MAX as u128) as i32;
+            // ignore: window might be closed during async test
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(page) = weak.upgrade() else { return };
+                page.set_testing_service(false);
+                match res {
+                    Ok(text) => {
+                        let truncated = truncate_chars(&text, 80);
+                        page.invoke_show_test_success(truncated.into(), elapsed_ms);
+                    }
+                    Err(e) => {
+                        page.invoke_show_test_failed(e.to_string().into(), elapsed_ms);
+                    }
+                }
+            });
+        })
+    {
+        log::error!("Settings: spawn service-test thread failed: {e}");
+        page.set_testing_service(false);
+        page.invoke_show_test_failed(e.to_string().into(), 0);
+    }
+}
+
 /// 把对话框的草稿写进服务列表：`real_idx == -1` 追加一个新实例（默认关闭，由用户手动开启），
 /// 否则改这一项，保留它原有的 `enabled` 和 `extra`（不认识的字段不能因为一次保存就丢）。
 fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
     if draft.real_idx == -1 {
         match draft.service {
             "google" => {
-                let mut inst = config::Instance::<config::GoogleConfig>::new(
-                    &config::new_instance_id("google"),
-                );
+                let mut inst =
+                    config::Instance::<GoogleConfig>::new(&config::new_instance_id("google"));
                 inst.enabled = false;
                 inst.label = draft.label.trim().to_string();
-                inst.config.mode = draft.mode.to_string();
-                inst.config.custom_url = draft.custom_url.trim().to_string();
-                inst.config.api_key = draft.api_key.trim().to_string();
-                inst.config.custom_api_url = draft.custom_api_url.trim().to_string();
+                inst.config = draft_google_config(draft);
                 list.push(Service::Google(inst));
             }
             "wechat" => {
@@ -389,15 +493,10 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 list.push(Service::Wechat(inst));
             }
             "ai" => {
-                let mut inst =
-                    config::Instance::<config::AiConfig>::new(&config::new_instance_id("ai"));
+                let mut inst = config::Instance::<AiConfig>::new(&config::new_instance_id("ai"));
                 inst.enabled = false;
                 inst.label = draft.label.trim().to_string();
-                inst.config.base_url = draft.ai_base_url.trim().to_string();
-                inst.config.api_key = draft.ai_api_key.trim().to_string();
-                inst.config.model = draft.ai_model.trim().to_string();
-                inst.config.protocol = draft.ai_protocol.trim().to_string();
-                inst.config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
+                inst.config = draft_ai_config(draft, None);
                 let icon = draft.ai_icon.trim();
                 if !icon.is_empty() {
                     inst.extra.insert(
@@ -413,21 +512,14 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
         match item {
             Service::Google(inst) => {
                 inst.label = draft.label.trim().to_string();
-                inst.config.mode = draft.mode.to_string();
-                inst.config.custom_url = draft.custom_url.trim().to_string();
-                inst.config.api_key = draft.api_key.trim().to_string();
-                inst.config.custom_api_url = draft.custom_api_url.trim().to_string();
+                inst.config = draft_google_config(draft);
             }
             Service::Wechat(inst) => {
                 inst.label = draft.label.trim().to_string();
             }
             Service::Ai(inst) => {
                 inst.label = draft.label.trim().to_string();
-                inst.config.base_url = draft.ai_base_url.trim().to_string();
-                inst.config.api_key = draft.ai_api_key.trim().to_string();
-                inst.config.model = draft.ai_model.trim().to_string();
-                inst.config.protocol = draft.ai_protocol.trim().to_string();
-                inst.config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
+                inst.config = draft_ai_config(draft, Some(&inst.config));
                 if !inst.extra.contains_key("icon") {
                     let icon = draft.ai_icon.trim();
                     if !icon.is_empty() {
@@ -667,6 +759,12 @@ mod tests {
         inst.label = "Old AI".into();
         inst.config.base_url = "https://api.openai.com/v1".into();
         inst.config.api_key = "old_key".into();
+        inst.config
+            .request_arguments
+            .insert("temperature".into(), serde_json::json!(0.7));
+        inst.config
+            .request_arguments
+            .insert("custom_arg".into(), serde_json::json!("val"));
         inst.extra
             .insert("icon".into(), serde_json::json!("openai"));
         inst.extra
@@ -692,12 +790,59 @@ mod tests {
         assert_eq!(edited.config.api_key, "new_key");
         assert_eq!(edited.config.model, "gpt-4o");
         assert_eq!(edited.config.custom_instructions, "keep original tone");
+        assert_eq!(
+            edited.config.request_arguments.get("temperature"),
+            Some(&serde_json::json!(0.7)),
+            "编辑不能重置 request_arguments"
+        );
+        assert_eq!(
+            edited.config.request_arguments.get("custom_arg"),
+            Some(&serde_json::json!("val")),
+            "编辑不能丢自定义生成参数"
+        );
         assert_eq!(edited.extra.get("icon"), Some(&serde_json::json!("openai")));
         assert_eq!(
             edited.extra.get("custom_extra_field"),
             Some(&serde_json::json!(42)),
             "未知 extra 字段必须保留"
         );
+    }
+
+    #[test]
+    fn test_truncate_chars() {
+        assert_eq!(truncate_chars("hello", 10), "hello");
+        assert_eq!(truncate_chars("你好世界", 4), "你好世界");
+        assert_eq!(truncate_chars("你好世界！", 4), "你好世界…");
+        assert_eq!(truncate_chars("abcdefghij", 5), "abcde…");
+    }
+
+    #[test]
+    fn test_draft_configs() {
+        let mut d = draft(-1, "google", "Google", "custom_api");
+        d.custom_api_url = "https://custom.com";
+        let g_cfg = draft_google_config(&d);
+        assert_eq!(g_cfg.mode, "custom_api");
+        assert_eq!(g_cfg.custom_api_url, "https://custom.com");
+
+        let mut d_ai = draft(-1, "ai", "AI", "");
+        d_ai.ai_base_url = "https://ai.example.com";
+        d_ai.ai_model = "gpt-4";
+        let ai_cfg_new = draft_ai_config(&d_ai, None);
+        assert_eq!(ai_cfg_new.base_url, "https://ai.example.com");
+        assert_eq!(ai_cfg_new.model, "gpt-4");
+        assert!(ai_cfg_new.request_arguments.contains_key("temperature"));
+
+        let mut base = AiConfig::default();
+        base.request_arguments
+            .insert("temperature".into(), serde_json::json!(0.8));
+        base.legacy_reference_instructions = "legacy".into();
+        let ai_cfg_edit = draft_ai_config(&d_ai, Some(&base));
+        assert_eq!(ai_cfg_edit.base_url, "https://ai.example.com");
+        assert_eq!(
+            ai_cfg_edit.request_arguments.get("temperature"),
+            Some(&serde_json::json!(0.8))
+        );
+        assert_eq!(ai_cfg_edit.legacy_reference_instructions, "legacy");
     }
 
     #[test]

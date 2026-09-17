@@ -66,7 +66,7 @@ pub enum Update {
 
 /// 请求开始时冻结的一个服务。
 #[derive(Clone)]
-enum Request {
+pub(crate) enum Request {
     Google(google::Config),
     Ai(ai::Effective),
 }
@@ -337,7 +337,7 @@ fn run_one(ctx: Ctx, job: Job) {
 }
 
 /// 一个 `match` 就是服务注册表（design §4.3）：加服务 = 加一个文件 + 这里加一行。
-fn call(
+pub(crate) fn call(
     request: &Request,
     text: &str,
     from: &str,
@@ -352,6 +352,30 @@ fn call(
             Ok(result::dictionary_result(&raw, kind))
         }
     }
+}
+
+const TEST_TEXT: &str = "Hello world";
+
+/// 用给定配置真发一次翻译，返回译文。设置窗口的「测试连接」用。
+/// 耗时由调用方计：失败时也要显示耗时，计时只能有一处，否则两个数对不上。
+pub fn test_google(config: &google::Config) -> Result<String, Error> {
+    test_request(&Request::Google(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
+    test_request(&Request::Ai(config.effective()))
+}
+
+fn test_request(request: &Request) -> Result<String, Error> {
+    let name = match request {
+        Request::Google(_) => "google",
+        Request::Ai(_) => "ai",
+    };
+    // 只记分类：错误里本来就不带响应体、地址和 key。
+    let value = call(request, TEST_TEXT, "auto", "zh_cn", "en")
+        .inspect_err(|e| log::warn!("Translate: {name} test failed: {e}"))?;
+    Ok(result::result_text(&value))
 }
 
 #[cfg(test)]
@@ -424,5 +448,12 @@ mod tests {
         assert!(q.id > before);
         assert_eq!(q.text, "");
         q.save(None, |_| panic!("empty text is never saved"));
+    }
+
+    #[test]
+    fn test_ai_fails_fast_on_missing_settings() {
+        let config = ai::Config::default();
+        let res = test_ai(&config);
+        assert!(res.is_err());
     }
 }
