@@ -80,26 +80,40 @@ pub fn accelerator(text: &str, ctrl: bool, shift: bool, alt: bool, meta: bool) -
                 // F1 - F24: '\u{F704}' - '\u{F71B}'
                 if ('\u{F704}'..='\u{F71B}').contains(&c) {
                     let num = (c as u32 - 0xF704) + 1;
-                    return Some(format_hotkey(&format!("F{num}"), ctrl, shift, alt, meta));
+                    return finish(&format!("F{num}"), ctrl, shift, alt, meta);
                 }
                 if c.is_ascii_alphabetic() {
-                    return Some(format_hotkey(
-                        &c.to_ascii_uppercase().to_string(),
-                        ctrl,
-                        shift,
-                        alt,
-                        meta,
-                    ));
+                    return finish(&c.to_ascii_uppercase().to_string(), ctrl, shift, alt, meta);
                 }
                 if c.is_ascii_digit() {
-                    return Some(format_hotkey(text, ctrl, shift, alt, meta));
+                    return finish(text, ctrl, shift, alt, meta);
                 }
             }
             return None;
         }
     };
 
-    Some(format_hotkey(key_name, ctrl, shift, alt, meta))
+    finish(key_name, ctrl, shift, alt, meta)
+}
+
+/// 无修饰键时允许单独当全局快捷键的键：这些键本身不输入字符，抢下来不影响打字。
+/// 其余（字母、数字、符号、Space / Tab / Enter / Delete、方向键、翻页键）必须带至少一个修饰键
+/// —— 裸注册会把全系统的这个键都抢走，之后打字打不出这个字符。
+/// 旧版 `readHotkey` 没拦这一层（按 A 就存成 `A`），2026-09-17 用户定改掉。
+fn bare_allowed(key: &str) -> bool {
+    matches!(key, "PrintScreen" | "Pause" | "ScrollLock")
+        || key
+            .strip_prefix('F')
+            .and_then(|n| n.parse::<u8>().ok())
+            .is_some_and(|n| (1..=24).contains(&n))
+}
+
+/// 录完一个键：裸键不在白名单里就当「还没录完」，界面继续等修饰键。
+fn finish(key: &str, ctrl: bool, shift: bool, alt: bool, meta: bool) -> Option<String> {
+    if !(ctrl || shift || alt || meta) && !bare_allowed(key) {
+        return None;
+    }
+    Some(format_hotkey(key, ctrl, shift, alt, meta))
 }
 
 fn format_hotkey(key: &str, ctrl: bool, shift: bool, alt: bool, meta: bool) -> String {
@@ -162,6 +176,15 @@ pub fn apply(accelerator: &str) -> Result<(), Error> {
         });
         CURRENT_ID.store(0, Ordering::SeqCst);
         return Ok(());
+    }
+
+    // 裸键（写法里没有 `+`）只认 `bare_allowed` 那几个。录制界面已经拦了一层，这里拦的是
+    // 从配置文件进来的：旧版允许录裸字母，B7 导入旧配置时原样搬过来，注册了会抢走全系统的这个键。
+    if !trimmed.contains('+') && !bare_allowed(trimmed) {
+        log::warn!("Hotkey: refusing bare key {trimmed} (needs a modifier)");
+        return Err(Error::Platform(format!(
+            "{trimmed} needs a modifier (Ctrl / Shift / Alt / Super)"
+        )));
     }
 
     let hotkey: HotKey = trimmed
@@ -393,6 +416,61 @@ mod tests {
 
         // 10. Escape returns None
         assert_eq!(accelerator("\u{001b}", false, false, false, false), None);
+    }
+
+    /// 裸键（一个修饰键都没按）只有「本身不输入字符」的那几个能当全局快捷键；
+    /// 其余返回 None，界面当作还没录完。见 `bare_allowed`。
+    #[test]
+    fn bare_keys_need_a_modifier_except_function_keys() {
+        // 会抢走全系统打字的：字母、数字、符号、Space / Tab / Enter / Delete、方向键、翻页键
+        for text in [
+            "a", "Z", "1", "9", ",", "-", ".", "/", "`", "\\", "[", "]", "=", "'", ";", " ",
+            "\u{0009}", "\u{000a}", "\u{007f}", "\u{F700}", "\u{F701}", "\u{F702}", "\u{F703}",
+            "\u{F727}", "\u{F729}", "\u{F72B}", "\u{F72C}", "\u{F72D}",
+        ] {
+            assert_eq!(
+                accelerator(text, false, false, false, false),
+                None,
+                "裸键 {text:?} 不该录成快捷键"
+            );
+        }
+
+        // 不输入字符的：F1 / F12 / F24、ScrollLock、Pause、PrintScreen，裸按照旧可以
+        for (text, expected) in [
+            ("\u{F704}", "F1"),
+            ("\u{F70F}", "F12"),
+            ("\u{F71B}", "F24"),
+            ("\u{F72F}", "ScrollLock"),
+            ("\u{F730}", "Pause"),
+            ("\u{F731}", "PrintScreen"),
+        ] {
+            assert_eq!(
+                accelerator(text, false, false, false, false).as_deref(),
+                Some(expected)
+            );
+        }
+
+        // 带上任意一个修饰键就照常
+        assert_eq!(
+            accelerator("a", false, false, false, true).as_deref(),
+            Some(if std::env::consts::OS == "macos" {
+                "Command+A"
+            } else {
+                "Super+A"
+            })
+        );
+    }
+
+    /// 配置文件里的裸键也要挡住（旧版允许录裸字母，B7 导入会原样搬过来）。
+    /// 空串是「清空」，照旧放过；注册成功的分支要真的按键盘，不在这里测。
+    #[test]
+    fn apply_refuses_a_bare_key_from_config() {
+        for bare in ["A", "7", "/", "Space", "Delete"] {
+            let err = apply(bare).unwrap_err().to_string();
+            assert!(err.contains("needs a modifier"), "{bare}: {err}");
+        }
+        assert!(apply("").is_ok());
+        assert!(apply("   ").is_ok());
     }
 
     #[test]
