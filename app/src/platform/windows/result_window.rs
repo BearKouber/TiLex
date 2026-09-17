@@ -177,9 +177,11 @@ pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn show_overlay_window(rect: Rect) {
+/// 返回 `false` = 原生窗口还没交给平台层（`attach_overlay_window` 还没成功），这次截图显示不了。
+/// 调用方必须收摊（清 `SHOT`、放开「正在截图」的位子），否则那个位子再也放不开。
+pub fn show_overlay_window(rect: Rect) -> bool {
     let Some(h) = overlay_hwnd() else {
-        return;
+        return false;
     };
     if !styles_intact(h) {
         log::warn!("Overlay: window styles were reset, reapplying");
@@ -221,6 +223,7 @@ pub fn show_overlay_window(rect: Rect) {
     if !super::force_foreground(h) {
         log::warn!("Overlay: SetForegroundWindow refused");
     }
+    true
 }
 
 pub fn hide_overlay_window() {

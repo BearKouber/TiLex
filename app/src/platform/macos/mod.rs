@@ -152,7 +152,9 @@ pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 
-pub fn show_overlay_window(_rect: super::geometry::Rect) {}
+pub fn show_overlay_window(_rect: super::geometry::Rect) -> bool {
+    false
+}
 
 pub fn hide_overlay_window() {}
 

@@ -250,22 +250,32 @@ pub fn show_recognizing(region: Region) {
         place(ui, anchor, sx, sy, gap);
     });
 
-    let path = region.path;
+    // 临时图交给 Drop 删：识别线程起不来、或者识别中途 panic，文件照样清掉
+    // （直接写在闭包末尾的话这两条路都会跳过它，`ocr_region_*.png` 就留在缓存目录里了，B3 审查）。
+    let temp = TempImage(region.path);
     if let Err(e) = std::thread::Builder::new()
         .name("recognize".into())
         .spawn(move || {
-            let outcome = recognize::run_for_ui(&path);
-            // 临时图只在这里删：识别函数已经返回，谁也不在读它了。
-            // 结果作废（用户又截了一张 / 去划词）也照删，不留 `ocr_region_*.png`。
-            if let Err(e) = std::fs::remove_file(&path) {
-                log::warn!("Recognize: remove temp image failed: {e}");
-            }
+            // 删除只发生在这之后：识别函数已经返回，谁也不在读它了。
+            let outcome = recognize::run_for_ui(&temp.0);
+            drop(temp);
             // ignore: 事件循环没了就没人显示结果了
             let _ = slint::invoke_from_event_loop(move || on_recognized(id, outcome));
         })
     {
         log::error!("PopResult: spawn recognize thread failed: {e}");
         on_recognized(id, Err(recognize::FAILED));
+    }
+}
+
+/// 一张截图临时图，离开作用域就删。结果作废（用户又截了一张 / 去划词）也照删。
+struct TempImage(std::path::PathBuf);
+
+impl Drop for TempImage {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.0) {
+            log::warn!("Recognize: remove temp image failed: {e}");
+        }
     }
 }
 

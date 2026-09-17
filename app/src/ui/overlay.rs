@@ -150,7 +150,16 @@ fn show(shot: Shot, started: Instant) {
         return;
     }
     SHOT.with(|s| *s.borrow_mut() = Some(Rc::new(shot)));
-    platform::show_overlay_window(at);
+    // 原生窗口还没交给平台层（启动后立刻按快捷键，或者 attach 重试 50 次都失败）：
+    // 遮罩根本不会出现在屏幕上，用户既框不了也按不了 Esc。不在这里收摊的话，
+    // 「正在截图」的位子就再也放不开，之后每次截图都被挡在门外（B3 审查）。
+    if !platform::show_overlay_window(at) {
+        log::error!("Screenshot: overlay window is not attached yet");
+        SHOT.with(|s| *s.borrow_mut() = None);
+        hide();
+        crate::logic::screenshot::end();
+        return;
+    }
     log::info!(
         "Overlay: shown {}ms after trigger",
         started.elapsed().as_millis()

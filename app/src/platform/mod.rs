@@ -230,8 +230,9 @@ pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
 }
 
 /// 把遮罩摆到 `rect`（物理像素，整个虚拟屏）并显示、抢焦点（UI 线程调）。
-/// 尚未 attach 时什么都不做。显示前记下当时的前台窗口，隐藏时还回去。
-pub fn show_overlay_window(rect: geometry::Rect) {
+/// 显示前记下当时的前台窗口，隐藏时还回去。
+/// **返回 `false` = 还没 attach，这次显示不了**，调用方必须自己收摊（见 `ui::overlay::show`）。
+pub fn show_overlay_window(rect: geometry::Rect) -> bool {
     imp::show_overlay_window(rect)
 }
 
