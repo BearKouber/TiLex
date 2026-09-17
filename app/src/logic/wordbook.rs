@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, params, params_from_iter};
@@ -295,6 +295,27 @@ fn submit(job: Job) {
     }
 }
 
+type Changed = Box<dyn Fn() + Send>;
+
+/// 「生词本内容变了」的观察者。生词本页打开时注册、关闭时清掉，所以只需要一个。
+static CHANGED: Mutex<Option<Changed>> = Mutex::new(None);
+
+/// 注册 / 清掉变更通知。回调**在生词本线程上**调用，实现里要自己切回 UI 线程。
+/// 用途：浮窗收藏之后，已经打开的生词本页自己刷新出新条目。
+pub fn set_on_changed(cb: Option<Changed>) {
+    *CHANGED.lock().unwrap_or_else(PoisonError::into_inner) = cb;
+}
+
+fn notify_changed() {
+    if let Some(cb) = CHANGED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+    {
+        cb();
+    }
+}
+
 /// 收藏写库（见 [`Db::save`]）。`done` 在生词本线程上调用。
 pub fn save(handle: u64, entry: Snapshot, done: impl FnOnce(Result<i64, Error>) + Send + 'static) {
     submit(Box::new(move |db| {
@@ -303,6 +324,9 @@ pub fn save(handle: u64, entry: Snapshot, done: impl FnOnce(Result<i64, Error>) 
             Ok(id) => log::info!("Wordbook: saved entry {id}"),
             Err(e) => log::warn!("Wordbook: save failed: {e}"),
         }
+        if result.is_ok() {
+            notify_changed();
+        }
         done(result);
     }));
 }
@@ -310,7 +334,12 @@ pub fn save(handle: u64, entry: Snapshot, done: impl FnOnce(Result<i64, Error>) 
 /// 软删除（见 [`Db::soft_delete`]）。`done` 在生词本线程上调用。
 pub fn delete(ids: Vec<i64>, done: impl FnOnce(Result<usize, Error>) + Send + 'static) {
     submit(Box::new(move |db| {
-        done(db.and_then(|db| db.soft_delete(&ids)))
+        let result = db.and_then(|db| db.soft_delete(&ids));
+        // 只有真删掉了才叫：空集合和「删的都是已删除的」不触发刷新
+        if matches!(result, Ok(n) if n > 0) {
+            notify_changed();
+        }
+        done(result)
     }));
 }
 
