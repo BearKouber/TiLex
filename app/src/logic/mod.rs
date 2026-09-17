@@ -15,3 +15,4 @@ pub mod service_icon;
 pub mod translate;
 pub mod update;
 pub mod wordbook;
+pub mod wordbook_export;

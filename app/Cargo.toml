@@ -42,6 +42,11 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 global-hotkey = "0.8.0"
 png = "0.18"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+pinyin = { version = "0.10", default-features = false, features = ["plain"] }
+
+[dev-dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [
