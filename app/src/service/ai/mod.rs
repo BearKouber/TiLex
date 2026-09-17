@@ -235,6 +235,29 @@ pub fn translate(
         })
 }
 
+/// 拉这个端点的模型名列表。空列表当失败（旧版 `Config.jsx:86-89`）。
+pub fn list_models(config: &Config) -> Result<Vec<String>, Error> {
+    let eff = config.effective();
+    if eff.base_url.is_empty() {
+        return Err(Error::NotConfigured("base_url"));
+    }
+    let url = eff.protocol.models_url(&eff.base_url)?;
+    let raw_headers = eff.protocol.headers(&eff.api_key);
+    let headers: Vec<(&str, &str)> = raw_headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let data = http::get(&url, &[], &headers, http::TIMEOUT_TRANSLATE)?;
+    let list = eff.protocol.models(&data).ok_or(Error::Http {
+        status: None,
+        kind: HttpKind::Format,
+    })?;
+    if list.is_empty() {
+        return Err(Error::Http {
+            status: None,
+            kind: HttpKind::Format,
+        });
+    }
+    Ok(list)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,6 +418,13 @@ mod tests {
         c.base_url.clear();
         assert!(matches!(
             translate("w", "auto", "en", "", "word", &c),
+            Err(Error::NotConfigured("base_url"))
+        ));
+
+        let mut cfg = Config::default();
+        cfg.base_url.clear();
+        assert!(matches!(
+            list_models(&cfg),
             Err(Error::NotConfigured("base_url"))
         ));
     }

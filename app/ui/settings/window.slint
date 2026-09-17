@@ -159,6 +159,8 @@ export component SettingsWindow inherits Window {
     in-out property <string> dialog-service: "google";
     in-out property <int> dialog-index: -1;
     in-out property <bool> testing-service: false;
+    in-out property <bool> fetching-models: false;
+    in property <[string]> ai-models: [];
 
     in-out property <string> draft-label: "";
     in-out property <int> draft-google-mode-index: 0;
@@ -185,6 +187,7 @@ export component SettingsWindow inherits Window {
 
     callback save-service(ServiceDraft);
     callback test-service(ServiceDraft);
+    callback fetch-models(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
 
     // 测试结果不走 Toast：Toast 钉在窗口正中，会压住对话框里的控件，关掉对话框还浮在那。
@@ -195,6 +198,14 @@ export component SettingsWindow inherits Window {
 
     public function show-test-failed(err: string, ms: int) {
         dialogs.show-test-result(@tr("Test failed: {} ({}ms)", err, ms), false);
+    }
+
+    public function show-fetch-success(count: int) {
+        dialogs.show-test-result(@tr("Fetched {} models", count), true);
+    }
+
+    public function show-fetch-failed(err: string) {
+        dialogs.show-test-result(@tr("Failed to fetch models: {}", err), false);
     }
 
     public function show-least-services-warning() {
@@ -553,6 +564,8 @@ export component SettingsWindow inherits Window {
         window-height: root.height;
         wechat-icon-color: root.wechat-icon-color;
         testing: root.testing-service;
+        fetching: root.fetching-models;
+        ai-models: root.ai-models;
 
         refresh-resolved-url(base, model, protocol, locked-icon) => {
             root.refresh-resolved-url(base, model, protocol, locked-icon);
@@ -562,6 +575,9 @@ export component SettingsWindow inherits Window {
         }
         test-service(draft) => {
             root.test-service(draft);
+        }
+        fetch-models(draft) => {
+            root.fetch-models(draft);
         }
     }
 

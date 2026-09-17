@@ -21,6 +21,8 @@ export component Button {
     in property <bool> loading: false;
     // 启用状态（false 时半透明且禁用交互）
     in property <bool> enabled: true;
+    // 纯图标按钮：正方形（sm 32×32 / md 40×40），无左右内边距
+    in property <bool> icon-only: false;
 
     callback clicked();
 
@@ -40,7 +42,7 @@ export component Button {
 
     forward-focus: fs;
     height: root.is-sm ? 32px : 40px;
-    min-width: root.full-width ? 0px : (root.is-sm ? 64px : 80px);
+    min-width: root.full-width ? 0px : (root.icon-only ? (root.is-sm ? 32px : 40px) : (root.is-sm ? 64px : 80px));
     horizontal-stretch: root.full-width ? 1 : 0;
     accessible-role: button;
     accessible-label: root.text;
@@ -89,8 +91,8 @@ export component Button {
         animate background, opacity, border-color { duration: 150ms; }
 
         HorizontalLayout {
-            padding-left: root.is-sm ? 12px : 16px;
-            padding-right: root.is-sm ? 12px : 16px;
+            padding-left: root.icon-only ? 0px : (root.is-sm ? 12px : 16px);
+            padding-right: root.icon-only ? 0px : (root.is-sm ? 12px : 16px);
             spacing: 8px;
             alignment: root.has-trailing-icon ? stretch : center;
             cross-axis-alignment: center;

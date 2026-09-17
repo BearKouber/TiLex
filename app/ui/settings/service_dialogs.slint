@@ -343,15 +343,19 @@ export component ServiceDialogs {
     in property <length> window-height;
     in property <brush> wechat-icon-color;
     in property <bool> testing: false;
+    in property <bool> fetching: false;
+    in property <[string]> ai-models: [];
 
     callback save-service(ServiceDraft);
     callback test-service(ServiceDraft);
+    callback fetch-models(ServiceDraft);
     callback refresh-resolved-url(string, string, string, string);
 
     // 测试连接的结果条（旧版 `google/Config.jsx:194-204`）。组件自己写自己的**普通**属性，
     // 不是 `in-out`（U-11），值由调用方通过下面这个 public function 送进来，跟 `Toast` 同一个路子。
     property <string> test-result: "";
     property <bool> test-ok: false;
+    property <bool> models-expanded: false;
 
     public function show-test-result(message: string, ok: bool) {
         root.test-result = message;
@@ -361,6 +365,7 @@ export component ServiceDialogs {
     // 换对话框（打开、关闭、退回上一层）一律把上一次的结果丢掉
     changed dialog => {
         root.test-result = "";
+        root.models-expanded = false;
     }
 
     function current-protocol-str() -> string {
@@ -792,16 +797,174 @@ export component ServiceDialogs {
                         label: @tr("Model");
                         control-width: cfg-modal.content-width * 50%;
 
-                        TextField {
-                            width: 100%;
-                            text <=> root.draft-ai-model;
-                            edited(text) => {
-                                root.refresh-resolved-url(
-                                    root.draft-ai-base-url,
-                                    text,
-                                    root.current-protocol-str(),
-                                    root.draft-ai-icon
-                                );
+                        HorizontalLayout {
+                            property <length> ctl: cfg-modal.content-width * 50%;
+                            spacing: 8px;
+
+                            TextField {
+                                width: parent.ctl - 48px;
+                                text <=> root.draft-ai-model;
+                                edited(text) => {
+                                    root.refresh-resolved-url(
+                                        root.draft-ai-base-url,
+                                        text,
+                                        root.current-protocol-str(),
+                                        root.draft-ai-icon
+                                    );
+                                }
+                            }
+
+                            Button {
+                                icon-only: true;
+                                variant: "bordered";
+                                size: "md";
+                                icon: @image-url("../icons/refresh.svg");
+                                loading: root.fetching;
+                                clicked => {
+                                    root.test-result = "";
+                                    root.fetch-models(root.current-draft());
+                                }
+                            }
+                        }
+                    }
+
+                    models-panel := Rectangle {
+                        border-width: 1px;
+                        border-color: Theme.default-200;
+                        border-radius: Theme.radius-medium;
+                        clip: true;
+                        // U-10：高度显式跟内容走。收起时**整段列表不实例化** —— 留在布局里
+                        // （哪怕 visible: false）会跟 40px 的标题行抢这点高度，把标题挤扁
+                        // （B2 F7 第 14 轮手测实拍）。
+                        height: panel-layout.preferred-height;
+
+                        panel-layout := VerticalLayout {
+                            padding: 0px;
+                            spacing: 0px;
+
+                            header := Rectangle {
+                                height: 40px;
+                                background: header-touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0);
+                                animate background { duration: 150ms; }
+
+                                header-touch := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.models-expanded = !root.models-expanded;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    alignment: space-between;
+                                    cross-axis-alignment: center;
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        cross-axis-alignment: center;
+
+                                        Text {
+                                            text: @tr("Models");
+                                            font-size: 13px;
+                                            color: Theme.foreground;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: "(" + root.ai-models.length + ")";
+                                            font-size: 11px;
+                                            color: Theme.default-400;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        cross-axis-alignment: center;
+
+                                        Text {
+                                            text: root.models-expanded ? @tr("Collapse") : @tr("Expand");
+                                            font-size: 11px;
+                                            color: Theme.default-400;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Image {
+                                            width: 14px;
+                                            height: 14px;
+                                            source: @image-url("../icons/chevron-down.svg");
+                                            colorize: Theme.default-400;
+                                            transform-rotation: root.models-expanded ? 180deg : 0deg;
+                                            animate transform-rotation { duration: 150ms; easing: ease-out; }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.models-expanded : VerticalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 10px;
+                                padding-top: 4px;
+                                spacing: 6px;
+
+                                if root.ai-models.length == 0 : Rectangle {
+                                    height: 36px;
+
+                                    Text {
+                                        text: @tr("Click refresh to load the model list");
+                                        font-size: 12px;
+                                        color: Theme.default-400;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                for m in root.ai-models : Rectangle {
+                                    height: 32px;
+                                    border-radius: Theme.radius-small;
+                                    border-width: 1px;
+                                    border-color: m == root.draft-ai-model
+                                        ? Theme.primary.with-alpha(0.5)
+                                        : Theme.default-200;
+                                    background: m == root.draft-ai-model
+                                        ? Theme.primary.with-alpha(0.1)
+                                        : Colors.transparent;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        spacing: 8px;
+                                        cross-axis-alignment: center;
+
+                                        Text {
+                                            text: m;
+                                            font-size: 12px;
+                                            color: Theme.foreground;
+                                            overflow: elide;
+                                            horizontal-stretch: 1;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Button {
+                                            size: "sm";
+                                            variant: m == root.draft-ai-model ? "solid" : "bordered";
+                                            color: "primary";
+                                            text: m == root.draft-ai-model ? @tr("In use") : @tr("Use");
+                                            enabled: m != root.draft-ai-model;
+                                            clicked => {
+                                                root.draft-ai-model = m;
+                                                root.refresh-resolved-url(
+                                                    root.draft-ai-base-url,
+                                                    m,
+                                                    root.current-protocol-str(),
+                                                    root.draft-ai-icon
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

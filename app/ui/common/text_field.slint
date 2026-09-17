@@ -80,6 +80,13 @@ export component TextField {
 
             input-container := Rectangle {
                 horizontal-stretch: 1;
+                // 长文本不许把控件撑大：`TextInput` 的 preferred-width 是整段文字的宽度，
+                // 会一路顶穿 SettingRow、对话框直到窗口外。容器自己夹住宽度（显式 min-width
+                // 盖掉子元素传上来的约束）+ clip，文字在框内随光标横向滚。
+                // 做法照 Slint 自己的 `widgets/common/lineedit-base.slint`（1px 而不是 0：
+                // 宽度小于 1px 或被完全裁掉时 TextInput 聚焦不了，是它注释里写明的）。
+                min-width: 1px;
+                clip: true;
 
                 // 占位文字
                 if (root.text == "" && text-input.preedit-text == "") : Text {
@@ -93,7 +100,12 @@ export component TextField {
                 }
 
                 text-input := TextInput {
-                    width: 100%;
+                    // 光标驱动的横向滚动（同上，照 lineedit-base）：文字比框宽时才真的比框宽，
+                    // 再靠 x 把光标那一段拉进可视范围；文字短的时候宽度还是等于框宽（居中对齐要用）。
+                    property <length> computed-x;
+
+                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                    width: max(parent.width - self.text-cursor-width, self.preferred-width);
                     height: 100%;
                     vertical-alignment: TextVerticalAlignment.center;
                     horizontal-alignment: root.center ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
@@ -104,6 +116,14 @@ export component TextField {
                     read-only: root.read-only;
                     text <=> root.text;
                     input-type: (root.password && !root.password-revealed) ? InputType.password : InputType.text;
+
+                    cursor-position-changed(cursor-position) => {
+                        if cursor-position.x + self.computed-x < 0px {
+                            self.computed-x = -cursor-position.x;
+                        } else if cursor-position.x + self.computed-x > parent.width - self.text-cursor-width {
+                            self.computed-x = parent.width - cursor-position.x - self.text-cursor-width;
+                        }
+                    }
 
                     changed has-focus => {
                         if self.has-focus {

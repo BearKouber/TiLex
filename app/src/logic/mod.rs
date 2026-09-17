@@ -2,6 +2,7 @@ pub mod ai_presets;
 pub mod cache;
 pub mod config;
 pub mod lang_detect;
+pub mod model_cache;
 pub mod placement;
 pub mod popup_state;
 pub mod result;

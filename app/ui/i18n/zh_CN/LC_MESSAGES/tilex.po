@@ -453,3 +453,27 @@ msgstr "连接正常: \"Hello world\" → \"{}\" ({}ms)"
 msgid "Test failed: {} ({}ms)"
 msgstr "测试失败: {} ({}ms)"
 
+msgid "Models"
+msgstr "模型列表"
+
+msgid "Expand"
+msgstr "展开"
+
+msgid "Collapse"
+msgstr "收起"
+
+msgid "Use"
+msgstr "选用"
+
+msgid "In use"
+msgstr "已选用"
+
+msgid "Fetched {} models"
+msgstr "获取到 {} 个模型"
+
+msgid "Failed to fetch models: {}"
+msgstr "获取模型失败: {}"
+
+msgid "Click refresh to load the model list"
+msgstr "点击刷新按钮获取模型列表"
+

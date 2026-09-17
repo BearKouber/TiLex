@@ -1,13 +1,13 @@
 //! 设置窗口：服务设置页（列表、启用开关、删除、拖动排序）。
 //! 不在 model 里保留 `Service::Unknown`，但保持真实下标以原样保留它们在 `config.json` 里。
 
-use slint::{ComponentHandle, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 
-use crate::logic::ai_presets;
 use crate::logic::config::{self, AiConfig, GoogleConfig, Service};
 use crate::logic::service_icon as icons;
 use crate::logic::translate;
+use crate::logic::{ai_presets, model_cache};
 use crate::slint_ui::{ServiceRow, SettingsWindow};
 
 pub fn bind(page: &SettingsWindow) {
@@ -52,6 +52,10 @@ pub fn bind(page: &SettingsWindow) {
             page.set_draft_ai_has_logo(info.has_file);
             page.set_draft_ai_icon_color(parse_hex_color(info.color));
             page.set_draft_ai_icon_letter(info.letter.into());
+
+            let endpoint = model_cache::endpoint_of(base.as_str(), protocol.as_str());
+            let cached = model_cache::models(&endpoint);
+            page.set_ai_models(model_options(&cached, model.as_str()));
         }
     });
 
@@ -66,6 +70,13 @@ pub fn bind(page: &SettingsWindow) {
     page.on_test_service(move |draft| {
         if let Some(page) = weak.upgrade() {
             handle_test_service(&page, ServiceDraft::from(&draft));
+        }
+    });
+
+    let weak = page.as_weak();
+    page.on_fetch_models(move |draft| {
+        if let Some(page) = weak.upgrade() {
+            handle_fetch_models(&page, ServiceDraft::from(&draft));
         }
     });
 }
@@ -303,6 +314,10 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                     &inst.config.protocol,
                 );
                 page.set_resolved_chat_url(resolved.into());
+                let endpoint =
+                    model_cache::endpoint_of(&inst.config.base_url, &inst.config.protocol);
+                let cached = model_cache::models(&endpoint);
+                page.set_ai_models(model_options(&cached, &inst.config.model));
                 page.set_dialog_kind(kind.into());
                 page.set_dialog_service("ai".into());
                 page.set_dialog_index(real_idx);
@@ -469,6 +484,62 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
         log::error!("Settings: spawn service-test thread failed: {e}");
         page.set_testing_service(false);
         page.invoke_show_test_failed(e.to_string().into(), 0);
+    }
+}
+
+fn model_options(cached: &[String], current_model: &str) -> ModelRc<SharedString> {
+    let current = current_model.trim();
+    let mut list: Vec<SharedString> = Vec::new();
+    if !current.is_empty() && !cached.iter().any(|m| m == current) {
+        list.push(current.into());
+    }
+    for m in cached {
+        list.push(m.as_str().into());
+    }
+    Rc::new(VecModel::from(list)).into()
+}
+
+fn handle_fetch_models(page: &SettingsWindow, draft: ServiceDraft<'_>) {
+    if page.get_fetching_models() {
+        return;
+    }
+    page.set_fetching_models(true);
+
+    let base = config::snapshot()
+        .translate_services
+        .get(usize::try_from(draft.real_idx).unwrap_or(usize::MAX))
+        .and_then(|s| match s {
+            Service::Ai(inst) => Some(inst.config.clone()),
+            _ => None,
+        });
+    let ai_config = draft_ai_config(&draft, base.as_ref());
+    let current_model = draft.ai_model.to_string();
+
+    let weak = page.as_weak();
+    if let Err(e) = std::thread::Builder::new()
+        .name("fetch-models".into())
+        .spawn(move || {
+            let res = model_cache::fetch(&ai_config);
+            // ignore: window might be closed during async fetch
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(page) = weak.upgrade() else { return };
+                page.set_fetching_models(false);
+                match res {
+                    Ok(list) => {
+                        let count = list.len() as i32;
+                        page.set_ai_models(model_options(&list, &current_model));
+                        page.invoke_show_fetch_success(count);
+                    }
+                    Err(e) => {
+                        page.invoke_show_fetch_failed(e.to_string().into());
+                    }
+                }
+            });
+        })
+    {
+        log::error!("Settings: spawn fetch-models thread failed: {e}");
+        page.set_fetching_models(false);
+        page.invoke_show_fetch_failed(e.to_string().into());
     }
 }
 

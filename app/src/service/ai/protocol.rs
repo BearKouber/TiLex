@@ -1,5 +1,5 @@
-//! 一个「接口格式」= 地址怎么补 + 认证头怎么写 + 请求体什么形状 + 响应怎么取文本。
-//! 四家的差别就这四条，全在这里（从旧 `ai/protocol.js` 移植；模型列表地址和解析留到 B2）。
+//! 一个「接口格式」= 地址怎么补 + 认证头怎么写 + 请求体什么形状 + 响应怎么取文本 + 模型列表。
+//! 四家的差别全在这里（从旧 `ai/protocol.js` 移植）。
 
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -166,6 +166,15 @@ impl Protocol {
         }
     }
 
+    pub fn models_url(self, base: &str) -> Result<String, Error> {
+        match self {
+            Protocol::OpenaiChat | Protocol::OpenaiResponses | Protocol::Anthropic => {
+                resolve(base, "models", "v1")
+            }
+            Protocol::Google => resolve(base, "models", "v1beta"),
+        }
+    }
+
     pub fn headers(self, api_key: &str) -> Vec<(&'static str, String)> {
         match self {
             Protocol::OpenaiChat | Protocol::OpenaiResponses => {
@@ -273,6 +282,31 @@ impl Protocol {
             }
             Protocol::Anthropic => joined_texts(data.get("content"), "/text"),
             Protocol::Google => joined_texts(data.pointer("/candidates/0/content/parts"), "/text"),
+        }
+    }
+
+    /// 拿不到约定形状返回 None，调用方按「空结果」处理，不许崩（跟 `text()` 一个规矩）。
+    pub fn models(self, data: &Value) -> Option<Vec<String>> {
+        match self {
+            Protocol::OpenaiChat | Protocol::OpenaiResponses | Protocol::Anthropic => {
+                let items = data.get("data")?.as_array()?;
+                let list = items
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect();
+                Some(list)
+            }
+            Protocol::Google => {
+                let items = data.get("models")?.as_array()?;
+                let list = items
+                    .iter()
+                    .filter_map(|m| {
+                        let name = m.get("name").and_then(Value::as_str)?;
+                        Some(name.strip_prefix("models/").unwrap_or(name).to_owned())
+                    })
+                    .collect();
+                Some(list)
+            }
         }
     }
 }
@@ -578,5 +612,86 @@ mod tests {
             )),
             json!({"a": 1})
         );
+    }
+
+    #[test]
+    fn models_url_accepts_various_shapes() {
+        // 完整 completions 地址
+        assert_eq!(
+            Protocol::OpenaiChat
+                .models_url("https://api.deepseek.com/v1/chat/completions")
+                .unwrap(),
+            "https://api.deepseek.com/v1/models"
+        );
+        // 只到 base
+        assert_eq!(
+            Protocol::OpenaiChat
+                .models_url("https://api.openai.com")
+                .unwrap(),
+            "https://api.openai.com/v1/models"
+        );
+        // 带子路径
+        assert_eq!(
+            Protocol::Anthropic
+                .models_url("https://host/api/v1/messages")
+                .unwrap(),
+            "https://host/api/v1/models"
+        );
+        // 带查询串
+        assert_eq!(
+            Protocol::OpenaiResponses
+                .models_url("https://h/v1?api-version=2")
+                .unwrap(),
+            "https://h/v1/models?api-version=2"
+        );
+        // Google 使用 v1beta
+        assert_eq!(
+            Protocol::Google
+                .models_url("https://generativelanguage.googleapis.com")
+                .unwrap(),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+    }
+
+    #[test]
+    fn parses_model_lists() {
+        // OpenAI / Anthropic 形状 (data[].id)
+        let openai_data = json!({
+            "data": [
+                { "id": "gpt-4o", "object": "model" },
+                { "id": "gpt-3.5-turbo", "object": "model" }
+            ]
+        });
+        assert_eq!(
+            Protocol::OpenaiChat.models(&openai_data),
+            Some(vec!["gpt-4o".into(), "gpt-3.5-turbo".into()])
+        );
+        assert_eq!(
+            Protocol::Anthropic.models(&openai_data),
+            Some(vec!["gpt-4o".into(), "gpt-3.5-turbo".into()])
+        );
+
+        // Google 形状 (models[].name，去掉 models/ 前缀)
+        let google_data = json!({
+            "models": [
+                { "name": "models/gemini-2.0-flash", "displayName": "Gemini 2.0 Flash" },
+                { "name": "gemini-1.5-pro", "displayName": "Gemini 1.5 Pro" }
+            ]
+        });
+        assert_eq!(
+            Protocol::Google.models(&google_data),
+            Some(vec!["gemini-2.0-flash".into(), "gemini-1.5-pro".into()])
+        );
+
+        // 形状不对返回 None
+        assert_eq!(
+            Protocol::OpenaiChat.models(&json!({ "error": "unauthorized" })),
+            None
+        );
+        assert_eq!(
+            Protocol::OpenaiChat.models(&json!({ "data": "not an array" })),
+            None
+        );
+        assert_eq!(Protocol::Google.models(&json!({ "models": null })), None);
     }
 }
