@@ -95,6 +95,12 @@ pub fn test_umi(config: &umi::Config) -> Result<(), Error> {
     service::umi::test(config).inspect_err(|e| log::warn!("Recognize: umi test failed: {e}"))
 }
 
+/// 微信 OCR 的「测试连接」：探路径，成功给微信版本号（旧版弹窗里的「微信版本」一行）。
+/// 探的是本机装没装、插件下没下，不真识别，所以很快，但还是别在 UI 线程上调（R-5）。
+pub fn test_wechat() -> Result<String, Error> {
+    platform::wechat_ocr_status().inspect_err(|e| log::warn!("Recognize: wechat test failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

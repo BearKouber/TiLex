@@ -355,6 +355,8 @@ export component ServiceDialogs {
     in property <length> window-height;
     in property <brush> wechat-icon-color;
     in property <brush> umi-icon-color;
+    in property <bool> recognize-has-wechat: false;
+    in property <bool> recognize-has-umi: false;
     in property <bool> testing: false;
     in property <bool> fetching: false;
     in property <[ModelRow]> ai-models: [];
@@ -524,7 +526,8 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-kind == "recognize" : BuiltinServiceItem {
+        // 识别服务每种只装一个：装过的这里就不再出现，两个都装了只剩一句说明（旧版行为）。
+        if root.dialog-kind == "recognize" && !root.recognize-has-wechat : BuiltinServiceItem {
             icon: @image-url("../icons/logo/wechat.svg");
             has-colorize: true;
             colorize: root.wechat-icon-color;
@@ -537,7 +540,7 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-kind == "recognize" : BuiltinServiceItem {
+        if root.dialog-kind == "recognize" && !root.recognize-has-umi : BuiltinServiceItem {
             icon: @image-url("../icons/logo/umi.svg");
             has-colorize: true;
             colorize: root.umi-icon-color;
@@ -549,6 +552,13 @@ export component ServiceDialogs {
                 root.draft-umi-url = "";
                 root.dialog = 3;
             }
+        }
+
+        if root.dialog-kind == "recognize" && root.recognize-has-wechat && root.recognize-has-umi : Text {
+            text: @tr("All available text recognition services are already installed");
+            font-size: 14px;
+            color: Theme.default-500;
+            wrap: word-wrap;
         }
 
         HorizontalLayout {
@@ -1228,18 +1238,7 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-service == "wechat" : Button {
-            text: @tr("Save");
-            variant: "solid";
-            color: "primary";
-            size: "md";
-            full-width: true;
-            clicked => {
-                root.save-service(root.current-draft());
-            }
-        }
-
-        if root.dialog-service != "wechat" : HorizontalLayout {
+        HorizontalLayout {
             spacing: 8px;
 
             // 平分宽度（ui.md §6.5）：两个按钮的文字长度不同，preferred-width 就不同，

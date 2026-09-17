@@ -562,3 +562,9 @@ msgstr "无法连接 Umi-OCR，请先启动 Umi-OCR 并开启 HTTP 接口（默�
 
 msgid "Text recognition failed. Please try again."
 msgstr "文字识别失败，请重试。"
+
+msgid "WeChat {} found ({}ms)"
+msgstr "找到微信 {}（{}ms）"
+
+msgid "All available text recognition services are already installed"
+msgstr "可选的识别服务都已经装上了"

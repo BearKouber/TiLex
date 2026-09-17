@@ -193,6 +193,9 @@ export component SettingsWindow inherits Window {
 
     in property <brush> wechat-icon-color;
     in property <brush> umi-icon-color;
+    // 识别服务每种只装一个：装过的不再出现在「添加内置服务」里
+    in property <bool> recognize-has-wechat: false;
+    in property <bool> recognize-has-umi: false;
 
     callback save-service(ServiceDraft);
     callback test-service(ServiceDraft);
@@ -218,6 +221,11 @@ export component SettingsWindow inherits Window {
     // 识别服务没有「译文」可显示，只报通没通。
     public function show-recognize-test-success(ms: int) {
         dialogs.show-test-result(@tr("Connection OK ({}ms)", ms), true);
+    }
+
+    // 微信 OCR 没有可配项，测的是本机装没装、插件下没下，所以回显探到的版本（旧版弹窗的「微信版本」一行）。
+    public function show-wechat-test-success(version: string, ms: int) {
+        dialogs.show-test-result(@tr("WeChat {} found ({}ms)", version, ms), true);
     }
 
     // 连不上 Umi 是最常见的一种失败（用户压根没启动它），单独给一句说得清的话。
@@ -591,6 +599,8 @@ export component SettingsWindow inherits Window {
         window-height: root.height;
         wechat-icon-color: root.wechat-icon-color;
         umi-icon-color: root.umi-icon-color;
+        recognize-has-wechat: root.recognize-has-wechat;
+        recognize-has-umi: root.recognize-has-umi;
         testing: root.testing-service;
         fetching: root.fetching-models;
         ai-models: root.ai-models;

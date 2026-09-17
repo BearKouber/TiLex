@@ -119,6 +119,19 @@ pub fn refresh(page: &SettingsWindow) {
     let umi_info = icons::get_icon("umi");
     page.set_umi_icon_color(parse_hex_color(umi_info.color));
 
+    // 识别服务每种只能装一个，装过的就从「添加内置服务」里去掉（旧版 `Recognize/index.jsx` 的 addable）。
+    // 翻译服务不受这条限制：同一家可以配多个实例（不同镜像、不同 key）。
+    page.set_recognize_has_wechat(
+        cfg.recognize_services
+            .iter()
+            .any(|s| matches!(s, Service::Wechat(_))),
+    );
+    page.set_recognize_has_umi(
+        cfg.recognize_services
+            .iter()
+            .any(|s| matches!(s, Service::Umi(_))),
+    );
+
     page.set_default_ai_custom_instructions(ai_presets::default_custom_instructions().into());
 
     let presets: Vec<crate::slint_ui::AiPreset> = ai_presets::AI_PRESETS
@@ -472,6 +485,14 @@ enum TestTarget {
     Google(GoogleConfig),
     Ai(AiConfig),
     Umi(UmiConfig),
+    Wechat,
+}
+
+/// 测试通了之后结果条上写什么：翻译服务回显译文，微信回显探到的版本，其余只报通没通。
+enum TestOk {
+    Translated(String),
+    WechatVersion(String),
+    Reached,
 }
 
 fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
@@ -494,6 +515,7 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
             TestTarget::Ai(draft_ai_config(&draft, base.as_ref()))
         }
         "umi" => TestTarget::Umi(draft_umi_config(&draft)),
+        "wechat" => TestTarget::Wechat,
         _ => {
             log::warn!(
                 "Settings: unexpected service kind for test: {}",
@@ -512,9 +534,10 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
         .spawn(move || {
             let start = std::time::Instant::now();
             let res = match &target {
-                TestTarget::Google(c) => translate::test_google(c).map(Some),
-                TestTarget::Ai(c) => translate::test_ai(c).map(Some),
-                TestTarget::Umi(c) => recognize::test_umi(c).map(|()| None),
+                TestTarget::Google(c) => translate::test_google(c).map(TestOk::Translated),
+                TestTarget::Ai(c) => translate::test_ai(c).map(TestOk::Translated),
+                TestTarget::Umi(c) => recognize::test_umi(c).map(|()| TestOk::Reached),
+                TestTarget::Wechat => recognize::test_wechat().map(TestOk::WechatVersion),
             };
             let elapsed_ms = start.elapsed().as_millis().min(i32::MAX as u128) as i32;
             // ignore: window might be closed during async test
@@ -522,11 +545,14 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                 let Some(page) = weak.upgrade() else { return };
                 page.set_testing_service(false);
                 match res {
-                    Ok(Some(text)) => {
+                    Ok(TestOk::Translated(text)) => {
                         let truncated = truncate_chars(&text, 80);
                         page.invoke_show_test_success(truncated.into(), elapsed_ms);
                     }
-                    Ok(None) => page.invoke_show_recognize_test_success(elapsed_ms),
+                    Ok(TestOk::WechatVersion(version)) => {
+                        page.invoke_show_wechat_test_success(version.as_str().into(), elapsed_ms);
+                    }
+                    Ok(TestOk::Reached) => page.invoke_show_recognize_test_success(elapsed_ms),
                     Err(Error::Http {
                         kind: HttpKind::Connect,
                         ..
