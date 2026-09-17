@@ -44,9 +44,7 @@ fn run() -> Result<(), Error> {
     // 托盘必须先建：它是第一个 Slint 组件，建完才有事件循环和翻译上下文。
     let tray = ui::tray::create()?;
     ui::apply_language(&config::snapshot().general.language);
-    hotkey::init(|| {
-        log::info!("Hotkey: screenshot triggered (screenshot is B3)");
-    });
+    hotkey::init(ui::overlay::start);
     let hotkey_str = config::snapshot().screenshot.hotkey;
     if !hotkey_str.is_empty()
         && let Err(e) = hotkey::apply(&hotkey_str)

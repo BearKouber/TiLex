@@ -148,6 +148,10 @@ pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
     Err(Error::Unsupported)
 }
 
+pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
+    Err(Error::Unsupported)
+}
+
 pub fn show_result_window(_rect: super::geometry::Rect) {}
 
 pub fn move_result_window(_rect: super::geometry::Rect) {}

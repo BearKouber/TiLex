@@ -38,8 +38,8 @@ pub fn copy_text(text: &str) -> Result<(), Error> {
 
 mod result_window;
 pub use result_window::{
-    attach_result_window, hide_result_window, monitor_at, move_result_window,
-    result_window_focused, show_result_window,
+    attach_overlay_window, attach_result_window, hide_result_window, monitor_at,
+    move_result_window, result_window_focused, show_result_window,
 };
 
 mod tts;

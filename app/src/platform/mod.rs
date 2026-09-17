@@ -215,6 +215,12 @@ pub fn result_window_focused() -> Option<bool> {
     imp::result_window_focused()
 }
 
+/// 把遮罩窗口交给平台层：无边框、置顶、不进任务栏，并强拉到前台拿焦点（UI 线程调）。
+/// 原生窗口尚未创建时返回 `Error::Platform`，调用方用 Timer 重试。
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+    imp::attach_overlay_window(window)
+}
+
 /// 将文本写入系统剪贴板。任何线程均可调用，若剪贴板正被占用最多会阻塞重试约 10 次（约 10×重试间隔）。
 pub fn copy_text(text: &str) -> Result<(), Error> {
     imp::copy_text(text)

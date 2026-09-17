@@ -4,6 +4,7 @@ export component Tray inherits SystemTrayIcon {
     icon: @image-url("icons/tray.png");
     tooltip: "TiLex";
 
+    callback screenshot();
     callback open-settings();
     callback open-logs();
     callback restart();
@@ -15,6 +16,13 @@ export component Tray inherits SystemTrayIcon {
     }
 
     Menu {
+        MenuItem {
+            title: @tr("Screenshot Translate");
+            activated => {
+                root.screenshot();
+            }
+        }
+
         MenuItem {
             title: @tr("Settings");
             activated => {

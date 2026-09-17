@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::Error;
 use crate::platform::Shot;
@@ -105,6 +106,19 @@ fn crop_png(shot: &Shot, l: u32, t: u32, w: u32, h: u32, path: &Path) -> Result<
     Ok(())
 }
 
+static BUSY: AtomicBool = AtomicBool::new(false);
+
+/// 占住「正在截图」这个位子。已经有人占着返回 false（这次触发直接丢掉）。
+pub fn begin() -> bool {
+    BUSY.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+/// 放开位子。取消、裁完、抓屏失败都要调，且只调一次。
+pub fn end() {
+    BUSY.store(false, Ordering::Release);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +126,16 @@ mod tests {
     /// 两个用到缓存目录的测试要串起来跑：`cargo test` 默认多线程，
     /// 否则 `rejects_a_selection_smaller_than_four_pixels` 的目录快照会拍到别的测试的临时图。
     static CACHE_DIR: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 全 crate 只有这一个测试碰 `BUSY`，不用和别的测试串行。
+    #[test]
+    fn only_one_screenshot_at_a_time() {
+        assert!(begin());
+        assert!(!begin(), "第二次触发要被挡在外面");
+        end();
+        assert!(begin(), "位子放开后还能再来一次");
+        end();
+    }
 
     #[test]
     fn crops_have_independent_paths() {
@@ -256,5 +280,14 @@ mod tests {
         assert_eq!(region.rect.t, -190);
         assert_eq!(region.rect.r, -1870);
         assert_eq!(region.rect.b, -150);
+    }
+
+    #[test]
+    fn reentrancy_protection() {
+        assert!(super::begin());
+        assert!(!super::begin());
+        super::end();
+        assert!(super::begin());
+        super::end();
     }
 }

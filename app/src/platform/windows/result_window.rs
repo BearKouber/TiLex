@@ -132,6 +132,29 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn attach_overlay_window(window: &slint::Window) -> Result<(), Error> {
+    let h = super::hwnd(window)?;
+    apply_styles(h);
+    // SAFETY: 刷新样式并置顶
+    // ignore: 刷新失败时样式照样生效
+    let _ = unsafe {
+        SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+        )
+    };
+    if !super::force_foreground(h) {
+        log::warn!("Overlay: SetForegroundWindow refused");
+    }
+    log::info!("Overlay: window attached");
+    Ok(())
+}
+
 fn apply_styles(h: HWND) {
     // SAFETY: 读写活着的窗口的样式位；h 失效时调用失败。
     // 扩展样式：加 TOOLWINDOW | TOPMOST，去 APPWINDOW；不加 WS_EX_NOACTIVATE（浮窗需要拿焦点）。

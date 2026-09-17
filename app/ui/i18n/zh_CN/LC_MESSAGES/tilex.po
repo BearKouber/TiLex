@@ -528,4 +528,7 @@ msgstr "快捷键注册成功"
 msgid "Could not register shortcut: {}"
 msgstr "快捷键注册失败：{}"
 
+msgid "Drag to select an area, Esc to cancel"
+msgstr "拖动选择区域，Esc 取消"
+
 

@@ -1,0 +1,196 @@
+// 截图遮罩窗口：全屏冻结画面 + 拖框选区
+export component Overlay inherits Window {
+    title: "TiLex Overlay";
+    no-frame: true;
+    default-font-weight: 300;
+
+    // 整窗就是那张冻结的截图，铺满
+    in property <image> shot;
+    // 出错时顶部提示条显示这句（空串 = 显示默认提示）
+    in property <string> hint: "";
+
+    // 选区，0..1 的比例。松手时发一次。
+    callback selected(float, float, float, float);
+    callback cancel();
+
+    private property <bool> done: false;
+    private property <bool> selecting: false;
+    private property <length> start-x: 0px;
+    private property <length> start-y: 0px;
+    private property <length> current-x: 0px;
+    private property <length> current-y: 0px;
+
+    private property <length> sel-x: root.start-x < root.current-x ? root.start-x : root.current-x;
+    private property <length> sel-y: root.start-y < root.current-y ? root.start-y : root.current-y;
+    private property <length> sel-w: root.start-x < root.current-x ? root.current-x - root.start-x : root.start-x - root.current-x;
+    private property <length> sel-h: root.start-y < root.current-y ? root.current-y - root.start-y : root.start-y - root.current-y;
+    private property <bool> has-selection: root.selecting && (root.sel-w > 0px || root.sel-h > 0px);
+
+    public function finish() {
+        if root.done { return; }
+        root.done = true;
+        root.selecting = false;
+        if root.width > 0px && root.height > 0px {
+            root.selected(
+                root.sel-x / root.width,
+                root.sel-y / root.height,
+                (root.sel-x + root.sel-w) / root.width,
+                (root.sel-y + root.sel-h) / root.height,
+            );
+        }
+    }
+
+    public function abort() {
+        if root.done { return; }
+        root.done = true;
+        root.selecting = false;
+        root.cancel();
+    }
+
+    forward-focus: fs;
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+
+        init => {
+            self.focus();
+        }
+
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.abort();
+                return accept;
+            }
+            reject
+        }
+
+        // 背景：整屏冻结帧
+        Image {
+            source: root.shot;
+            image-fit: fill;
+            width: 100%;
+            height: 100%;
+        }
+
+        // 没有选区时：整屏盖一层 #00000073
+        if !root.has-selection : Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #00000073;
+        }
+
+        // 有选区时：四个矩形压暗选区外 + 选区 1px 白边
+        if root.has-selection : Rectangle {
+            width: 100%;
+            height: 100%;
+
+            // 顶部压暗矩形
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: root.sel-y;
+                background: #00000073;
+            }
+
+            // 底部压暗矩形
+            Rectangle {
+                x: 0px;
+                y: root.sel-y + root.sel-h;
+                width: parent.width;
+                height: parent.height - (root.sel-y + root.sel-h);
+                background: #00000073;
+            }
+
+            // 左侧压暗矩形
+            Rectangle {
+                x: 0px;
+                y: root.sel-y;
+                width: root.sel-x;
+                height: root.sel-h;
+                background: #00000073;
+            }
+
+            // 右侧压暗矩形
+            Rectangle {
+                x: root.sel-x + root.sel-w;
+                y: root.sel-y;
+                width: parent.width - (root.sel-x + root.sel-w);
+                height: root.sel-h;
+                background: #00000073;
+            }
+
+            // 选区 1px 边框 (rgba(255, 255, 255, 0.8))
+            Rectangle {
+                x: root.sel-x;
+                y: root.sel-y;
+                width: root.sel-w;
+                height: root.sel-h;
+                border-width: 1px;
+                border-color: #ffffffcc;
+            }
+        }
+
+        // 顶部居中提示条
+        hint-bar := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 32px;
+            width: hint-layout.preferred-width;
+            height: hint-layout.preferred-height;
+            background: #000000b3;
+            border-radius: 4px;
+
+            hint-layout := HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+
+                Text {
+                    text: root.hint != "" ? root.hint : @tr("Drag to select an area, Esc to cancel");
+                    color: #ffffff;
+                    font-size: 14px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // 十字光标与拖拽交互
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: crosshair;
+
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.abort();
+                } else if event.button == PointerEventButton.left {
+                    if event.kind == PointerEventKind.down {
+                        root.start-x = self.mouse-x;
+                        root.start-y = self.mouse-y;
+                        root.current-x = self.mouse-x;
+                        root.current-y = self.mouse-y;
+                        root.selecting = true;
+                    } else if event.kind == PointerEventKind.up {
+                        if root.selecting {
+                            root.current-x = self.mouse-x;
+                            root.current-y = self.mouse-y;
+                            root.finish();
+                        }
+                    }
+                } else if event.kind == PointerEventKind.cancel {
+                    root.abort();
+                }
+            }
+
+            moved => {
+                if root.selecting {
+                    root.current-x = self.mouse-x;
+                    root.current-y = self.mouse-y;
+                }
+            }
+        }
+    }
+}
