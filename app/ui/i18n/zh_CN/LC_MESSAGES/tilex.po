@@ -592,3 +592,28 @@ msgstr "没有匹配的条目"
 
 msgid "Wordbook is empty"
 msgstr "生词本还是空的"
+
+msgid "Select all results"
+msgstr "全选当前结果"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Selected {} items"
+msgstr "已选 {} 项"
+
+msgid "Delete {} entries?"
+msgstr "确定删除 {} 条？"
+
+msgid "Delete {} entries"
+msgstr "删除 {} 条"
+
+
+msgid "Delete failed, please try again."
+msgstr "删除失败，请重试。"
+
+msgid "Exported to {}"
+msgstr "已导出到 {}"
+
+msgid "Export failed: {}"
+msgstr "导出失败：{}"

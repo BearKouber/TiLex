@@ -8,11 +8,14 @@ import { Theme } from "../common/theme.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
 import { EntryBody, EntryView } from "../common/entry_view.slint";
 import { ListView } from "std-widgets.slint";
+import { Modal } from "../common/modal.slint";
+import { Checkbox } from "../common/checkbox.slint";
 
 export struct WordbookRow {
     id: int,
     text: string,
     preview: string,
+    checked: bool,
 }
 
 export global WordbookState {
@@ -27,16 +30,40 @@ export global WordbookState {
     in property <bool> speaking;
     in-out property <string> keyword;
     in-out property <int> filter;            // 0 全部 / 1 生词 / 2 长难句
+
+    in property <bool> batch-mode: false;
+    in-out property <bool> all-checked: false;
+    in-out property <bool> all-indeterminate: false;
+    in property <int> checked-count: 0;
+    in property <bool> deleting: false;
+    in property <bool> delete-modal-open: false;
+    in property <int> delete-modal-count: 0;
+
     callback search();                       // keyword 变了
     callback filter-changed();
     callback select(int);
     callback speak();
+    callback export-markdown();
+    callback enter-batch-mode();
+    callback finish-batch-mode();
+    callback toggle-all();
+    callback toggle-row(int, bool);
+    callback request-delete-single();
+    callback request-delete-batch();
+    callback confirm-delete();
+    callback cancel-delete();
+
+    // toast 文案在这里拼，Rust 侧 invoke 取（同 translate.slint 的 show-hotkey-ok）：
+    // 界面语言一切，这几条要跟着走
+    public function msg-delete-failed() -> string { @tr("Delete failed, please try again.") }
+    public function msg-export-ok(path: string) -> string { @tr("Exported to {}", path) }
+    public function msg-export-failed(err: string) -> string { @tr("Export failed: {}", err) }
 }
 
-export component WordbookPage inherits VerticalLayout {
+export component WordbookPage inherits Rectangle {
     // 高度由 window.slint 按可视区传进来：这一页不跟着 ScrollArea 滚（列表自己滚），
     // 写死高度的话窗口一放大下面就留白。
-    padding: 0px;
+    horizontal-stretch: 1;
 
     function stars(n: int) -> string {
         if n == 1 { return "★"; }
@@ -63,8 +90,13 @@ export component WordbookPage inherits VerticalLayout {
         root.diff-text(diff, reason)
     }
 
-    HorizontalLayout {
-        spacing: 10px;
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        padding: 0px;
+
+        HorizontalLayout {
+            spacing: 10px;
 
         // 左卡：宽 280，内边距 8，间距 8，边框 default-100
         Card {
@@ -73,24 +105,62 @@ export component WordbookPage inherits VerticalLayout {
             spacing: 8px;
             border-color: Theme.default-100;
 
-            // 1. 工具行：高 32，导出（bordered sm 撑满）+ 多选（light sm），本轮均 enabled: false
+            // 1. 工具行：高 32，正常模式下导出+多选，多选模式下全选+完成
             HorizontalLayout {
                 height: 32px;
                 spacing: 4px;
 
-                Button {
-                    size: "sm";
-                    variant: "bordered";
-                    text: @tr("Export to Markdown");
-                    full-width: true;
-                    enabled: false;
+                if !WordbookState.batch-mode : HorizontalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+
+                    Button {
+                        size: "sm";
+                        variant: "bordered";
+                        text: @tr("Export to Markdown");
+                        full-width: true;
+                        enabled: !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.export-markdown();
+                        }
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        text: @tr("Select");
+                        enabled: WordbookState.rows.length > 0 && !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.enter-batch-mode();
+                        }
+                    }
                 }
 
-                Button {
-                    size: "sm";
-                    variant: "light";
-                    text: @tr("Select");
-                    enabled: false;
+                if WordbookState.batch-mode : HorizontalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    cross-axis-alignment: center;
+
+                    Checkbox {
+                        horizontal-stretch: 1;
+                        checked <=> WordbookState.all-checked;
+                        indeterminate <=> WordbookState.all-indeterminate;
+                        text: @tr("Select all results");
+                        enabled: WordbookState.rows.length > 0 && !WordbookState.deleting;
+                        toggled => {
+                            WordbookState.toggle-all();
+                        }
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        text: @tr("Done");
+                        enabled: !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.finish-batch-mode();
+                        }
+                    }
                 }
             }
 
@@ -150,34 +220,82 @@ export component WordbookPage inherits VerticalLayout {
                             : (touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0));
                         animate background { duration: 150ms; }
 
-                        touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
-                                WordbookState.select(row.id);
-                            }
-                        }
-
-                        VerticalLayout {
+                        HorizontalLayout {
                             padding-left: 8px;
                             padding-right: 8px;
-                            padding-top: 6px;
-                            padding-bottom: 6px;
-                            spacing: 2px;
-                            alignment: center;
+                            spacing: 4px;
+                            cross-axis-alignment: center;
 
-                            Text {
-                                text: row.text;
-                                font-size: 13px;
-                                color: Theme.foreground;
-                                overflow: elide;
+                            if WordbookState.batch-mode : Checkbox {
+                                checked: row.checked;
+                                enabled: !WordbookState.deleting;
+                                toggled(val) => {
+                                    WordbookState.toggle-row(row.id, val);
+                                }
                             }
 
-                            Text {
-                                text: row.preview;
-                                font-size: 11px;
-                                color: Theme.default-400;
-                                overflow: elide;
+                            touch := TouchArea {
+                                horizontal-stretch: 1;
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    WordbookState.select(row.id);
+                                }
+
+                                VerticalLayout {
+                                    padding-top: 6px;
+                                    padding-bottom: 6px;
+                                    spacing: 2px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: row.text;
+                                        font-size: 13px;
+                                        color: Theme.foreground;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: row.preview;
+                                        font-size: 11px;
+                                        color: Theme.default-400;
+                                        overflow: elide;
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+            }
+
+            // 5. 多选模式底部操作栏
+            if WordbookState.batch-mode : VerticalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.default-100;
+                }
+
+                HorizontalLayout {
+                    height: 32px;
+                    alignment: space-between;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: @tr("Selected {} items", WordbookState.checked-count);
+                        font-size: 12px;
+                        color: Theme.default-500;
+                        vertical-alignment: center;
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        color: "danger";
+                        text: @tr("Delete");
+                        enabled: WordbookState.checked-count > 0 && !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.request-delete-batch();
                         }
                     }
                 }
@@ -198,7 +316,7 @@ export component WordbookPage inherits VerticalLayout {
                     spacing: 0px;
                     alignment: start;
 
-                    // 顶栏一行：左标题，右朗读
+                    // 顶栏一行：左标题，右朗读与删除
                     HorizontalLayout {
                         alignment: space-between;
                         cross-axis-alignment: center;
@@ -212,13 +330,28 @@ export component WordbookPage inherits VerticalLayout {
                             horizontal-stretch: 1;
                         }
 
-                        IconButton {
-                            size: "sm";
-                            icon: @image-url("../icons/volume-2.svg");
-                            checked: WordbookState.speaking;
-                            label: @tr("Speak");
-                            clicked => {
-                                WordbookState.speak();
+                        HorizontalLayout {
+                            spacing: 4px;
+
+                            IconButton {
+                                size: "sm";
+                                icon: @image-url("../icons/volume-2.svg");
+                                checked: WordbookState.speaking;
+                                label: @tr("Speak");
+                                clicked => {
+                                    WordbookState.speak();
+                                }
+                            }
+
+                            IconButton {
+                                size: "sm";
+                                icon: @image-url("../icons/delete.svg");
+                                color: Theme.danger;
+                                label: @tr("Delete");
+                                enabled: !WordbookState.deleting;
+                                clicked => {
+                                    WordbookState.request-delete-single();
+                                }
                             }
                         }
                     }
@@ -253,6 +386,45 @@ export component WordbookPage inherits VerticalLayout {
                             entry: WordbookState.detail-entry;
                         }
                     }
+                }
+            }
+        }
+    }
+    }
+
+    // 删除确认对话框（Modal sm）
+    Modal {
+        open: WordbookState.delete-modal-open;
+        size: "sm";
+        title: @tr("Delete {} entries?", WordbookState.delete-modal-count);
+        dismissable: !WordbookState.deleting;
+        closed => {
+            WordbookState.cancel-delete();
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+
+            Button {
+                size: "sm";
+                variant: "light";
+                text: @tr("Cancel");
+                enabled: !WordbookState.deleting;
+                clicked => {
+                    WordbookState.cancel-delete();
+                }
+            }
+
+            Button {
+                size: "sm";
+                variant: "solid";
+                color: "danger";
+                text: @tr("Delete {} entries", WordbookState.delete-modal-count);
+                loading: WordbookState.deleting;
+                enabled: !WordbookState.deleting;
+                clicked => {
+                    WordbookState.confirm-delete();
                 }
             }
         }
