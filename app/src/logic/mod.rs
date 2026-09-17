@@ -1,3 +1,4 @@
+pub mod ai_presets;
 pub mod cache;
 pub mod config;
 pub mod lang_detect;

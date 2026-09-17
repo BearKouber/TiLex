@@ -5,6 +5,7 @@ import { Button } from "../common/button.slint";
 import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
 import { Switch } from "../common/switch.slint";
+import { ServiceIcon } from "service_icon.slint";
 
 export struct ServiceRow {
     index: int,
@@ -145,42 +146,12 @@ export component ServicesPage inherits VerticalLayout {
                             }
                         }
 
-                        if item.id == "google" : Image {
-                            width: 24px;
-                            height: 24px;
-                            source: @image-url("../icons/logo/google.svg");
-                        }
-                        if item.id == "openai" : Image {
-                            width: 24px;
-                            height: 24px;
-                            source: @image-url("../icons/logo/openai.svg");
-                        }
-                        if item.id == "deepseek" : Image {
-                            width: 24px;
-                            height: 24px;
-                            source: @image-url("../icons/logo/deepseek.svg");
-                        }
-                        // 单色图标，用品牌色上色（旧版 RiWechatFill + #07C160）
-                        if item.id == "wechat" : Image {
-                            width: 24px;
-                            height: 24px;
-                            source: @image-url("../icons/logo/wechat.svg");
-                            colorize: item.icon-color;
-                        }
-                        if !item.has-logo : Rectangle {
-                            width: 24px;
-                            height: 24px;
-                            border-radius: 6px;
-                            background: item.icon-color;
-
-                            Text {
-                                text: item.icon-letter;
-                                font-size: 13px;
-                                font-weight: 700;
-                                color: Theme.primary-foreground;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
+                        ServiceIcon {
+                            id: item.id;
+                            has-logo: item.has-logo;
+                            icon-color: item.icon-color;
+                            icon-letter: item.icon-letter;
+                            size: 24px;
                         }
 
                         Text {

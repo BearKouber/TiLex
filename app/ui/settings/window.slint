@@ -1,7 +1,8 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
 import { ServicesPage, ServiceRow } from "services.slint";
-import { ServiceDialogs } from "service_dialogs.slint";
+import { ServiceDialogs, ServiceDraft, AiPreset } from "service_dialogs.slint";
+export { ServiceDraft, AiPreset } from "service_dialogs.slint";
 import { TranslatePage } from "translate.slint";
 import { Card } from "../common/card.slint";
 import { IconButton } from "../common/icon_button.slint";
@@ -164,10 +165,25 @@ export component SettingsWindow inherits Window {
     in-out property <string> draft-google-api-key: "";
     in-out property <string> draft-google-custom-api-url: "";
 
+    // AI Draft Properties
+    in-out property <string> draft-ai-base-url: "";
+    in-out property <string> draft-ai-api-key: "";
+    in-out property <string> draft-ai-model: "";
+    in-out property <int> draft-ai-protocol-index: 0;
+    in-out property <string> draft-ai-custom-instructions: "";
+    in-out property <string> draft-ai-icon: "";
+    in-out property <bool> draft-ai-has-logo: false;
+    in-out property <brush> draft-ai-icon-color: Theme.foreground;
+    in-out property <string> draft-ai-icon-letter: "";
+
+    in-out property <string> resolved-chat-url: "";
+    in property <[AiPreset]> ai-presets: [];
+    in property <string> default-ai-custom-instructions: "";
+
     in property <brush> wechat-icon-color;
 
-    callback add-ai-service(string);
-    callback save-service(string, int, string, string, string, string, string, string);
+    callback save-service(ServiceDraft);
+    callback refresh-resolved-url(string, string, string, string);
 
     public function show-least-services-warning() {
         toast.show(@tr("Please keep at least one translation service"), 2);
@@ -508,14 +524,28 @@ export component SettingsWindow inherits Window {
         draft-google-api-key <=> root.draft-google-api-key;
         draft-google-custom-api-url <=> root.draft-google-custom-api-url;
 
+        draft-ai-base-url <=> root.draft-ai-base-url;
+        draft-ai-api-key <=> root.draft-ai-api-key;
+        draft-ai-model <=> root.draft-ai-model;
+        draft-ai-protocol-index <=> root.draft-ai-protocol-index;
+        draft-ai-custom-instructions <=> root.draft-ai-custom-instructions;
+        draft-ai-icon <=> root.draft-ai-icon;
+        draft-ai-has-logo <=> root.draft-ai-has-logo;
+        draft-ai-icon-color <=> root.draft-ai-icon-color;
+        draft-ai-icon-letter <=> root.draft-ai-icon-letter;
+
+        resolved-chat-url <=> root.resolved-chat-url;
+        ai-presets: root.ai-presets;
+        default-ai-custom-instructions: root.default-ai-custom-instructions;
+
         window-height: root.height;
         wechat-icon-color: root.wechat-icon-color;
 
-        add-ai-service(k) => {
-            root.add-ai-service(k);
+        refresh-resolved-url(base, model, protocol, locked-icon) => {
+            root.refresh-resolved-url(base, model, protocol, locked-icon);
         }
-        save-service(kind, idx, service, label, mode, custom-url, api-key, custom-api-url) => {
-            root.save-service(kind, idx, service, label, mode, custom-url, api-key, custom-api-url);
+        save-service(draft) => {
+            root.save-service(draft);
         }
     }
 

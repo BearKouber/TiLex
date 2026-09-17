@@ -4,8 +4,36 @@ import { Modal } from "../common/modal.slint";
 import { Button } from "../common/button.slint";
 import { SettingRow } from "../common/card.slint";
 import { Select } from "../common/select.slint";
-import { TextField } from "../common/text_field.slint";
+import { TextField, TextArea } from "../common/text_field.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
+import { ServiceIcon } from "service_icon.slint";
+
+export struct AiPreset {
+    id: string,
+    name: string,
+    base-url: string,
+    protocol: string,
+    has-logo: bool,
+    icon-color: brush,
+    icon-letter: string,
+}
+
+export struct ServiceDraft {
+    kind: string,
+    real-index: int,
+    service: string,
+    label: string,
+    google-mode: string,
+    google-custom-url: string,
+    google-api-key: string,
+    google-custom-api-url: string,
+    ai-base-url: string,
+    ai-api-key: string,
+    ai-model: string,
+    ai-protocol: string,
+    ai-custom-instructions: string,
+    ai-icon: string,
+}
 
 component BuiltinServiceItem {
     in property <image> icon;
@@ -105,6 +133,183 @@ component BuiltinServiceItem {
     }
 }
 
+component PresetGridButton {
+    in property <AiPreset> preset;
+
+    callback clicked();
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    height: 64px;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.preset.name;
+
+    if root.kb-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-medium + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Theme.radius-medium;
+        border-width: 1px;
+        border-color: Theme.default-base;
+        background: touch.pressed ? Theme.default-100 : Theme.content1;
+
+        opacity: touch.pressed ? (Theme.dark ? 0.8 : 0.7) : (touch.has-hover ? (Theme.dark ? 0.9 : 0.8) : 1.0);
+        animate background, opacity { duration: 150ms; }
+
+        VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 4px;
+            alignment: center;
+            cross-axis-alignment: center;
+
+            ServiceIcon {
+                id: root.preset.id;
+                has-logo: root.preset.has-logo;
+                icon-color: root.preset.icon-color;
+                icon-letter: root.preset.icon-letter;
+                size: 24px;
+            }
+
+            Text {
+                text: root.preset.name;
+                font-size: 11px;
+                color: Theme.foreground;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+                width: 100%;
+            }
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        focus-on-click: true;
+        focus-on-tab-navigation: true;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+component CustomAiButton {
+    callback clicked();
+
+    property <bool> kb-focus: false;
+
+    forward-focus: fs;
+    height: 56px;
+    width: 100%;
+    accessible-role: AccessibleRole.button;
+    accessible-label: @tr("Custom");
+
+    if root.kb-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-medium + 2px;
+        border-width: 2px;
+        border-color: Theme.focus;
+    }
+
+    bg := Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Theme.radius-medium;
+        border-width: 1px;
+        border-color: Theme.default-base;
+        background: touch.pressed ? Theme.default-100 : Theme.content1;
+
+        opacity: touch.pressed ? (Theme.dark ? 0.8 : 0.7) : (touch.has-hover ? (Theme.dark ? 0.9 : 0.8) : 1.0);
+        animate background, opacity { duration: 150ms; }
+
+        VerticalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 2px;
+            alignment: center;
+            cross-axis-alignment: start;
+
+            Text {
+                text: @tr("Custom");
+                font-size: 13px;
+                color: Theme.foreground;
+            }
+
+            Text {
+                text: @tr("Self-hosted proxy, OneAPI, local relay");
+                font-size: 10px;
+                color: Theme.default-500;
+            }
+        }
+    }
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        focus-on-click: true;
+        focus-on-tab-navigation: true;
+        focus-gained(reason) => {
+            root.kb-focus = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.kb-focus = false;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
 export component ServiceDialogs {
     in-out property <int> dialog: 0;
     in-out property <string> dialog-kind: "translate";
@@ -120,11 +325,65 @@ export component ServiceDialogs {
     in-out property <string> draft-google-api-key: "";
     in-out property <string> draft-google-custom-api-url: "";
 
+    // AI 草稿属性
+    in-out property <string> draft-ai-base-url: "";
+    in-out property <string> draft-ai-api-key: "";
+    in-out property <string> draft-ai-model: "";
+    in-out property <int> draft-ai-protocol-index: 0;
+    in-out property <string> draft-ai-custom-instructions: "";
+    in-out property <string> draft-ai-icon: "";
+    in-out property <bool> draft-ai-has-logo: false;
+    in-out property <brush> draft-ai-icon-color: Theme.foreground;
+    in-out property <string> draft-ai-icon-letter: "";
+
+    in-out property <string> resolved-chat-url: "";
+    in property <[AiPreset]> ai-presets: [];
+    in property <string> default-ai-custom-instructions: "";
+
     in property <length> window-height;
     in property <brush> wechat-icon-color;
 
-    callback add-ai-service(string);
-    callback save-service(string, int, string, string, string, string, string, string);
+    callback save-service(ServiceDraft);
+    callback refresh-resolved-url(string, string, string, string);
+
+    function current-protocol-str() -> string {
+        root.draft-ai-protocol-index == 1 ? "openai_responses" : (
+            root.draft-ai-protocol-index == 2 ? "anthropic" : (
+                root.draft-ai-protocol-index == 3 ? "google" : "openai_chat"
+            )
+        )
+    }
+
+    function select-preset(p: AiPreset) {
+        root.draft-ai-base-url = p.base-url;
+        root.draft-ai-protocol-index = (p.protocol == "openai_responses" ? 1 : (p.protocol == "anthropic" ? 2 : (p.protocol == "google" ? 3 : 0)));
+        root.draft-ai-icon = p.id;
+        root.draft-ai-has-logo = p.has-logo;
+        root.draft-ai-icon-color = p.icon-color;
+        root.draft-ai-icon-letter = p.icon-letter;
+        root.draft-ai-model = "";
+        root.draft-ai-api-key = "";
+        root.draft-label = "";
+        root.draft-ai-custom-instructions = root.default-ai-custom-instructions;
+        root.dialog-service = "ai";
+        root.dialog-index = -1;
+        root.dialog = 3;
+        root.refresh-resolved-url(p.base-url, "", p.protocol, root.draft-ai-icon);
+    }
+
+    function select-custom() {
+        root.draft-ai-base-url = "";
+        root.draft-ai-protocol-index = 0;
+        root.draft-ai-icon = "";
+        root.draft-ai-model = "";
+        root.draft-ai-api-key = "";
+        root.draft-label = "";
+        root.draft-ai-custom-instructions = root.default-ai-custom-instructions;
+        root.dialog-service = "ai";
+        root.dialog-index = -1;
+        root.dialog = 3;
+        root.refresh-resolved-url("", "", "openai_chat", root.draft-ai-icon);
+    }
 
     width: 100%;
     height: 100%;
@@ -158,7 +417,7 @@ export component ServiceDialogs {
             size: "md";
             full-width: true;
             clicked => {
-                root.add-ai-service(root.dialog-kind);
+                root.dialog = 4;
             }
         }
 
@@ -231,6 +490,61 @@ export component ServiceDialogs {
         }
     }
 
+    // Modal 4: AI 预设网格
+    Modal {
+        open: root.dialog == 4;
+        title: @tr("Add AI Service");
+        closed => {
+            if root.dialog == 4 {
+                root.dialog = 0;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 8px;
+
+            preset-container := Rectangle {
+                property <int> cols: 3;
+                property <length> col-width: (self.width - 16px) / 3;
+                // `/ 3.0` 而不是 `/ 3`：万一是整数除法，10 家预设会算出 3 行，第 10 格溢出容器。
+                property <int> rows: Math.ceil(root.ai-presets.length / 3.0);
+                // 格子是绝对定位的，这个 Rectangle 自己没有内容高度，必须显式算。
+                // 别想着再加 min-height / max-height 兜底：Slint 不许和 height 同时给。
+                height: rows * 64px + Math.max(0, rows - 1) * 8px;
+
+                for p[i] in root.ai-presets : PresetGridButton {
+                    x: Math.mod(i, 3) * (preset-container.col-width + 8px);
+                    y: Math.floor(i / 3) * 72px;
+                    width: preset-container.col-width;
+                    preset: p;
+                    clicked => {
+                        root.select-preset(p);
+                    }
+                }
+            }
+
+            CustomAiButton {
+                clicked => {
+                    root.select-custom();
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+
+            Button {
+                text: @tr("Cancel");
+                variant: "light";
+                color: "danger";
+                size: "md";
+                clicked => {
+                    root.dialog = 0;
+                }
+            }
+        }
+    }
+
     // Modal 3: 服务配置
     cfg-modal := Modal {
         open: root.dialog == 3;
@@ -248,6 +562,12 @@ export component ServiceDialogs {
                 form-layout.preferred-height,
                 max(100px, root.window-height * 0.75 - 192px)
             );
+            // 滚动条默认画在 ScrollArea 自己的右边缘，也就是 Modal 内容区 24px 内边距的里侧，
+            // 正好压在右列控件上（旧版是贴卡片边缘的）。用负值把它推出内边距：
+            // -22px = -(24px 内边距 - 2px 离边距离)；-8px 抵消内容区的 padding-top，
+            // 让轨道从标题栏下沿起、滑块能顶到内容块最上面。
+            track-margin: -22px;
+            track-inset: -8px;
             viewport-height: max(self.visible-height, form-layout.preferred-height);
 
             form-layout := VerticalLayout {
@@ -330,6 +650,140 @@ export component ServiceDialogs {
                         }
                     }
                 }
+
+                if root.dialog-service == "ai" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Icon");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        HorizontalLayout {
+                            alignment: start;
+                            cross-axis-alignment: center;
+
+                            ServiceIcon {
+                                id: root.draft-ai-icon;
+                                has-logo: root.draft-ai-has-logo;
+                                icon-color: root.draft-ai-icon-color;
+                                icon-letter: root.draft-ai-icon-letter;
+                                size: 24px;
+                            }
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("AI Translation");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Request Path");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-ai-base-url;
+                            placeholder: "https://api.example.com/v1";
+                            edited(text) => {
+                                root.refresh-resolved-url(
+                                    text,
+                                    root.draft-ai-model,
+                                    root.current-protocol-str(),
+                                    root.draft-ai-icon
+                                );
+                            }
+                        }
+                    }
+
+                    if root.resolved-chat-url != "" : HorizontalLayout {
+                        alignment: end;
+                        padding-bottom: 6px;
+
+                        Text {
+                            text: root.resolved-chat-url;
+                            font-size: 11px;
+                            color: Theme.default-400;
+                            horizontal-alignment: right;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("API Key");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            password: true;
+                            text <=> root.draft-ai-api-key;
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("API Format");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        Select {
+                            width: 100%;
+                            options: [
+                                @tr("OpenAI Chat Completions"),
+                                @tr("OpenAI Responses"),
+                                @tr("Anthropic"),
+                                @tr("Google"),
+                            ];
+                            current-index <=> root.draft-ai-protocol-index;
+                            selected(idx) => {
+                                root.refresh-resolved-url(
+                                    root.draft-ai-base-url,
+                                    root.draft-ai-model,
+                                    idx == 1 ? "openai_responses" : (idx == 2 ? "anthropic" : (idx == 3 ? "google" : "openai_chat")),
+                                    root.draft-ai-icon
+                                );
+                            }
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Model");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-ai-model;
+                            edited(text) => {
+                                root.refresh-resolved-url(
+                                    root.draft-ai-base-url,
+                                    text,
+                                    root.current-protocol-str(),
+                                    root.draft-ai-icon
+                                );
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        padding-top: 10px;
+                        padding-bottom: 10px;
+                        spacing: 8px;
+
+                        Text {
+                            text: @tr("Custom Instructions");
+                            font-size: 14px;
+                            color: Theme.foreground;
+                        }
+
+                        TextArea {
+                            text <=> root.draft-ai-custom-instructions;
+                        }
+                    }
+                }
             }
         }
 
@@ -340,16 +794,22 @@ export component ServiceDialogs {
             size: "md";
             full-width: true;
             clicked => {
-                root.save-service(
-                    root.dialog-kind,
-                    root.dialog-index,
-                    root.dialog-service,
-                    root.draft-label,
-                    root.draft-google-mode-index == 1 ? "custom_api" : (root.draft-google-mode-index == 2 ? "api" : "web"),
-                    root.draft-google-custom-url,
-                    root.draft-google-api-key,
-                    root.draft-google-custom-api-url
-                );
+                root.save-service({
+                    kind: root.dialog-kind,
+                    real-index: root.dialog-index,
+                    service: root.dialog-service,
+                    label: root.draft-label,
+                    google-mode: root.draft-google-mode-index == 1 ? "custom_api" : (root.draft-google-mode-index == 2 ? "api" : "web"),
+                    google-custom-url: root.draft-google-custom-url,
+                    google-api-key: root.draft-google-api-key,
+                    google-custom-api-url: root.draft-google-custom-api-url,
+                    ai-base-url: root.draft-ai-base-url,
+                    ai-api-key: root.draft-ai-api-key,
+                    ai-model: root.draft-ai-model,
+                    ai-protocol: root.current-protocol-str(),
+                    ai-custom-instructions: root.draft-ai-custom-instructions,
+                    ai-icon: root.draft-ai-icon,
+                });
             }
         }
 

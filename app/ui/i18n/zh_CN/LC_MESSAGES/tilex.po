@@ -414,3 +414,33 @@ msgstr "中转 API 地址"
 msgid "API Key"
 msgstr "API 密钥 (Key)"
 
+msgid "Custom"
+msgstr "自定义"
+
+msgid "Self-hosted proxy, OneAPI, local relay"
+msgstr "自建反代 / OneAPI / 本地中转"
+
+msgid "Icon"
+msgstr "图标"
+
+msgid "Request Path"
+msgstr "请求地址"
+
+msgid "API Format"
+msgstr "接口格式"
+
+msgid "OpenAI Chat Completions"
+msgstr "OpenAI Chat Completions"
+
+msgid "OpenAI Responses"
+msgstr "OpenAI Responses"
+
+msgid "Anthropic"
+msgstr "Anthropic"
+
+msgid "Model"
+msgstr "模型"
+
+msgid "Custom Instructions"
+msgstr "自定义要求"
+

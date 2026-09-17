@@ -62,6 +62,9 @@ export component Select {
         }
 
         btn := Button {
+            // 不给 100% 的话按钮按文字算宽，短选项（"网页接口 (默认)"）会缩成一条，
+            // 跟同一行上下的输入框不齐；长选项碰巧撑满，所以只在短选项上看得出来。
+            width: 100%;
             variant: "bordered";
             size: "md";
             enabled: root.enabled;

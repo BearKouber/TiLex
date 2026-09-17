@@ -4,6 +4,7 @@
 use slint::{ComponentHandle, VecModel};
 use std::rc::Rc;
 
+use crate::logic::ai_presets;
 use crate::logic::config::{self, Service};
 use crate::logic::service_icon as icons;
 use crate::slint_ui::{ServiceRow, SettingsWindow};
@@ -39,30 +40,44 @@ pub fn bind(page: &SettingsWindow) {
         }
     });
 
-    page.on_add_ai_service(|kind| {
-        log::info!("Settings: add AI service clicked for {}", kind.as_str());
+    let weak = page.as_weak();
+    page.on_refresh_resolved_url(move |base, model, protocol, locked_icon| {
+        if let Some(page) = weak.upgrade() {
+            let url =
+                ai_presets::resolved_chat_url(base.as_str(), model.as_str(), protocol.as_str());
+            page.set_resolved_chat_url(url.into());
+
+            let info = resolve_draft_icon(locked_icon.as_str(), base.as_str(), model.as_str());
+            page.set_draft_ai_has_logo(info.has_file);
+            page.set_draft_ai_icon_color(parse_hex_color(info.color));
+            page.set_draft_ai_icon_letter(info.letter.into());
+        }
     });
 
     let weak = page.as_weak();
-    page.on_save_service(
-        move |kind, idx, service, label, mode, custom_url, api_key, custom_api_url| {
-            if let Some(page) = weak.upgrade() {
-                handle_save_service(
-                    &page,
-                    ServiceDraft {
-                        kind: kind.as_str(),
-                        real_idx: idx,
-                        service: service.as_str(),
-                        label: label.as_str(),
-                        mode: mode.as_str(),
-                        custom_url: custom_url.as_str(),
-                        api_key: api_key.as_str(),
-                        custom_api_url: custom_api_url.as_str(),
-                    },
-                );
-            }
-        },
-    );
+    page.on_save_service(move |draft| {
+        if let Some(page) = weak.upgrade() {
+            handle_save_service(
+                &page,
+                ServiceDraft {
+                    kind: draft.kind.as_str(),
+                    real_idx: draft.real_index,
+                    service: draft.service.as_str(),
+                    label: draft.label.as_str(),
+                    mode: draft.google_mode.as_str(),
+                    custom_url: draft.google_custom_url.as_str(),
+                    api_key: draft.google_api_key.as_str(),
+                    custom_api_url: draft.google_custom_api_url.as_str(),
+                    ai_base_url: draft.ai_base_url.as_str(),
+                    ai_api_key: draft.ai_api_key.as_str(),
+                    ai_model: draft.ai_model.as_str(),
+                    ai_protocol: draft.ai_protocol.as_str(),
+                    ai_custom_instructions: draft.ai_custom_instructions.as_str(),
+                    ai_icon: draft.ai_icon.as_str(),
+                },
+            );
+        }
+    });
 }
 
 pub fn refresh(page: &SettingsWindow) {
@@ -75,6 +90,25 @@ pub fn refresh(page: &SettingsWindow) {
 
     let wechat_info = icons::get_icon("wechat");
     page.set_wechat_icon_color(parse_hex_color(wechat_info.color));
+
+    page.set_default_ai_custom_instructions(ai_presets::default_custom_instructions().into());
+
+    let presets: Vec<crate::slint_ui::AiPreset> = ai_presets::AI_PRESETS
+        .iter()
+        .map(|p| {
+            let info = icons::get_icon(p.id);
+            crate::slint_ui::AiPreset {
+                id: p.id.into(),
+                name: p.name.into(),
+                base_url: p.base_url.into(),
+                protocol: p.protocol.into(),
+                has_logo: info.has_file,
+                icon_color: parse_hex_color(info.color),
+                icon_letter: info.letter.into(),
+            }
+        })
+        .collect();
+    page.set_ai_presets(Rc::new(VecModel::from(presets)).into());
 }
 
 fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
@@ -111,6 +145,17 @@ fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
             })
         })
         .collect()
+}
+
+/// AI 配置表单里该显示哪张脸：从预设进来的锁死（`locked` = 预设 id，改地址也不换），
+/// 「自定义」进来的（`locked` 为空）跟着地址和模型走，认不出回落 sparkle。
+fn resolve_draft_icon(locked: &str, base: &str, model: &str) -> &'static icons::IconInfo {
+    let id = if locked.is_empty() {
+        icons::match_icon(base, model)
+    } else {
+        locked
+    };
+    icons::get_icon(id)
 }
 
 /// `#RRGGBB` → 不透明 Brush。取值只来自 `service_icon` 里的编译期常量，认不出就给黑色。
@@ -232,7 +277,48 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_dialog_index(real_idx);
                 page.set_dialog(3);
             }
-            _ => {
+            Service::Ai(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_draft_ai_base_url(inst.config.base_url.as_str().into());
+                page.set_draft_ai_api_key(inst.config.api_key.as_str().into());
+                page.set_draft_ai_model(inst.config.model.as_str().into());
+                let proto_idx = match inst.config.protocol.as_str() {
+                    "openai_responses" => 1,
+                    "anthropic" => 2,
+                    "google" => 3,
+                    _ => 0,
+                };
+                page.set_draft_ai_protocol_index(proto_idx);
+                page.set_draft_ai_custom_instructions(
+                    inst.config.custom_instructions.as_str().into(),
+                );
+                let icon_id = inst
+                    .extra
+                    .get("icon")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                page.set_draft_ai_icon(icon_id.into());
+                let display_icon_id = if !icon_id.is_empty() {
+                    icon_id
+                } else {
+                    icons::match_icon(&inst.config.base_url, &inst.config.model)
+                };
+                let info = icons::get_icon(display_icon_id);
+                page.set_draft_ai_has_logo(info.has_file);
+                page.set_draft_ai_icon_color(parse_hex_color(info.color));
+                page.set_draft_ai_icon_letter(info.letter.into());
+                let resolved = ai_presets::resolved_chat_url(
+                    &inst.config.base_url,
+                    &inst.config.model,
+                    &inst.config.protocol,
+                );
+                page.set_resolved_chat_url(resolved.into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("ai".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Unknown(_) => {
                 log::info!("Settings: editing service kind not supported in this batch");
             }
         }
@@ -248,6 +334,12 @@ struct ServiceDraft<'a> {
     custom_url: &'a str,
     api_key: &'a str,
     custom_api_url: &'a str,
+    ai_base_url: &'a str,
+    ai_api_key: &'a str,
+    ai_model: &'a str,
+    ai_protocol: &'a str,
+    ai_custom_instructions: &'a str,
+    ai_icon: &'a str,
 }
 
 fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
@@ -272,8 +364,8 @@ fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
     }
 }
 
-/// 把对话框的草稿写进服务列表：`real_idx == -1` 追加一个新实例，否则改这一项，
-/// 保留它原有的 `enabled` 和 `extra`（不认识的字段不能因为一次保存就丢）。
+/// 把对话框的草稿写进服务列表：`real_idx == -1` 追加一个新实例（默认关闭，由用户手动开启），
+/// 否则改这一项，保留它原有的 `enabled` 和 `extra`（不认识的字段不能因为一次保存就丢）。
 fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
     if draft.real_idx == -1 {
         match draft.service {
@@ -281,6 +373,7 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 let mut inst = config::Instance::<config::GoogleConfig>::new(
                     &config::new_instance_id("google"),
                 );
+                inst.enabled = false;
                 inst.label = draft.label.trim().to_string();
                 inst.config.mode = draft.mode.to_string();
                 inst.config.custom_url = draft.custom_url.trim().to_string();
@@ -291,8 +384,28 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
             "wechat" => {
                 let mut inst =
                     config::Instance::<config::NoSettings>::new(&config::new_instance_id("wechat"));
+                inst.enabled = false;
                 inst.label = draft.label.trim().to_string();
                 list.push(Service::Wechat(inst));
+            }
+            "ai" => {
+                let mut inst =
+                    config::Instance::<config::AiConfig>::new(&config::new_instance_id("ai"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                inst.config.base_url = draft.ai_base_url.trim().to_string();
+                inst.config.api_key = draft.ai_api_key.trim().to_string();
+                inst.config.model = draft.ai_model.trim().to_string();
+                inst.config.protocol = draft.ai_protocol.trim().to_string();
+                inst.config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
+                let icon = draft.ai_icon.trim();
+                if !icon.is_empty() {
+                    inst.extra.insert(
+                        "icon".to_string(),
+                        serde_json::Value::String(icon.to_string()),
+                    );
+                }
+                list.push(Service::Ai(inst));
             }
             _ => {}
         }
@@ -307,6 +420,23 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
             }
             Service::Wechat(inst) => {
                 inst.label = draft.label.trim().to_string();
+            }
+            Service::Ai(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config.base_url = draft.ai_base_url.trim().to_string();
+                inst.config.api_key = draft.ai_api_key.trim().to_string();
+                inst.config.model = draft.ai_model.trim().to_string();
+                inst.config.protocol = draft.ai_protocol.trim().to_string();
+                inst.config.custom_instructions = draft.ai_custom_instructions.trim().to_string();
+                if !inst.extra.contains_key("icon") {
+                    let icon = draft.ai_icon.trim();
+                    if !icon.is_empty() {
+                        inst.extra.insert(
+                            "icon".to_string(),
+                            serde_json::Value::String(icon.to_string()),
+                        );
+                    }
+                }
             }
             _ => {}
         }
@@ -429,6 +559,12 @@ mod tests {
             custom_url: "",
             api_key: "",
             custom_api_url: "",
+            ai_base_url: "",
+            ai_api_key: "",
+            ai_model: "",
+            ai_protocol: "openai_chat",
+            ai_custom_instructions: "",
+            ai_icon: "",
         }
     }
 
@@ -447,12 +583,50 @@ mod tests {
         let (Service::Google(a), Service::Google(b)) = (&list[0], &list[1]) else {
             panic!("expected two google services");
         };
+        assert!(!a.enabled && !b.enabled, "新加的服务默认关闭，要用户手动开");
         assert_eq!(a.label, "A", "实例名前后的空格应去掉");
         assert_eq!(a.config.custom_url, "https://mirror1.example.com");
         // 两个实例互不串
         assert_eq!(a.config.custom_api_url, "");
         assert_eq!(b.config.mode, "custom_api");
         assert_eq!(b.config.custom_api_url, "https://proxy.example.com");
+    }
+
+    #[test]
+    fn apply_draft_adds_ai_service() {
+        let mut list = Vec::new();
+        let mut first = draft(-1, "ai", "  My Zhipu  ", "");
+        first.ai_base_url = "https://open.bigmodel.cn/api/paas/v4";
+        first.ai_api_key = "secret_key";
+        first.ai_model = "glm-4";
+        first.ai_protocol = "openai_chat";
+        first.ai_custom_instructions = "  translate directly  ";
+        first.ai_icon = "zhipu";
+        apply_draft(&mut list, &first);
+
+        assert_eq!(list.len(), 1);
+        let Service::Ai(inst) = &list[0] else {
+            panic!("expected ai service");
+        };
+        assert!(!inst.enabled, "新加的 AI 服务默认关闭");
+        assert!(inst.id.starts_with("ai@"), "id 必须由 new_instance_id 生成");
+        assert_eq!(inst.label, "My Zhipu");
+        assert_eq!(inst.config.base_url, "https://open.bigmodel.cn/api/paas/v4");
+        assert_eq!(inst.config.api_key, "secret_key");
+        assert_eq!(inst.config.model, "glm-4");
+        assert_eq!(inst.config.protocol, "openai_chat");
+        assert_eq!(inst.config.custom_instructions, "translate directly");
+        assert_eq!(inst.extra.get("icon"), Some(&serde_json::json!("zhipu")));
+
+        // 自定义 AI：ai_icon 为空时，extra 里不放 icon
+        let mut custom = draft(-1, "ai", "Custom AI", "");
+        custom.ai_base_url = "https://my-proxy.com/v1";
+        apply_draft(&mut list, &custom);
+        assert_eq!(list.len(), 2);
+        let Service::Ai(inst2) = &list[1] else {
+            panic!("expected ai service");
+        };
+        assert_eq!(inst2.extra.get("icon"), None);
     }
 
     #[test]
@@ -484,5 +658,66 @@ mod tests {
             "编辑不该丢未知字段"
         );
         assert_eq!(list[0], Service::Unknown(unknown), "Unknown 一字不变");
+    }
+
+    #[test]
+    fn apply_draft_edits_ai_service_preserves_enabled_and_extra() {
+        let mut inst = Instance::<config::AiConfig>::new("ai@test");
+        inst.enabled = true;
+        inst.label = "Old AI".into();
+        inst.config.base_url = "https://api.openai.com/v1".into();
+        inst.config.api_key = "old_key".into();
+        inst.extra
+            .insert("icon".into(), serde_json::json!("openai"));
+        inst.extra
+            .insert("custom_extra_field".into(), serde_json::json!(42));
+        let mut list = vec![Service::Ai(inst)];
+
+        let mut edit = draft(0, "ai", "New AI", "");
+        edit.ai_base_url = "https://api.openai.com/v2";
+        edit.ai_api_key = "new_key";
+        edit.ai_model = "gpt-4o";
+        edit.ai_protocol = "openai_chat";
+        edit.ai_custom_instructions = "keep original tone";
+        edit.ai_icon = "openai";
+        apply_draft(&mut list, &edit);
+
+        let Service::Ai(edited) = &list[0] else {
+            panic!("expected ai service");
+        };
+        assert_eq!(edited.id, "ai@test", "编辑不能改 id");
+        assert!(edited.enabled, "编辑不能改 enabled 状态");
+        assert_eq!(edited.label, "New AI");
+        assert_eq!(edited.config.base_url, "https://api.openai.com/v2");
+        assert_eq!(edited.config.api_key, "new_key");
+        assert_eq!(edited.config.model, "gpt-4o");
+        assert_eq!(edited.config.custom_instructions, "keep original tone");
+        assert_eq!(edited.extra.get("icon"), Some(&serde_json::json!("openai")));
+        assert_eq!(
+            edited.extra.get("custom_extra_field"),
+            Some(&serde_json::json!(42)),
+            "未知 extra 字段必须保留"
+        );
+    }
+
+    #[test]
+    fn test_resolve_ai_icon_locked_vs_custom() {
+        // 自定义（locked 为空）：认不出的地址回落 sparkle ✦
+        let info = resolve_draft_icon("", "https://my-custom-proxy.com", "custom-model");
+        assert_eq!(info.id, "sparkle");
+        assert!(!info.has_file);
+        assert_eq!(info.letter, "✦");
+
+        // 自定义：填 deepseek 地址就换成 DeepSeek 的脸
+        assert_eq!(
+            resolve_draft_icon("", "https://api.deepseek.com", "").id,
+            "deepseek"
+        );
+
+        // 预设进来的：地址改成 deepseek 也仍然锁着智谱
+        assert_eq!(
+            resolve_draft_icon("zhipu", "https://api.deepseek.com", "").id,
+            "zhipu"
+        );
     }
 }

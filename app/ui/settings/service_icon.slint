@@ -1,0 +1,50 @@
+import { Theme } from "../common/theme.slint";
+
+export component ServiceIcon {
+    in property <string> id: "";
+    in property <bool> has-logo: false;
+    in property <brush> icon-color: Theme.foreground;
+    in property <string> icon-letter: "";
+    in property <length> size: 24px;
+
+    width: root.size;
+    height: root.size;
+
+    if root.id == "google" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/google.svg");
+    }
+    if root.id == "openai" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/openai.svg");
+    }
+    if root.id == "deepseek" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/deepseek.svg");
+    }
+    // 单色图标，用品牌色上色（旧版 RiWechatFill + #07C160）
+    if root.id == "wechat" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/wechat.svg");
+        colorize: root.icon-color;
+    }
+    if !root.has-logo : Rectangle {
+        width: root.size;
+        height: root.size;
+        border-radius: root.size * 0.25;
+        background: root.icon-color;
+
+        Text {
+            text: root.icon-letter;
+            font-size: root.size * 0.54;
+            font-weight: 700;
+            color: Theme.primary-foreground;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
