@@ -59,6 +59,34 @@ export global WordbookState {
     public function msg-export-failed(err: string) -> string { @tr("Export failed: {}", err) }
 }
 
+// 长难句解析里的一条「• 标签：内容」（旧版 `Wordbook/index.jsx:396-417` 的 span 对）。
+// 旧版是 inline span，换行时内容绕回行首；这里用布局，换行时内容缩进对齐到标签右侧，
+// 和 `EntryBody` 里「词性 + 释义」那一行是同一个做法。
+component DetailBullet inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> text;
+    // 核心句型用正文色，修饰成分和语境说明用次要色（旧版 `text-default-600 dark:text-default-400`）
+    in property <bool> strong: false;
+
+    spacing: 6px;
+
+    Text {
+        text: "• " + root.label + "：";
+        font-size: 14px;
+        color: Theme.default-500;
+    }
+
+    Text {
+        text: root.text;
+        font-size: 14px;
+        color: root.strong
+            ? Theme.foreground
+            : (Theme.dark ? Theme.default-500 : Theme.default-600);
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
 export component WordbookPage inherits Rectangle {
     // 高度由 window.slint 按可视区传进来：这一页不跟着 ScrollArea 滚（列表自己滚），
     // 写死高度的话窗口一放大下面就留白。
@@ -356,30 +384,138 @@ export component WordbookPage inherits Rectangle {
                         }
                     }
 
-                    // 长难句才有的「难度 / 分类」一行
-                    if !WordbookState.detail-is-word && (WordbookState.detail-category != "" || WordbookState.detail-difficulty > 0) : VerticalLayout {
-                        padding-top: 14px;
-                        spacing: 12px;
+                    // ===== 长难句版式：旧版 `Wordbook/index.jsx:344-457` 在这一页自己写了一套，
+                    // 不是 `TranslationResult` 那一份。只有例句和「用法与语法」才交给 EntryBody（旧版 `:443-456` 同）。
+                    if !WordbookState.detail-is-word : VerticalLayout {
+                        spacing: 0px;
 
-                        Rectangle {
-                            height: 1px;
-                            background: Theme.default-200;
+                        // 1. 译文：紧跟原句，中间**不放分割线**（旧版 `:376-380` 只有 mt-[12px]）
+                        if WordbookState.detail-entry.translation != "" : VerticalLayout {
+                            padding-top: 12px;
+
+                            Text {
+                                text: WordbookState.detail-entry.translation;
+                                font-size: 14px;
+                                color: Theme.foreground;
+                                wrap: word-wrap;
+                            }
                         }
 
-                        Text {
-                            text: root.format-sentence-tag(
-                                WordbookState.detail-category,
-                                WordbookState.detail-difficulty,
-                                WordbookState.detail-difficulty-reason
-                            );
-                            font-size: 12px;
-                            color: Theme.default-400;
-                            wrap: word-wrap;
+                        // 2. 分割线 + 「分类 · 难度」（旧版 `:383-387` mt-[14px] border-t pt-[12px]）。
+                        // 线画在这里的意思是：**线以下全是补充解析**，原句和译文在线以上。
+                        if WordbookState.detail-category != "" || WordbookState.detail-difficulty > 0 : VerticalLayout {
+                            padding-top: 14px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.default-100;
+                            }
+
+                            Text {
+                                text: root.format-sentence-tag(
+                                    WordbookState.detail-category,
+                                    WordbookState.detail-difficulty,
+                                    WordbookState.detail-difficulty-reason
+                                );
+                                font-size: 12px;
+                                color: Theme.default-400;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        // 3. 核心句型与主干（旧版 `:390-420`）：小标题 + 三条「• 标签：内容」
+                        if WordbookState.detail-entry.main-clause != ""
+                            || WordbookState.detail-entry.clauses != ""
+                            || WordbookState.detail-entry.nuance != "" : VerticalLayout {
+                            padding-top: 16px;
+                            spacing: 6px;
+
+                            Text {
+                                text: @tr("Sentence structure");
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Theme.default-500;
+                            }
+
+                            if WordbookState.detail-entry.main-clause != "" : DetailBullet {
+                                label: @tr("Core pattern");
+                                text: WordbookState.detail-entry.main-clause;
+                                strong: true;
+                            }
+
+                            if WordbookState.detail-entry.clauses != "" : DetailBullet {
+                                label: @tr("Modifiers");
+                                text: WordbookState.detail-entry.clauses;
+                            }
+
+                            if WordbookState.detail-entry.nuance != "" : DetailBullet {
+                                label: @tr("Context note");
+                                text: WordbookState.detail-entry.nuance;
+                            }
+                        }
+
+                        // 4. 重点术语（旧版 `:423-440`）：圆角边框的药丸。
+                        // 旧版是 `flex-wrap` 一行摆几个，Slint 1.17 没有流式换行布局，只能一行一个。
+                        if WordbookState.detail-entry.vocabulary.length > 0 : VerticalLayout {
+                            padding-top: 16px;
+                            spacing: 6px;
+
+                            Text {
+                                text: @tr("Key terms");
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Theme.default-500;
+                            }
+
+                            for item in WordbookState.detail-entry.vocabulary : HorizontalLayout {
+                                alignment: start;
+
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.default-200;
+                                    border-radius: self.height / 2;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        padding-top: 2px;
+                                        padding-bottom: 2px;
+                                        spacing: 6px;
+
+                                        Text {
+                                            text: item.word;
+                                            font-size: 12px;
+                                            color: Theme.foreground;
+                                        }
+
+                                        if item.meaning != "" : Text {
+                                            text: item.meaning;
+                                            font-size: 12px;
+                                            color: Theme.default-500;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 5. 例句 / 用法与语法：裁成只剩这两栏交给 EntryBody，上面几栏已经自己画过了
+                        // （旧版 `:444-455` 也是把 display 裁空了再传给 TranslationResult）
+                        if WordbookState.detail-entry.examples.length > 0
+                            || WordbookState.detail-entry.notes.length > 0 : VerticalLayout {
+                            padding-top: 8px;
+
+                            EntryBody {
+                                entry: {
+                                    examples: WordbookState.detail-entry.examples,
+                                    notes: WordbookState.detail-entry.notes,
+                                };
+                            }
                         }
                     }
 
-                    // 下面接 EntryBody，上边距 12
-                    VerticalLayout {
+                    // ===== 单词版式：整份交给 EntryBody（旧版 `:488-490` 的 mt-[12px] + TranslationResult）
+                    if WordbookState.detail-is-word : VerticalLayout {
                         padding-top: 12px;
 
                         EntryBody {

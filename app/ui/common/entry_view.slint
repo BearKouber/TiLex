@@ -126,12 +126,13 @@ export component EntryBody {
             }
         }
 
-        // 6. 备注：标题 @tr("Notes")；每条一段
+        // 6. 用法与语法：小标题 + 每条一段
         if root.entry.notes.length > 0 : VerticalLayout {
             padding-top: root.section-gap;
             spacing: root.section-gap;
             Text {
-                text: @tr("Notes");
+                // 旧版这一栏叫「用法与语法」（`i18n/locales/*.json` 的 `translate.notes`），不是「备注」
+                text: @tr("Usage and grammar");
                 font-size: root.muted-size;
                 font-weight: 500;
                 color: Theme.default-500;

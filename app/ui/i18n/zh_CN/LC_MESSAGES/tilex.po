@@ -60,8 +60,25 @@ msgstr "已收藏"
 msgid "Examples"
 msgstr "例句"
 
-msgid "Notes"
-msgstr "备注"
+# 旧版 `src/i18n/locales/*.json` 的 translate.notes 就是这一对（"Usage and grammar" / "用法与语法"）
+msgid "Usage and grammar"
+msgstr "用法与语法"
+
+# 长难句在生词本右卡的三个小节标题，旧版 `Wordbook/index.jsx:392/425` 写死中文，这里补英文
+msgid "Sentence structure"
+msgstr "核心句型与主干"
+
+msgid "Key terms"
+msgstr "重点术语"
+
+msgid "Core pattern"
+msgstr "核心句型"
+
+msgid "Modifiers"
+msgstr "修饰成分"
+
+msgid "Context note"
+msgstr "语境说明"
 
 msgid "Close"
 msgstr "关闭"
