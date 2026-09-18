@@ -7,12 +7,19 @@ use crate::error::Error;
 
 pub fn copy_text(text: &str) -> Result<(), Error> {
     let mut child = process::spawn_piped(Path::new("/usr/bin/pbcopy"), &[])?;
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(e) = stdin.write_all(text.as_bytes()) {
-            let _ = child.kill(); // ignore: 写入失败回收子进程
-            let _ = child.wait(); // ignore: 避免僵尸进程
-            return Err(e.into());
+    let written = match child.stdin.take() {
+        Some(mut stdin) => {
+            let r = stdin.write_all(text.as_bytes());
+            // 显式关掉管道：pbcopy 读到 EOF 才会退出。不 drop 就死在下面的 wait() 上。
+            drop(stdin);
+            r
         }
+        None => Ok(()),
+    };
+    if let Err(e) = written {
+        let _ = child.kill(); // ignore: 写入失败回收子进程
+        let _ = child.wait(); // ignore: 避免僵尸进程
+        return Err(e.into());
     }
     let status = child.wait()?;
     if status.success() {
