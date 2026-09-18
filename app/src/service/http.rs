@@ -13,8 +13,10 @@ use ureq::{Agent, Body, Proxy, ResponseExt};
 use crate::error::{Error, HttpKind};
 use crate::platform;
 
-/// 普通翻译、语种检测。
+/// 普通翻译。
 pub const TIMEOUT_TRANSLATE: Duration = Duration::from_secs(15);
+/// 在线语种检测（niutrans / baidu / google）。
+pub const TIMEOUT_DETECT: Duration = Duration::from_secs(5);
 /// AI 翻译：模型出一段 JSON 可能要几十秒。
 pub const TIMEOUT_AI: Duration = Duration::from_secs(60);
 

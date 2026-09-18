@@ -20,7 +20,7 @@ use crate::logic::lang_detect;
 use crate::logic::result::{self, EntryDisplay, Kind};
 use crate::logic::saved_entry::{Item, SavedEntry, Snapshot};
 use crate::logic::wordbook;
-use crate::service::{ai, baidu, bing, deepl, google, transmart};
+use crate::service::{ai, baidu, bing, deepl, detect, google, transmart};
 
 static CURRENT: AtomicU64 = AtomicU64::new(0);
 static CACHE: Mutex<Lru> = Mutex::new(Lru::new());
@@ -138,6 +138,26 @@ pub fn detection_with_fallback(
     }
 }
 
+fn detect_language(engine: &str, text: &str) -> Option<&'static str> {
+    detect_language_with(engine, text, lang_detect::detect, detect::detect)
+}
+
+fn detect_language_with<FLocal, FOnline>(
+    engine: &str,
+    text: &str,
+    local: FLocal,
+    online: FOnline,
+) -> Option<&'static str>
+where
+    FLocal: FnOnce(&str) -> Option<&'static str>,
+    FOnline: FnOnce(&str, &str) -> Option<&'static str>,
+{
+    match engine {
+        "niutrans" | "baidu" | "google" => online(engine, text),
+        _ => local(text),
+    }
+}
+
 fn job(service: &Service) -> Option<(Row, Job)> {
     let (row, request) = match service {
         Service::Google(i) if i.enabled => (
@@ -244,29 +264,30 @@ pub fn start(raw: &str, on_update: impl Fn(u64, Update) + Send + Sync + 'static)
         jobs.len(),
         text.chars().count()
     );
-    let from = config.translate.source.clone();
-    let to = config.translate.target.clone();
+    let translate_cfg = config.translate.clone();
     let on_update: Callback = Arc::new(on_update);
     let spawned = thread::Builder::new()
         .name("translate".into())
-        .spawn(move || dispatch(id, text, from, to, jobs, saved, on_update));
+        .spawn(move || dispatch(id, text, translate_cfg, jobs, saved, on_update));
     if let Err(e) = spawned {
         log::error!("Translate: cannot start query thread: {e}");
     }
     query
 }
 
-/// 后台线程：检测语种（B1 只有本地引擎；在线引擎在 B5），再给每个服务起一个线程。
+/// 后台线程：检测语种（local 走本地 lingua；niutrans / baidu / google 走在线引擎），再给每个服务起一个线程。
 fn dispatch(
     id: u64,
     text: String,
-    from: String,
-    to: String,
+    translate_cfg: config::Translate,
     jobs: Vec<Job>,
     saved: Arc<Mutex<Saved>>,
     on_update: Callback,
 ) {
-    let (detected, badge) = detection_with_fallback(lang_detect::detect(&text), &from);
+    let (detected, badge) = detection_with_fallback(
+        detect_language(&translate_cfg.detect_engine, &text),
+        &translate_cfg.source,
+    );
     let requested = saved
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -284,8 +305,8 @@ fn dispatch(
             id,
             row,
             text: Arc::clone(&text),
-            from: from.clone(),
-            to: to.clone(),
+            from: translate_cfg.source.clone(),
+            to: translate_cfg.target.clone(),
             detected: detected.clone(),
             saved: Arc::clone(&saved),
             on_update: Arc::clone(&on_update),
@@ -583,5 +604,64 @@ mod tests {
         };
         let res_secret = test_baidu(&config_secret);
         assert!(matches!(res_secret, Err(Error::NotConfigured("secret"))));
+    }
+
+    #[test]
+    fn detect_language_dispatches_per_engine() {
+        let mut local_called = false;
+        let mut online_called = false;
+        let res = detect_language_with(
+            "local",
+            "hello",
+            |_| {
+                local_called = true;
+                Some("en")
+            },
+            |_, _| {
+                online_called = true;
+                None
+            },
+        );
+        assert_eq!(res, Some("en"));
+        assert!(local_called);
+        assert!(!online_called);
+
+        for engine in ["niutrans", "baidu", "google"] {
+            let mut dispatched_engine = String::new();
+            let res = detect_language_with(
+                engine,
+                "hello",
+                |_| panic!("should not call local for {engine}"),
+                |eng, _| {
+                    dispatched_engine.push_str(eng);
+                    Some("en")
+                },
+            );
+            assert_eq!(dispatched_engine, engine);
+            assert_eq!(res, Some("en"));
+        }
+
+        for unknown in ["yandex", "tencent", "custom", ""] {
+            let mut local_called = false;
+            let mut online_called = false;
+            let res = detect_language_with(
+                unknown,
+                "hello",
+                |_| {
+                    local_called = true;
+                    Some("en")
+                },
+                |_, _| {
+                    online_called = true;
+                    None
+                },
+            );
+            assert_eq!(res, Some("en"));
+            assert!(
+                local_called,
+                "unknown engine {unknown} should fall back to local"
+            );
+            assert!(!online_called);
+        }
     }
 }

@@ -5,6 +5,7 @@ pub mod ai;
 pub mod baidu;
 pub mod bing;
 pub mod deepl;
+pub mod detect;
 pub mod google;
 pub mod http;
 pub mod transmart;
