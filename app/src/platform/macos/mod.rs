@@ -9,11 +9,17 @@ mod autostart;
 mod proxy;
 mod shell;
 mod tts;
+mod window;
 
 pub use autostart::{autostart_enabled, set_autostart};
 pub use proxy::system_proxy;
 pub use shell::{copy_text, open_path, open_url};
 pub use tts::{speak, stop_speaking};
+pub use window::{
+    attach_overlay_window, attach_result_window, attach_selection_button, bring_to_front,
+    cursor_pos, hide_overlay_window, hide_result_window, monitor_at, move_result_window,
+    result_window_focused, show_overlay_window, show_result_window,
+};
 
 const LOCK_FILE: &str = "tilex.lock";
 const SOCKET: &str = "tilex.sock";
@@ -89,11 +95,6 @@ pub fn style_frameless_window(_window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
 
-// ponytail: B6 用 NSApp activate 实现；现在调用方只记日志，设置窗口照常打开。
-pub fn bring_to_front(_window: &slint::Window) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
 // B6：CGEventTap + AX 取词，浮标窗口用 AppKit 的对应做法。
 pub fn start_selection(
     _settings: super::SettingsFn,
@@ -104,43 +105,7 @@ pub fn start_selection(
     Err(Error::Unsupported)
 }
 
-pub fn attach_selection_button(_window: &slint::Window) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
 pub fn engage_selection() {}
-
-pub fn monitor_at(_x: i32, _y: i32) -> Option<(super::geometry::Rect, f32)> {
-    None
-}
-
-pub fn attach_result_window(_window: &slint::Window) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn attach_overlay_window(_window: &slint::Window) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn show_overlay_window(_rect: super::geometry::Rect) -> bool {
-    false
-}
-
-pub fn hide_overlay_window() {}
-
-pub fn cursor_pos() -> (i32, i32) {
-    (0, 0)
-}
-
-pub fn show_result_window(_rect: super::geometry::Rect) {}
-
-pub fn move_result_window(_rect: super::geometry::Rect) {}
-
-pub fn hide_result_window() {}
-
-pub fn result_window_focused() -> Option<bool> {
-    None
-}
 
 // B6：`screencapture -i` 子进程
 pub fn capture_screen() -> Result<super::Shot, Error> {
