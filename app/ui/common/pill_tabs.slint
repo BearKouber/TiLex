@@ -129,8 +129,11 @@ export component PillTabs {
                 animate color, opacity { duration: 150ms; }
             }
 
-            // 非通栏模式下根据文字宽度确定标签宽度（左右内边距各 12px）
-            width: root.full-width ? 0px : (item-text.width + 24px);
+            // 通栏：preferred 全归零 + stretch 相等 —— 剩余空间就是整条轨道，平分下来正好等宽。
+            // 不能写 `width`：写 `0px` 会盖掉 stretch，三个标签挤成 0 宽叠在最左边（B4 实拍）；
+            // 写 `root.width / n` 则是绑定环（宽度 → 布局信息 → 宽度）。
+            // 非通栏：文字宽 + 左右内边距各 12px，stretch 0，拿的就是这个 preferred。
+            preferred-width: root.full-width ? 0px : (item-text.width + 24px);
         }
     }
 

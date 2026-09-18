@@ -16,17 +16,14 @@ export component Checkbox {
 
     private property <bool> kb-focus: false;
 
+    // 只报新值，**不自己改 `checked` / `indeterminate`**（U-11、§3.32）：
+    // 调用方要么 `<=>` 双向绑上去，要么（`for` 的 model 行没法双向绑）自己把新值写回 model。
+    // 自己赋值会把 `checked: row.checked` 这种单向绑定永久打断，之后 Rust 再改 model 那一格也拨不动它。
     public function toggle() {
         if !root.enabled {
             return;
         }
-        if root.indeterminate {
-            root.indeterminate = false;
-            root.checked = true;
-        } else {
-            root.checked = !root.checked;
-        }
-        root.toggled(root.checked);
+        root.toggled(root.indeterminate || !root.checked);
     }
 
     opacity: root.enabled ? 1.0 : 0.5;

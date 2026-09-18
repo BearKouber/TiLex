@@ -62,6 +62,25 @@ pub struct Entry {
     pub created_at: i64,
 }
 
+/// 列表一行只有一行的高度（50px 固定行高），所以摘要里的换行要压成空格。
+/// `overflow: elide` 只管一行放不下的情况，文本里真有 `\n` 时 Slint 照样换行，行会串到下一条上面去。
+fn one_line(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_ws = false;
+    for c in s.trim().chars() {
+        if c.is_whitespace() {
+            if !in_ws {
+                out.push(' ');
+                in_ws = true;
+            }
+        } else {
+            out.push(c);
+            in_ws = false;
+        }
+    }
+    out
+}
+
 /// 单词的 detail 就是浮窗存下的词典结果，摘要 = 各词性的释义拼一行（旧 `wordSummary`）。
 fn summarize(detail: Option<&Value>, translation: &str) -> String {
     entry_display(detail, translation)
@@ -205,12 +224,12 @@ impl Db {
                 id: row.get(0)?,
                 kind: kind_of(&row.get::<_, String>(1)?),
                 search: format!("{text} {translation} {summary}").to_lowercase(),
-                preview: if summary.is_empty() {
-                    translation
+                preview: one_line(if summary.is_empty() {
+                    &translation
                 } else {
-                    summary
-                },
-                text,
+                    &summary
+                }),
+                text: one_line(&text),
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -482,9 +501,17 @@ mod tests {
             assert_eq!(hit[0].text, "open-source");
         }
         assert!(visible(&list, "没有这个词", None).is_empty());
+
         assert_eq!(visible(&list, "", Some(Kind::Sentence)).len(), 1);
         assert_eq!(visible(&list, "开源", Some(Kind::Sentence)).len(), 0);
         assert_eq!(visible(&list, "", None).len(), 2);
+
+        // 原文和摘要里的换行压成一个空格：列表行高固定 50px，真换行会串到下一条上面
+        db.save(3, &snap("Two\nlines.", "第一行\r\n  第二行  "))
+            .unwrap();
+        let list = db.list().unwrap();
+        assert_eq!(list[0].text, "Two lines.");
+        assert_eq!(list[0].preview, "第一行 第二行");
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

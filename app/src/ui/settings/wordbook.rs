@@ -20,6 +20,10 @@ struct WordbookUiState {
     checked: HashSet<i64>,
     deleting: bool,
     pending: Vec<i64>,
+    /// `pending` 是多选那条路来的还是右卡单条删来的。
+    /// 旧版 `Wordbook/index.jsx:122` 的 `remove(ids, batch)`：只有批量删完才退出多选，
+    /// 多选模式下删单条只把它从勾选集合里摘掉，用户的其余勾选要留着。
+    pending_is_batch: bool,
     refresh_pending: bool,
     visible_ids: Vec<i64>,
     rows_model: Option<Rc<VecModel<WordbookRow>>>,
@@ -36,6 +40,7 @@ thread_local! {
         checked: HashSet::new(),
         deleting: false,
         pending: Vec::new(),
+        pending_is_batch: false,
         refresh_pending: false,
         visible_ids: Vec::new(),
         rows_model: None,
@@ -52,6 +57,7 @@ pub fn bind(page: &SettingsWindow) {
         s.checked.clear();
         s.deleting = false;
         s.pending.clear();
+        s.pending_is_batch = false;
         s.refresh_pending = false;
         s.visible_ids.clear();
         s.rows_model = None;
@@ -318,6 +324,7 @@ fn handle_request_delete_single(page: &SettingsWindow) {
     }
     STATE.with_borrow_mut(|s| {
         s.pending = vec![sel_id];
+        s.pending_is_batch = false;
     });
     let state = page.global::<WordbookState>();
     state.set_delete_modal_count(1);
@@ -333,6 +340,7 @@ fn handle_request_delete_batch(page: &SettingsWindow) {
     let count = pending.len();
     STATE.with_borrow_mut(|s| {
         s.pending = pending;
+        s.pending_is_batch = true;
     });
     let state = page.global::<WordbookState>();
     state.set_delete_modal_count(i32::try_from(count).unwrap_or(0));
@@ -387,21 +395,28 @@ fn handle_confirm_delete(page: &SettingsWindow) {
             });
             match res {
                 Ok(_) => {
-                    STATE.with_borrow_mut(|s| {
-                        s.pending.clear();
+                    let still_batch = STATE.with_borrow_mut(|s| {
+                        let deleted = std::mem::take(&mut s.pending);
                         s.refresh_pending = false;
-                        if s.batch_mode {
+                        if s.pending_is_batch {
+                            // 批量删完就退出多选（旧版 `finishBatch`）
                             s.batch_mode = false;
                             s.checked.clear();
+                        } else {
+                            // 多选模式下删的单条：只把它摘掉，其余勾选留着
+                            s.checked.retain(|id| !deleted.contains(id));
                         }
+                        s.batch_mode
                     });
                     let state = page.global::<WordbookState>();
                     state.set_deleting(false);
                     state.set_delete_modal_open(false);
-                    state.set_batch_mode(false);
-                    state.set_all_checked(false);
-                    state.set_all_indeterminate(false);
-                    state.set_checked_count(0);
+                    state.set_batch_mode(still_batch);
+                    if !still_batch {
+                        state.set_all_checked(false);
+                        state.set_all_indeterminate(false);
+                        state.set_checked_count(0);
+                    }
 
                     load_list_and_select(page.as_weak(), next_id);
                 }
@@ -695,6 +710,7 @@ pub fn on_close() {
         s.checked.clear();
         s.deleting = false;
         s.pending.clear();
+        s.pending_is_batch = false;
         s.refresh_pending = false;
         s.visible_ids.clear();
         s.rows_model = None;

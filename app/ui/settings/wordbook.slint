@@ -8,7 +8,6 @@ import { Theme } from "../common/theme.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
 import { EntryBody, EntryView } from "../common/entry_view.slint";
 import { ListView } from "std-widgets.slint";
-import { Modal } from "../common/modal.slint";
 import { Checkbox } from "../common/checkbox.slint";
 
 export struct WordbookRow {
@@ -392,41 +391,6 @@ export component WordbookPage inherits Rectangle {
     }
     }
 
-    // 删除确认对话框（Modal sm）
-    Modal {
-        open: WordbookState.delete-modal-open;
-        size: "sm";
-        title: @tr("Delete {} entries?", WordbookState.delete-modal-count);
-        dismissable: !WordbookState.deleting;
-        closed => {
-            WordbookState.cancel-delete();
-        }
-
-        HorizontalLayout {
-            alignment: end;
-            spacing: 8px;
-
-            Button {
-                size: "sm";
-                variant: "light";
-                text: @tr("Cancel");
-                enabled: !WordbookState.deleting;
-                clicked => {
-                    WordbookState.cancel-delete();
-                }
-            }
-
-            Button {
-                size: "sm";
-                variant: "solid";
-                color: "danger";
-                text: @tr("Delete {} entries", WordbookState.delete-modal-count);
-                loading: WordbookState.deleting;
-                enabled: !WordbookState.deleting;
-                clicked => {
-                    WordbookState.confirm-delete();
-                }
-            }
-        }
-    }
+    // 删除确认对话框在 `window.slint` 的窗口根上（§2 Modal：必须铺满整窗）。
+    // 放在本页里的话遮罩只盖住内容区，标题栏和标签行不变暗，而且这一页整个在 ScrollArea 里。
 }

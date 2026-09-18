@@ -11,6 +11,8 @@ import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
 import { Theme } from "../common/theme.slint";
 import { Toast } from "../common/toast.slint";
+import { Modal } from "../common/modal.slint";
+import { Button } from "../common/button.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
 import { Palette } from "std-widgets.slint";
 
@@ -625,6 +627,44 @@ export component SettingsWindow inherits Window {
         }
         stop-benchmark(draft) => {
             root.stop-benchmark(draft);
+        }
+    }
+
+    // 生词本的删除确认框：Modal 必须在窗口根上才能铺满整窗（§2），所以放这儿而不是 wordbook.slint 里
+    Modal {
+        open: WordbookState.delete-modal-open;
+        size: "sm";
+        title: @tr("Delete {} entries?", WordbookState.delete-modal-count);
+        dismissable: !WordbookState.deleting;
+        closed => {
+            WordbookState.cancel-delete();
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+
+            Button {
+                size: "sm";
+                variant: "light";
+                text: @tr("Cancel");
+                enabled: !WordbookState.deleting;
+                clicked => {
+                    WordbookState.cancel-delete();
+                }
+            }
+
+            Button {
+                size: "sm";
+                variant: "solid";
+                color: "danger";
+                text: @tr("Delete {} entries", WordbookState.delete-modal-count);
+                loading: WordbookState.deleting;
+                enabled: !WordbookState.deleting;
+                clicked => {
+                    WordbookState.confirm-delete();
+                }
+            }
         }
     }
 
