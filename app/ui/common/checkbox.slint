@@ -16,17 +16,14 @@ export component Checkbox {
 
     private property <bool> kb-focus: false;
 
+    // 只报新值，**不自己改 `checked` / `indeterminate`**（U-11、§3.32）：
+    // 调用方要么 `<=>` 双向绑上去，要么（`for` 的 model 行没法双向绑）自己把新值写回 model。
+    // 自己赋值会把 `checked: row.checked` 这种单向绑定永久打断，之后 Rust 再改 model 那一格也拨不动它。
     public function toggle() {
         if !root.enabled {
             return;
         }
-        if root.indeterminate {
-            root.indeterminate = false;
-            root.checked = true;
-        } else {
-            root.checked = !root.checked;
-        }
-        root.toggled(root.checked);
+        root.toggled(root.indeterminate || !root.checked);
     }
 
     opacity: root.enabled ? 1.0 : 0.5;
@@ -86,10 +83,16 @@ export component Checkbox {
 
                         animate background, border-color { duration: 150ms; }
 
-                        // 选中对勾（Path）
+                        // 选中对勾（Path）。
+                        // 必须写 viewbox：不写的话 Slint 把 commands 的包围盒缩放到铺满 16×16，
+                        // 对勾被放大到近 2 倍、再加 2px 描边，画出框外（B4 实拍）。
                         if (root.checked && !root.indeterminate) : Path {
                             width: 16px;
                             height: 16px;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 16;
+                            viewbox-height: 16;
                             stroke: Theme.primary-foreground;
                             stroke-width: 2px;
                             commands: "M 3.5 8.5 L 6.5 11.5 L 12.5 4.5";
@@ -99,6 +102,10 @@ export component Checkbox {
                         if root.indeterminate : Path {
                             width: 16px;
                             height: 16px;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 16;
+                            viewbox-height: 16;
                             stroke: Theme.primary-foreground;
                             stroke-width: 2px;
                             commands: "M 3.5 8 L 12.5 8";

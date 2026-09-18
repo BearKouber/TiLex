@@ -12,6 +12,7 @@ export component GalleryGroup2 {
     private property <int> commit-count: 0;
     private property <bool> simulate-save-fail: false;
     private property <int> prev-val: 10;
+    private property <bool> checkbox-demo: false;
 
     VerticalLayout {
         spacing: 24px;
@@ -129,6 +130,8 @@ export component GalleryGroup2 {
                     alignment: start;
 
                     Text {
+                        // Checkbox 不自己改 checked（U-11），所以上面那排是纯状态展示，点了不动；
+                        // 最后这个才是可交互的：调用方拿 toggled 的新值写回自己的属性。
                         text: "带文字标签（点击文字亦可切换）：";
                         font-size: 13px;
                         color: Theme.default-500;
@@ -142,6 +145,13 @@ export component GalleryGroup2 {
                         Checkbox { text: "选中"; checked: true; }
                         Checkbox { text: "全选（半选）"; indeterminate: true; }
                         Checkbox { text: "禁用项"; checked: true; enabled: false; }
+                        Checkbox {
+                            text: "可点（受控）";
+                            checked: root.checkbox-demo;
+                            toggled(val) => {
+                                root.checkbox-demo = val;
+                            }
+                        }
                     }
                 }
             }

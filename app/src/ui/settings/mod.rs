@@ -13,6 +13,7 @@ use crate::platform;
 use crate::slint_ui::{SettingsWindow, TranslateSettings};
 
 mod services;
+mod wordbook;
 
 struct Settings {
     page: SettingsWindow,
@@ -321,6 +322,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     }
 
     services::bind(&page);
+    wordbook::bind(&page);
 
     Ok(Settings { page })
 }
@@ -388,6 +390,7 @@ fn close() {
         return;
     };
     drop(settings); // 已经隐藏过（关闭请求返回 HideWindow，或 schedule_close）
+    wordbook::on_close();
 
     // 关窗时如果还在录制快捷键，当前键已经被注销了，而失焦回调不保证还会触发
     // （Alt+F4、任务栏关闭都是直接销毁）。所有关闭路径都汇到这里，在这儿把配置里的键装回去。

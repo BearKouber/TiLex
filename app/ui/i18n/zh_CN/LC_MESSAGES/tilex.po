@@ -60,8 +60,25 @@ msgstr "已收藏"
 msgid "Examples"
 msgstr "例句"
 
-msgid "Notes"
-msgstr "备注"
+# 旧版 `src/i18n/locales/*.json` 的 translate.notes 就是这一对（"Usage and grammar" / "用法与语法"）
+msgid "Usage and grammar"
+msgstr "用法与语法"
+
+# 长难句在生词本右卡的三个小节标题，旧版 `Wordbook/index.jsx:392/425` 写死中文，这里补英文
+msgid "Sentence structure"
+msgstr "核心句型与主干"
+
+msgid "Key terms"
+msgstr "重点术语"
+
+msgid "Core pattern"
+msgstr "核心句型"
+
+msgid "Modifiers"
+msgstr "修饰成分"
+
+msgid "Context note"
+msgstr "语境说明"
 
 msgid "Close"
 msgstr "关闭"
@@ -568,3 +585,52 @@ msgstr "找到微信 {}（{}ms）"
 
 msgid "All available text recognition services are already installed"
 msgstr "可选的识别服务都已经装上了"
+
+msgid "Export to Markdown"
+msgstr "导出为 Markdown"
+
+msgid "Select"
+msgstr "多选"
+
+msgid "Search words, definitions, sentences"
+msgstr "搜索生词、释义、原句"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Word"
+msgstr "生词"
+
+msgid "Sentence"
+msgstr "长难句"
+
+msgid "No matching entries"
+msgstr "没有匹配的条目"
+
+msgid "Wordbook is empty"
+msgstr "生词本还是空的"
+
+msgid "Select all results"
+msgstr "全选当前结果"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Selected {} items"
+msgstr "已选 {} 项"
+
+msgid "Delete {} entries?"
+msgstr "确定删除 {} 条？"
+
+msgid "Delete {} entries"
+msgstr "删除 {} 条"
+
+
+msgid "Delete failed, please try again."
+msgstr "删除失败，请重试。"
+
+msgid "Exported to {}"
+msgstr "已导出到 {}"
+
+msgid "Export failed: {}"
+msgstr "导出失败：{}"

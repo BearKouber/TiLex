@@ -30,147 +30,187 @@ export struct EntryView {
 
 export component EntryBody {
     in property <EntryView> entry;
+    // 紧凑版 = 划词结果窗（320px 宽），对应旧版 `TranslationResult` 的 `compact` 分支：
+    // text-[13px] gap-[2px]、标题 11px、词性 10px。
+    // 非紧凑 = 生词本右卡，对应旧版默认分支：text-[14px] gap-[8px]、标题 12px、词性 12px。
+    // Slint 的 `Text` 没有 line-height，旧版的 `leading-relaxed` 只能靠这些间距补回来。
+    in property <bool> compact: false;
+    // **调用方必须传可视区宽度**，而且要是一条不经过本布局的来源（外层 `ScrollArea.visible-width`、
+    // 固定的窗口宽）。`Text` 的「这么宽要占几行」用的是它自己的 `width`，而布局分配的 `width`
+    // 在布局环里被 Slint 截断了依赖 —— 高度按错的宽度算完就不再重算，上一段的后几行会被下一段压住
+    // （B4 用户实拍；§3.45）。写 `width: 100%` 或者只给外层容器定宽都不管用，必须落到每个 `Text` 上。
+    in property <length> content-width;
+
+    property <length> body-size: root.compact ? 13px : 14px;
+    property <length> muted-size: root.compact ? 11px : 12px;
+    property <length> part-size: root.compact ? 10px : 12px;
+    property <length> gap: root.compact ? 2px : 8px;
+    // 小节之间旧版是 mt-[6px] / mt-[16px]，这里拆成外层 gap + 小节自己的 padding-top
+    property <length> section-gap: root.compact ? 4px : 8px;
 
     VerticalLayout {
-        spacing: 6px;
+        spacing: root.gap;
 
-        // 1. 音标：11px，次要色
+        // 1. 音标：次要色
         if root.entry.pronunciations != "" : Text {
+            width: root.content-width;
             text: root.entry.pronunciations;
-            font-size: 11px;
+            font-size: root.muted-size;
             color: Theme.default-500;
             wrap: word-wrap;
         }
 
-        // 2. 主译文：13px，主文字色
+        // 2. 主译文：主文字色
         if root.entry.translation != "" : Text {
+            width: root.content-width;
             text: root.entry.translation;
-            font-size: 13px;
+            font-size: root.body-size;
             color: Theme.foreground;
             wrap: word-wrap;
         }
 
-        // 3. 释义：每条一行，词性（10px，淡色，有才显示）+ 释义文字（13px）
+        // 3. 释义：每条一行，词性（淡色，有才显示）+ 释义文字
         if root.entry.explanations.length > 0 : VerticalLayout {
-            spacing: 2px;
+            spacing: root.gap;
             for item in root.entry.explanations : HorizontalLayout {
-                spacing: 6px;
+                // 间距并进词性盒子：盒子要常驻（`if` 里的 id 外面引用不到，释义就没法按它定宽），
+                // 空词性时宽度归零，跟原来「整块 if 掉」看起来一样
+                spacing: 0px;
                 // 词性和释义字号不同，布局只能顶对齐；按字体 ascent 下移，让两者基线对齐
-                if item.part != "" : Rectangle {
-                    width: part.preferred-width;
+                part-box := Rectangle {
+                    width: item.part == "" ? 0px : part.preferred-width + 6px;
                     part := Text {
                         x: 0;
                         y: meaning.font-metrics.ascent - self.font-metrics.ascent;
                         width: self.preferred-width;
                         height: self.preferred-height;
                         text: item.part;
-                        font-size: 10px;
+                        font-size: root.part-size;
                         color: Theme.default-400;
                     }
                 }
                 meaning := Text {
+                    width: root.content-width - part-box.width;
                     text: item.text;
-                    font-size: 13px;
+                    font-size: root.body-size;
                     color: Theme.foreground;
                     wrap: word-wrap;
-                    horizontal-stretch: 1;
                 }
             }
         }
 
-        // 4. 联想词：11px，次要色
+        // 4. 联想词：次要色
         if root.entry.associations != "" : Text {
+            width: root.content-width;
             text: root.entry.associations;
-            font-size: 11px;
+            font-size: root.muted-size;
             color: Theme.default-500;
             wrap: word-wrap;
         }
 
-        // 5. 例句：标题 @tr("Examples")（11px，次要色，加粗）；每条原句 13px + 译句 13px 次要色
+        // 5. 例句：标题 @tr("Examples")；每条原句 + 译句（次要色）
+        // 标题不加粗到 600：旧版是 `font-medium`（500）+ default-500 的浅灰，靠颜色区分而不是靠墨量
         if root.entry.examples.length > 0 : VerticalLayout {
-            spacing: 4px;
+            padding-top: root.section-gap;
+            spacing: root.section-gap;
             Text {
                 text: @tr("Examples");
-                font-size: 11px;
-                font-weight: 600;
+                font-size: root.muted-size;
+                font-weight: 500;
                 color: Theme.default-500;
             }
             for example in root.entry.examples : VerticalLayout {
                 spacing: 2px;
                 if example.text != "" : Text {
+                    width: root.content-width;
                     text: example.text;
-                    font-size: 13px;
+                    font-size: root.body-size;
                     color: Theme.foreground;
                     wrap: word-wrap;
                 }
                 if example.translation != "" : Text {
+                    width: root.content-width;
                     text: example.translation;
-                    font-size: 13px;
+                    font-size: root.body-size;
                     color: Theme.default-500;
                     wrap: word-wrap;
                 }
             }
         }
 
-        // 6. 备注：标题 @tr("Notes")；每条一段 13px
+        // 6. 用法与语法：小标题 + 每条一段
         if root.entry.notes.length > 0 : VerticalLayout {
-            spacing: 4px;
+            padding-top: root.section-gap;
+            spacing: root.section-gap;
             Text {
-                text: @tr("Notes");
-                font-size: 11px;
-                font-weight: 600;
+                // 旧版这一栏叫「用法与语法」（`i18n/locales/*.json` 的 `translate.notes`），不是「备注」
+                text: @tr("Usage and grammar");
+                font-size: root.muted-size;
+                font-weight: 500;
                 color: Theme.default-500;
             }
             for note in root.entry.notes : Text {
+                width: root.content-width;
                 text: note;
-                font-size: 13px;
+                font-size: root.body-size;
                 color: Theme.foreground;
                 wrap: word-wrap;
             }
         }
 
-        // 7. 长难句结构：主干 13px，从句修饰 13px 次要色
+        // 7. 长难句结构：主干，从句修饰用次要色
         if root.entry.main-clause != "" || root.entry.clauses != "" : VerticalLayout {
-            spacing: 2px;
+            padding-top: root.section-gap;
+            spacing: root.gap;
             if root.entry.main-clause != "" : Text {
+                width: root.content-width;
                 text: root.entry.main-clause;
-                font-size: 13px;
+                font-size: root.body-size;
                 color: Theme.foreground;
                 wrap: word-wrap;
             }
             if root.entry.clauses != "" : Text {
+                width: root.content-width;
                 text: root.entry.clauses;
-                font-size: 13px;
+                font-size: root.body-size;
                 color: Theme.default-500;
                 wrap: word-wrap;
             }
         }
 
-        // 8. 语气说明：13px
+        // 8. 语气说明
         if root.entry.nuance != "" : Text {
+            width: root.content-width;
             text: root.entry.nuance;
-            font-size: 13px;
+            font-size: root.body-size;
             color: Theme.foreground;
             wrap: word-wrap;
         }
 
-        // 9. 关键词：每条一行，词 13px 加粗 + 空格 + 含义 13px 次要色
+        // 9. 关键词：每条一行，词 + 空格 + 含义（次要色）。旧版这里是 `font-normal`，不加粗
         if root.entry.vocabulary.length > 0 : VerticalLayout {
-            spacing: 2px;
+            padding-top: root.section-gap;
+            spacing: root.gap;
             for item in root.entry.vocabulary : HorizontalLayout {
-                spacing: 4px;
-                Text {
-                    text: item.word;
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: Theme.foreground;
+                spacing: 0px;
+                word-box := Rectangle {
+                    width: word-text.preferred-width + 4px;
+                    word-text := Text {
+                        x: 0;
+                        y: 0;
+                        width: self.preferred-width;
+                        height: self.preferred-height;
+                        text: item.word;
+                        font-size: root.body-size;
+                        color: Theme.foreground;
+                    }
                 }
                 if item.meaning != "" : Text {
+                    width: root.content-width - word-box.width;
                     text: item.meaning;
-                    font-size: 13px;
+                    font-size: root.body-size;
                     color: Theme.default-500;
                     wrap: word-wrap;
-                    horizontal-stretch: 1;
                 }
             }
         }

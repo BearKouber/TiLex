@@ -1,8 +1,11 @@
 // 截图遮罩窗口：全屏冻结画面 + 拖框选区
+import { Theme } from "common/theme.slint";
+
 export component Overlay inherits Window {
     title: "TiLex Overlay";
     no-frame: true;
     default-font-weight: 300;
+    default-font-family: Theme.font-family;
 
     // 整窗就是那张冻结的截图，铺满
     in property <image> shot;

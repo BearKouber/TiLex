@@ -1,0 +1,554 @@
+// ui.md §6.6 生词本页。旧版 TiLex/src/window/Config/pages/Wordbook/index.jsx。
+import { Card } from "../common/card.slint";
+import { Button } from "../common/button.slint";
+import { IconButton } from "../common/icon_button.slint";
+import { TextField } from "../common/text_field.slint";
+import { PillTabs } from "../common/pill_tabs.slint";
+import { Theme } from "../common/theme.slint";
+import { ScrollArea } from "../common/scroll_area.slint";
+import { EntryBody, EntryView } from "../common/entry_view.slint";
+import { ListView } from "std-widgets.slint";
+import { Checkbox } from "../common/checkbox.slint";
+
+export struct WordbookRow {
+    id: int,
+    text: string,
+    preview: string,
+    checked: bool,
+}
+
+export global WordbookState {
+    in property <[WordbookRow]> rows;
+    in property <int> selected-id;           // 0 = 没选中
+    in property <string> detail-text;        // 右卡标题：原文
+    in property <bool> detail-is-word;       // 决定右卡用哪套版式
+    in property <string> detail-category;    // 已经是「英文 · 01 定语从句类」这种成品字符串，空 = 不出
+    in property <int> detail-difficulty;     // 0 = 不出
+    in property <string> detail-difficulty-reason;
+    in property <EntryView> detail-entry;    // 正文交给 EntryBody
+    in property <bool> speaking;
+    in-out property <string> keyword;
+    in-out property <int> filter;            // 0 全部 / 1 生词 / 2 长难句
+
+    in property <bool> batch-mode: false;
+    in-out property <bool> all-checked: false;
+    in-out property <bool> all-indeterminate: false;
+    in property <int> checked-count: 0;
+    in property <bool> deleting: false;
+    in property <bool> delete-modal-open: false;
+    in property <int> delete-modal-count: 0;
+
+    callback search();                       // keyword 变了
+    callback filter-changed();
+    callback select(int);
+    callback speak();
+    callback export-markdown();
+    callback enter-batch-mode();
+    callback finish-batch-mode();
+    callback toggle-all();
+    callback toggle-row(int, bool);
+    callback request-delete-single();
+    callback request-delete-batch();
+    callback confirm-delete();
+    callback cancel-delete();
+
+    // toast 文案在这里拼，Rust 侧 invoke 取（同 translate.slint 的 show-hotkey-ok）：
+    // 界面语言一切，这几条要跟着走
+    public function msg-delete-failed() -> string { @tr("Delete failed, please try again.") }
+    public function msg-export-ok(path: string) -> string { @tr("Exported to {}", path) }
+    public function msg-export-failed(err: string) -> string { @tr("Export failed: {}", err) }
+}
+
+// 长难句解析里的一条「• 标签：内容」（旧版 `Wordbook/index.jsx:396-417` 的 span 对）。
+// 旧版是 inline span，换行时内容绕回行首；这里用布局，换行时内容缩进对齐到标签右侧，
+// 和 `EntryBody` 里「词性 + 释义」那一行是同一个做法。
+component DetailBullet inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> text;
+    // 核心句型用正文色，修饰成分和语境说明用次要色（旧版 `text-default-600 dark:text-default-400`）
+    in property <bool> strong: false;
+    // 可视区宽度，必须来自本布局之外（见 `EntryBody.content-width` 上的注释、§3.45）
+    in property <length> content-width;
+
+    spacing: 6px;
+
+    label-text := Text {
+        text: "• " + root.label + "：";
+        font-size: 14px;
+        color: Theme.default-500;
+    }
+
+    Text {
+        width: root.content-width - label-text.preferred-width - 6px;
+        text: root.text;
+        font-size: 14px;
+        color: root.strong
+            ? Theme.foreground
+            : (Theme.dark ? Theme.default-500 : Theme.default-600);
+        wrap: word-wrap;
+    }
+}
+
+export component WordbookPage inherits Rectangle {
+    // 高度由 window.slint 按可视区传进来：这一页不跟着 ScrollArea 滚（列表自己滚），
+    // 写死高度的话窗口一放大下面就留白。
+    horizontal-stretch: 1;
+
+    function stars(n: int) -> string {
+        if n == 1 { return "★"; }
+        if n == 2 { return "★★"; }
+        if n == 3 { return "★★★"; }
+        if n == 4 { return "★★★★"; }
+        if n >= 5 { return "★★★★★"; }
+        ""
+    }
+
+    function diff-text(diff: int, reason: string) -> string {
+        if diff <= 0 { return ""; }
+        if reason == "" { return root.stars(diff); }
+        root.stars(diff) + " " + reason
+    }
+
+    function format-sentence-tag(cat: string, diff: int, reason: string) -> string {
+        if cat != "" && diff > 0 {
+            return cat + " · " + root.diff-text(diff, reason);
+        }
+        if cat != "" {
+            return cat;
+        }
+        root.diff-text(diff, reason)
+    }
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        padding: 0px;
+
+        HorizontalLayout {
+            spacing: 10px;
+
+        // 左卡：宽 280，内边距 8，间距 8，边框 default-100
+        Card {
+            width: 280px;
+            content-padding: 8px;
+            spacing: 8px;
+            border-color: Theme.default-100;
+
+            // 1. 工具行：高 32，正常模式下导出+多选，多选模式下全选+完成
+            HorizontalLayout {
+                height: 32px;
+                spacing: 4px;
+
+                if !WordbookState.batch-mode : HorizontalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+
+                    Button {
+                        size: "sm";
+                        variant: "bordered";
+                        text: @tr("Export to Markdown");
+                        full-width: true;
+                        enabled: !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.export-markdown();
+                        }
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        text: @tr("Select");
+                        enabled: WordbookState.rows.length > 0 && !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.enter-batch-mode();
+                        }
+                    }
+                }
+
+                if WordbookState.batch-mode : HorizontalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    cross-axis-alignment: center;
+
+                    Checkbox {
+                        horizontal-stretch: 1;
+                        checked <=> WordbookState.all-checked;
+                        indeterminate <=> WordbookState.all-indeterminate;
+                        text: @tr("Select all results");
+                        enabled: WordbookState.rows.length > 0 && !WordbookState.deleting;
+                        toggled => {
+                            WordbookState.toggle-all();
+                        }
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        text: @tr("Done");
+                        enabled: !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.finish-batch-mode();
+                        }
+                    }
+                }
+            }
+
+            // 2. 搜索框：TextField flat sm 可清除
+            TextField {
+                variant: "flat";
+                text <=> WordbookState.keyword;
+                placeholder: @tr("Search words, definitions, sentences");
+                clearable: true;
+                edited(val) => {
+                    WordbookState.search();
+                }
+            }
+
+            // 3. 筛选：PillTabs default full-width
+            PillTabs {
+                tabs: [
+                    @tr("All"),
+                    @tr("Word"),
+                    @tr("Sentence"),
+                ];
+                current <=> WordbookState.filter;
+                full-width: true;
+                changed-tab(idx) => {
+                    WordbookState.filter-changed();
+                }
+            }
+
+            // 4. 列表：ListView 或空列表提示
+            if WordbookState.rows.length == 0 : Rectangle {
+                vertical-stretch: 1;
+
+                Text {
+                    text: WordbookState.keyword != "" ? @tr("No matching entries") : @tr("Wordbook is empty");
+                    font-size: 13px;
+                    color: Theme.default-400;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if WordbookState.rows.length > 0 : ListView {
+                vertical-stretch: 1;
+
+                for row in WordbookState.rows : Rectangle {
+                    property <bool> is-selected: row.id == WordbookState.selected-id;
+                    height: 50px;
+
+                    row-inner := Rectangle {
+                        x: 0px;
+                        y: 2px;
+                        width: 100%;
+                        height: 46px;
+                        border-radius: Theme.radius-small;
+                        background: is-selected
+                            ? Theme.primary.with-alpha(0.1)
+                            : (touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0));
+                        animate background { duration: 150ms; }
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            cross-axis-alignment: center;
+
+                            if WordbookState.batch-mode : Checkbox {
+                                checked: row.checked;
+                                enabled: !WordbookState.deleting;
+                                toggled(val) => {
+                                    WordbookState.toggle-row(row.id, val);
+                                }
+                            }
+
+                            touch := TouchArea {
+                                horizontal-stretch: 1;
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    WordbookState.select(row.id);
+                                }
+
+                                VerticalLayout {
+                                    padding-top: 6px;
+                                    padding-bottom: 6px;
+                                    spacing: 2px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: row.text;
+                                        font-size: 13px;
+                                        color: Theme.foreground;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: row.preview;
+                                        font-size: 11px;
+                                        color: Theme.default-400;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. 多选模式底部操作栏
+            if WordbookState.batch-mode : VerticalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.default-100;
+                }
+
+                HorizontalLayout {
+                    height: 32px;
+                    alignment: space-between;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: @tr("Selected {} items", WordbookState.checked-count);
+                        font-size: 12px;
+                        color: Theme.default-500;
+                        vertical-alignment: center;
+                    }
+
+                    Button {
+                        size: "sm";
+                        variant: "light";
+                        color: "danger";
+                        text: @tr("Delete");
+                        enabled: WordbookState.checked-count > 0 && !WordbookState.deleting;
+                        clicked => {
+                            WordbookState.request-delete-batch();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 右卡：Card 撑满，内边距 20，边框 default-100
+        Card {
+            horizontal-stretch: 1;
+            content-padding: 20px;
+            spacing: 0px;
+            border-color: Theme.default-100;
+
+            if WordbookState.selected-id != 0 : detail-scroll := ScrollArea {
+                viewport-height: max(self.visible-height, detail-content.preferred-height);
+
+                detail-content := VerticalLayout {
+                    // **必须显式定宽**：`Flickable` 的 viewport 宽度是按子元素的 min-width 算的，
+                    // 而 `wrap: word-wrap` 的 `Text` min-width 是 0（§3.36），viewport 因此不是可视宽。
+                    // 宽度不对，里面每段文字的「这么宽要占几行」就算错，
+                    // `preferred-height` 跟着算少，上面一段的后几行被下一段压住（B4 用户实拍）。
+                    width: detail-scroll.visible-width;
+                    spacing: 0px;
+                    alignment: start;
+
+                    // 顶栏一行：左标题，右朗读与删除。
+                    // **不用 `alignment: space-between`**（§3.38）：那样 `Text` 拿的是 preferred 全宽，
+                    // 高度按「不换行」算，顶栏 preferred-height 整个算飞，多占的那几十像素会把下面一段
+                    // 压到装不下、后几行叠上来（B4 用户实拍）。按钮组写死 stretch 0，剩下的全归标题。
+                    // 按钮跟旧版一样顶部对齐（`items-start`），标题几行都不动。
+                    HorizontalLayout {
+                        spacing: 12px;
+                        cross-axis-alignment: start;
+
+                        Text {
+                            width: detail-scroll.visible-width - btns.preferred-width - 12px;
+                            text: WordbookState.detail-text;
+                            font-size: WordbookState.detail-is-word ? 18px : 16px;
+                            // 旧版 `Wordbook/index.jsx:348/461` 的 h2 没有 font-weight（Tailwind preflight 把标题重置成
+                            // inherit），跟正文一样细。这里跟着继承窗口的 300，别写 600。
+                            color: Theme.foreground;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+
+                        btns := HorizontalLayout {
+                            spacing: 4px;
+                            horizontal-stretch: 0;
+                            alignment: start;
+
+                            IconButton {
+                                size: "sm";
+                                icon: @image-url("../icons/volume-2.svg");
+                                checked: WordbookState.speaking;
+                                label: @tr("Speak");
+                                clicked => {
+                                    WordbookState.speak();
+                                }
+                            }
+
+                            IconButton {
+                                size: "sm";
+                                icon: @image-url("../icons/delete.svg");
+                                color: Theme.danger;
+                                label: @tr("Delete");
+                                enabled: !WordbookState.deleting;
+                                clicked => {
+                                    WordbookState.request-delete-single();
+                                }
+                            }
+                        }
+                    }
+
+                    // ===== 长难句版式：旧版 `Wordbook/index.jsx:344-457` 在这一页自己写了一套，
+                    // 不是 `TranslationResult` 那一份。只有例句和「用法与语法」才交给 EntryBody（旧版 `:443-456` 同）。
+                    if !WordbookState.detail-is-word : VerticalLayout {
+                        spacing: 0px;
+
+                        // 1. 译文：紧跟原句，中间**不放分割线**（旧版 `:376-380` 只有 mt-[12px]）
+                        if WordbookState.detail-entry.translation != "" : VerticalLayout {
+                            padding-top: 12px;
+
+                            Text {
+                                width: detail-scroll.visible-width;
+                                text: WordbookState.detail-entry.translation;
+                                font-size: 14px;
+                                color: Theme.foreground;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        // 2. 分割线 + 「分类 · 难度」（旧版 `:383-387` mt-[14px] border-t pt-[12px]）。
+                        // 线画在这里的意思是：**线以下全是补充解析**，原句和译文在线以上。
+                        if WordbookState.detail-category != "" || WordbookState.detail-difficulty > 0 : VerticalLayout {
+                            padding-top: 14px;
+                            spacing: 12px;
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.default-100;
+                            }
+
+                            Text {
+                                width: detail-scroll.visible-width;
+                                text: root.format-sentence-tag(
+                                    WordbookState.detail-category,
+                                    WordbookState.detail-difficulty,
+                                    WordbookState.detail-difficulty-reason
+                                );
+                                font-size: 12px;
+                                color: Theme.default-400;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        // 3. 核心句型与主干（旧版 `:390-420`）：小标题 + 三条「• 标签：内容」
+                        if WordbookState.detail-entry.main-clause != ""
+                            || WordbookState.detail-entry.clauses != ""
+                            || WordbookState.detail-entry.nuance != "" : VerticalLayout {
+                            padding-top: 16px;
+                            spacing: 6px;
+
+                            Text {
+                                text: @tr("Sentence structure");
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Theme.default-500;
+                            }
+
+                            if WordbookState.detail-entry.main-clause != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
+                                label: @tr("Core pattern");
+                                text: WordbookState.detail-entry.main-clause;
+                                strong: true;
+                            }
+
+                            if WordbookState.detail-entry.clauses != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
+                                label: @tr("Modifiers");
+                                text: WordbookState.detail-entry.clauses;
+                            }
+
+                            if WordbookState.detail-entry.nuance != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
+                                label: @tr("Context note");
+                                text: WordbookState.detail-entry.nuance;
+                            }
+                        }
+
+                        // 4. 重点术语（旧版 `:423-440`）：圆角边框的药丸。
+                        // 旧版是 `flex-wrap` 一行摆几个，Slint 1.17 没有流式换行布局，只能一行一个。
+                        if WordbookState.detail-entry.vocabulary.length > 0 : VerticalLayout {
+                            padding-top: 16px;
+                            spacing: 6px;
+
+                            Text {
+                                text: @tr("Key terms");
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Theme.default-500;
+                            }
+
+                            for item in WordbookState.detail-entry.vocabulary : HorizontalLayout {
+                                alignment: start;
+
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.default-200;
+                                    border-radius: self.height / 2;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        padding-top: 2px;
+                                        padding-bottom: 2px;
+                                        spacing: 6px;
+
+                                        Text {
+                                            text: item.word;
+                                            font-size: 12px;
+                                            color: Theme.foreground;
+                                        }
+
+                                        if item.meaning != "" : Text {
+                                            text: item.meaning;
+                                            font-size: 12px;
+                                            color: Theme.default-500;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 5. 例句 / 用法与语法：裁成只剩这两栏交给 EntryBody，上面几栏已经自己画过了
+                        // （旧版 `:444-455` 也是把 display 裁空了再传给 TranslationResult）
+                        if WordbookState.detail-entry.examples.length > 0
+                            || WordbookState.detail-entry.notes.length > 0 : VerticalLayout {
+                            padding-top: 8px;
+
+                            EntryBody {
+                                content-width: detail-scroll.visible-width;
+                                entry: {
+                                    examples: WordbookState.detail-entry.examples,
+                                    notes: WordbookState.detail-entry.notes,
+                                };
+                            }
+                        }
+                    }
+
+                    // ===== 单词版式：整份交给 EntryBody（旧版 `:488-490` 的 mt-[12px] + TranslationResult）
+                    if WordbookState.detail-is-word : VerticalLayout {
+                        padding-top: 12px;
+
+                        EntryBody {
+                            content-width: detail-scroll.visible-width;
+                            entry: WordbookState.detail-entry;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+
+    // 删除确认对话框在 `window.slint` 的窗口根上（§2 Modal：必须铺满整窗）。
+    // 放在本页里的话遮罩只盖住内容区，标题栏和标签行不变暗，而且这一页整个在 ScrollArea 里。
+}
