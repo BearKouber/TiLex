@@ -35,6 +35,11 @@ export component EntryBody {
     // 非紧凑 = 生词本右卡，对应旧版默认分支：text-[14px] gap-[8px]、标题 12px、词性 12px。
     // Slint 的 `Text` 没有 line-height，旧版的 `leading-relaxed` 只能靠这些间距补回来。
     in property <bool> compact: false;
+    // **调用方必须传可视区宽度**，而且要是一条不经过本布局的来源（外层 `ScrollArea.visible-width`、
+    // 固定的窗口宽）。`Text` 的「这么宽要占几行」用的是它自己的 `width`，而布局分配的 `width`
+    // 在布局环里被 Slint 截断了依赖 —— 高度按错的宽度算完就不再重算，上一段的后几行会被下一段压住
+    // （B4 用户实拍；§3.45）。写 `width: 100%` 或者只给外层容器定宽都不管用，必须落到每个 `Text` 上。
+    in property <length> content-width;
 
     property <length> body-size: root.compact ? 13px : 14px;
     property <length> muted-size: root.compact ? 11px : 12px;
@@ -48,6 +53,7 @@ export component EntryBody {
 
         // 1. 音标：次要色
         if root.entry.pronunciations != "" : Text {
+            width: root.content-width;
             text: root.entry.pronunciations;
             font-size: root.muted-size;
             color: Theme.default-500;
@@ -56,6 +62,7 @@ export component EntryBody {
 
         // 2. 主译文：主文字色
         if root.entry.translation != "" : Text {
+            width: root.content-width;
             text: root.entry.translation;
             font-size: root.body-size;
             color: Theme.foreground;
@@ -66,10 +73,12 @@ export component EntryBody {
         if root.entry.explanations.length > 0 : VerticalLayout {
             spacing: root.gap;
             for item in root.entry.explanations : HorizontalLayout {
-                spacing: 6px;
+                // 间距并进词性盒子：盒子要常驻（`if` 里的 id 外面引用不到，释义就没法按它定宽），
+                // 空词性时宽度归零，跟原来「整块 if 掉」看起来一样
+                spacing: 0px;
                 // 词性和释义字号不同，布局只能顶对齐；按字体 ascent 下移，让两者基线对齐
-                if item.part != "" : Rectangle {
-                    width: part.preferred-width;
+                part-box := Rectangle {
+                    width: item.part == "" ? 0px : part.preferred-width + 6px;
                     part := Text {
                         x: 0;
                         y: meaning.font-metrics.ascent - self.font-metrics.ascent;
@@ -81,17 +90,18 @@ export component EntryBody {
                     }
                 }
                 meaning := Text {
+                    width: root.content-width - part-box.width;
                     text: item.text;
                     font-size: root.body-size;
                     color: Theme.foreground;
                     wrap: word-wrap;
-                    horizontal-stretch: 1;
                 }
             }
         }
 
         // 4. 联想词：次要色
         if root.entry.associations != "" : Text {
+            width: root.content-width;
             text: root.entry.associations;
             font-size: root.muted-size;
             color: Theme.default-500;
@@ -112,12 +122,14 @@ export component EntryBody {
             for example in root.entry.examples : VerticalLayout {
                 spacing: 2px;
                 if example.text != "" : Text {
+                    width: root.content-width;
                     text: example.text;
                     font-size: root.body-size;
                     color: Theme.foreground;
                     wrap: word-wrap;
                 }
                 if example.translation != "" : Text {
+                    width: root.content-width;
                     text: example.translation;
                     font-size: root.body-size;
                     color: Theme.default-500;
@@ -138,6 +150,7 @@ export component EntryBody {
                 color: Theme.default-500;
             }
             for note in root.entry.notes : Text {
+                width: root.content-width;
                 text: note;
                 font-size: root.body-size;
                 color: Theme.foreground;
@@ -150,12 +163,14 @@ export component EntryBody {
             padding-top: root.section-gap;
             spacing: root.gap;
             if root.entry.main-clause != "" : Text {
+                width: root.content-width;
                 text: root.entry.main-clause;
                 font-size: root.body-size;
                 color: Theme.foreground;
                 wrap: word-wrap;
             }
             if root.entry.clauses != "" : Text {
+                width: root.content-width;
                 text: root.entry.clauses;
                 font-size: root.body-size;
                 color: Theme.default-500;
@@ -165,6 +180,7 @@ export component EntryBody {
 
         // 8. 语气说明
         if root.entry.nuance != "" : Text {
+            width: root.content-width;
             text: root.entry.nuance;
             font-size: root.body-size;
             color: Theme.foreground;
@@ -176,18 +192,25 @@ export component EntryBody {
             padding-top: root.section-gap;
             spacing: root.gap;
             for item in root.entry.vocabulary : HorizontalLayout {
-                spacing: 4px;
-                Text {
-                    text: item.word;
-                    font-size: root.body-size;
-                    color: Theme.foreground;
+                spacing: 0px;
+                word-box := Rectangle {
+                    width: word-text.preferred-width + 4px;
+                    word-text := Text {
+                        x: 0;
+                        y: 0;
+                        width: self.preferred-width;
+                        height: self.preferred-height;
+                        text: item.word;
+                        font-size: root.body-size;
+                        color: Theme.foreground;
+                    }
                 }
                 if item.meaning != "" : Text {
+                    width: root.content-width - word-box.width;
                     text: item.meaning;
                     font-size: root.body-size;
                     color: Theme.default-500;
                     wrap: word-wrap;
-                    horizontal-stretch: 1;
                 }
             }
         }

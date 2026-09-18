@@ -6,7 +6,12 @@ use chrono::{DateTime, Local};
 use crate::logic::result::{CATEGORIES, EntryDisplay, Example, Kind, entry_display, is_han};
 use crate::logic::wordbook::Entry;
 
+/// 我们自己插的换行（例句原句和译句之间），必须是硬换行，不然渲染出来会连成一行。
 const HARD_BREAK: &str = "  \n";
+/// **原文自带的换行只用普通换行接上**，不用 `"  \n"`：硬换行在 Typora 这类编辑器里
+/// 每行尾都会画一个 ↵ 箭头，一整段全是箭头（用户看实际导出文件时提的）。
+/// 代价是渲染时这几行会接成一段流式文字 —— 想渲染后也分行只能用 `<br>`，那是 HTML，另说。
+const SOFT_BREAK: &str = "\n";
 
 /// 生词本导出成 Markdown。`now` 注入，不读时钟、不写盘、不改入参。
 pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
@@ -291,7 +296,7 @@ fn markdown_text(value: &str) -> String {
         processed_lines.push(line_out);
     }
 
-    processed_lines.join(HARD_BREAK)
+    processed_lines.join(SOFT_BREAK)
 }
 
 fn italic(value: &str) -> String {

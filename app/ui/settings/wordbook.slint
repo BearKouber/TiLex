@@ -67,23 +67,25 @@ component DetailBullet inherits HorizontalLayout {
     in property <string> text;
     // 核心句型用正文色，修饰成分和语境说明用次要色（旧版 `text-default-600 dark:text-default-400`）
     in property <bool> strong: false;
+    // 可视区宽度，必须来自本布局之外（见 `EntryBody.content-width` 上的注释、§3.45）
+    in property <length> content-width;
 
     spacing: 6px;
 
-    Text {
+    label-text := Text {
         text: "• " + root.label + "：";
         font-size: 14px;
         color: Theme.default-500;
     }
 
     Text {
+        width: root.content-width - label-text.preferred-width - 6px;
         text: root.text;
         font-size: 14px;
         color: root.strong
             ? Theme.foreground
             : (Theme.dark ? Theme.default-500 : Theme.default-600);
         wrap: word-wrap;
-        horizontal-stretch: 1;
     }
 }
 
@@ -336,19 +338,29 @@ export component WordbookPage inherits Rectangle {
             spacing: 0px;
             border-color: Theme.default-100;
 
-            if WordbookState.selected-id != 0 : ScrollArea {
+            if WordbookState.selected-id != 0 : detail-scroll := ScrollArea {
                 viewport-height: max(self.visible-height, detail-content.preferred-height);
 
                 detail-content := VerticalLayout {
+                    // **必须显式定宽**：`Flickable` 的 viewport 宽度是按子元素的 min-width 算的，
+                    // 而 `wrap: word-wrap` 的 `Text` min-width 是 0（§3.36），viewport 因此不是可视宽。
+                    // 宽度不对，里面每段文字的「这么宽要占几行」就算错，
+                    // `preferred-height` 跟着算少，上面一段的后几行被下一段压住（B4 用户实拍）。
+                    width: detail-scroll.visible-width;
                     spacing: 0px;
                     alignment: start;
 
-                    // 顶栏一行：左标题，右朗读与删除
+                    // 顶栏一行：左标题，右朗读与删除。
+                    // **不用 `alignment: space-between`**（§3.38）：那样 `Text` 拿的是 preferred 全宽，
+                    // 高度按「不换行」算，顶栏 preferred-height 整个算飞，多占的那几十像素会把下面一段
+                    // 压到装不下、后几行叠上来（B4 用户实拍）。按钮组写死 stretch 0，剩下的全归标题。
+                    // 按钮跟旧版一样顶部对齐（`items-start`），标题几行都不动。
                     HorizontalLayout {
-                        alignment: space-between;
-                        cross-axis-alignment: center;
+                        spacing: 12px;
+                        cross-axis-alignment: start;
 
                         Text {
+                            width: detail-scroll.visible-width - btns.preferred-width - 12px;
                             text: WordbookState.detail-text;
                             font-size: WordbookState.detail-is-word ? 18px : 16px;
                             // 旧版 `Wordbook/index.jsx:348/461` 的 h2 没有 font-weight（Tailwind preflight 把标题重置成
@@ -358,8 +370,10 @@ export component WordbookPage inherits Rectangle {
                             horizontal-stretch: 1;
                         }
 
-                        HorizontalLayout {
+                        btns := HorizontalLayout {
                             spacing: 4px;
+                            horizontal-stretch: 0;
+                            alignment: start;
 
                             IconButton {
                                 size: "sm";
@@ -394,6 +408,7 @@ export component WordbookPage inherits Rectangle {
                             padding-top: 12px;
 
                             Text {
+                                width: detail-scroll.visible-width;
                                 text: WordbookState.detail-entry.translation;
                                 font-size: 14px;
                                 color: Theme.foreground;
@@ -413,6 +428,7 @@ export component WordbookPage inherits Rectangle {
                             }
 
                             Text {
+                                width: detail-scroll.visible-width;
                                 text: root.format-sentence-tag(
                                     WordbookState.detail-category,
                                     WordbookState.detail-difficulty,
@@ -439,17 +455,20 @@ export component WordbookPage inherits Rectangle {
                             }
 
                             if WordbookState.detail-entry.main-clause != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
                                 label: @tr("Core pattern");
                                 text: WordbookState.detail-entry.main-clause;
                                 strong: true;
                             }
 
                             if WordbookState.detail-entry.clauses != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
                                 label: @tr("Modifiers");
                                 text: WordbookState.detail-entry.clauses;
                             }
 
                             if WordbookState.detail-entry.nuance != "" : DetailBullet {
+                                content-width: detail-scroll.visible-width;
                                 label: @tr("Context note");
                                 text: WordbookState.detail-entry.nuance;
                             }
@@ -506,6 +525,7 @@ export component WordbookPage inherits Rectangle {
                             padding-top: 8px;
 
                             EntryBody {
+                                content-width: detail-scroll.visible-width;
                                 entry: {
                                     examples: WordbookState.detail-entry.examples,
                                     notes: WordbookState.detail-entry.notes,
@@ -519,6 +539,7 @@ export component WordbookPage inherits Rectangle {
                         padding-top: 12px;
 
                         EntryBody {
+                            content-width: detail-scroll.visible-width;
                             entry: WordbookState.detail-entry;
                         }
                     }

@@ -302,7 +302,8 @@ export component PopResult inherits Window {
                                     entry: row.display;
                                     // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
                                     compact: true;
-                                    horizontal-stretch: 1;
+                                    // 左右各 8px 内边距。宽度取窗口的固定宽（布局之外的来源，§3.45）
+                                    content-width: root.width - 16px;
                                 }
                             }
                         }
