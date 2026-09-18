@@ -20,7 +20,12 @@ export component PopResult inherits Window {
     no-frame: true;
     always-on-top: true;
     width: 320px; // 与 logic::placement::RESULT_WIDTH 一致
-    background: Theme.content1;
+    // ponytail: 和浮标同一招（platform-windows.md §1 第 4c 条）。软件渲染只提交脏区域，
+    // 置顶的浮窗在用户切走/切回时系统会丢掉窗口画面，从不变化的顶栏拖动区就一直透明。
+    // 翻转 repaint-tick 产生肉眼分不出的色差，让整窗变脏重画一次。
+    // 以后 Slint 提供整窗强制重绘接口时换掉。
+    in property <bool> repaint-tick;
+    background: root.repaint-tick ? Theme.content1 : Theme.content1.darker(0.01);
     forward-focus: focus-scope;
     // 跟设置窗一致用细体（见 settings/window.slint）
     default-font-weight: 300;
@@ -71,7 +76,7 @@ export component PopResult inherits Window {
             // Header
             header := Rectangle {
                 height: 24px;
-                background: Theme.content1;
+                // 不自己铺底色：窗口背景本来就是 content1，再铺一层会和 repaint-tick 的微小色差错开，露出一条边
 
                 header-drag := TouchArea {
                     moved => {

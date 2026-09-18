@@ -127,6 +127,8 @@ pub fn create() -> Result<(), Error> {
     result.window().on_winit_window_event(|window, event| {
         match event {
             WindowEvent::Focused(focused) => on_focus_changed(*focused),
+            // 鼠标重新进来时也补一次：切桌面回来这类情况不一定有焦点变化
+            WindowEvent::CursorEntered { .. } => force_repaint(),
             WindowEvent::CursorMoved { position, .. } => arm_close(window, position.x, position.y),
             _ => {}
         }
@@ -173,7 +175,20 @@ fn arm_close(window: &slint::Window, x: f64, y: f64) {
     }
 }
 
+/// 翻转 `repaint-tick` 让整窗变脏重画一次（`pop_result.slint` 的背景色差）。
+/// 软件渲染只提交脏区域，置顶的浮窗在用户切走/切回时系统会丢掉窗口画面，
+/// 从不变化的顶栏拖动区就一直透明（platform-windows.md §1 第 4c 条）。
+fn force_repaint() {
+    POP_RESULT.with_borrow(|r| {
+        if let Some(ui) = r.as_ref() {
+            ui.set_repaint_tick(!ui.get_repaint_tick());
+        }
+    });
+}
+
 fn on_focus_changed(focused: bool) {
+    // 切走和切回都补画：丢画面正是发生在这两个时刻前后
+    force_repaint();
     if focused {
         GUARD.with(|g| g.borrow_mut().focus());
     } else {

@@ -133,11 +133,14 @@ pub(crate) fn signature(appid: &str, text: &str, salt: &str, secret: &str) -> St
 }
 
 pub(crate) fn parse_response(data: &Value) -> Option<String> {
-    if let Some(err_code) = data.get("error_code") {
-        log::warn!("Baidu: error_code={err_code}");
+    // 先看 trans_result 再看 error_code：百度成功响应里没有 error_code，但 52000 本身就是"成功"，
+    // 万一哪天带上了，先判 error_code 会把好好的译文丢掉（旧版只看 trans_result）。
+    let Some(trans_result) = data.get("trans_result").and_then(Value::as_array) else {
+        if let Some(err_code) = data.get("error_code") {
+            log::warn!("Baidu: error_code={err_code}");
+        }
         return None;
-    }
-    let trans_result = data.get("trans_result")?.as_array()?;
+    };
     if trans_result.is_empty() {
         return None;
     }
@@ -223,6 +226,16 @@ mod tests {
 
         let missing_result = json!({});
         assert_eq!(parse_response(&missing_result), None);
+
+        // 52000 是"成功"，带着译文一起回来时不能当失败丢掉
+        let success_code_with_result = json!({
+            "error_code": "52000",
+            "trans_result": [{ "src": "apple", "dst": "苹果" }]
+        });
+        assert_eq!(
+            parse_response(&success_code_with_result),
+            Some("苹果".to_owned())
+        );
     }
 
     #[test]
