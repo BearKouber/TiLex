@@ -47,6 +47,7 @@ pinyin = { version = "0.10", default-features = false, features = ["plain"] }
 rfd = { version = "0.15", default-features = false }
 hmac = "0.12"
 sha2 = "0.10"
+md-5 = "0.10"
 
 [dev-dependencies]
 pulldown-cmark = { version = "0.13", default-features = false }

@@ -20,7 +20,7 @@ use crate::logic::lang_detect;
 use crate::logic::result::{self, EntryDisplay, Kind};
 use crate::logic::saved_entry::{Item, SavedEntry, Snapshot};
 use crate::logic::wordbook;
-use crate::service::{ai, bing, deepl, google};
+use crate::service::{ai, baidu, bing, deepl, google, transmart};
 
 static CURRENT: AtomicU64 = AtomicU64::new(0);
 static CACHE: Mutex<Lru> = Mutex::new(Lru::new());
@@ -70,6 +70,8 @@ pub(crate) enum Request {
     Google(google::Config),
     Bing(bing::Config),
     Deepl(deepl::Config),
+    Baidu(baidu::Config),
+    Transmart,
     Ai(ai::Effective),
 }
 
@@ -162,6 +164,22 @@ fn job(service: &Service) -> Option<(Row, Job)> {
             },
             Request::Deepl(i.config.clone()),
         ),
+        Service::Baidu(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "baidu",
+                label: i.label.clone(),
+            },
+            Request::Baidu(i.config.clone()),
+        ),
+        Service::Transmart(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "transmart",
+                label: i.label.clone(),
+            },
+            Request::Transmart,
+        ),
         Service::Ai(i) if i.enabled => (
             Row {
                 service_id: i.id.clone(),
@@ -176,6 +194,8 @@ fn job(service: &Service) -> Option<(Row, Job)> {
         Request::Google(c) => serde_json::to_value(c),
         Request::Bing(c) => serde_json::to_value(c),
         Request::Deepl(c) => serde_json::to_value(c),
+        Request::Baidu(c) => serde_json::to_value(c),
+        Request::Transmart => Ok(Value::Null),
         Request::Ai(e) => serde_json::to_value(e),
     }
     .unwrap_or(Value::Null);
@@ -303,6 +323,8 @@ fn run_one(ctx: Ctx, job: Job) {
         Request::Google(_) => "google",
         Request::Bing(_) => "bing",
         Request::Deepl(_) => "deepl",
+        Request::Baidu(_) => "baidu",
+        Request::Transmart => "transmart",
         Request::Ai(_) => "ai",
     };
     let key = cache::key(
@@ -370,6 +392,8 @@ pub(crate) fn call(
         Request::Google(c) => google::translate(text, from, to, c),
         Request::Bing(c) => bing::translate(text, from, to, c),
         Request::Deepl(c) => deepl::translate(text, from, to, c),
+        Request::Baidu(c) => baidu::translate(text, from, to, c),
+        Request::Transmart => transmart::translate(text, from, to),
         Request::Ai(e) => {
             let kind = Kind::of(text);
             let raw = ai::translate(text, from, to, detected, kind.as_str(), e)?;
@@ -397,6 +421,16 @@ pub fn test_deepl(config: &deepl::Config) -> Result<String, Error> {
 }
 
 /// 见 [`test_google`]。
+pub fn test_baidu(config: &baidu::Config) -> Result<String, Error> {
+    test_request(&Request::Baidu(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_transmart() -> Result<String, Error> {
+    test_request(&Request::Transmart)
+}
+
+/// 见 [`test_google`]。
 pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
     test_request(&Request::Ai(config.effective()))
 }
@@ -406,6 +440,8 @@ fn test_request(request: &Request) -> Result<String, Error> {
         Request::Google(_) => "google",
         Request::Bing(_) => "bing",
         Request::Deepl(_) => "deepl",
+        Request::Baidu(_) => "baidu",
+        Request::Transmart => "transmart",
         Request::Ai(_) => "ai",
     };
     // 只记分类：错误里本来就不带响应体、地址和 key。
@@ -449,6 +485,8 @@ mod tests {
             {"id": "bing@1", "kind": "bing", "label": "BingTr"},
             {"id": "deepl@1", "kind": "deepl", "enabled": false},
             {"id": "deepl@2", "kind": "deepl", "label": "DeepLTr"},
+            {"id": "baidu@1", "kind": "baidu", "label": "BaiduTr", "appid": "id", "secret": "sec"},
+            {"id": "transmart@1", "kind": "transmart", "label": "TransmartTr"},
             {"id": "ai@x", "kind": "ai", "label": "DS", "base_url": "u", "model": "m", "api_key": "k"},
             {"id": "wechat", "kind": "wechat"},
             {"id": "x", "kind": "future"},
@@ -463,6 +501,8 @@ mod tests {
                 ("google", "google", ""),
                 ("bing@1", "bing", "BingTr"),
                 ("deepl@2", "deepl", "DeepLTr"),
+                ("baidu@1", "baidu", "BaiduTr"),
+                ("transmart@1", "transmart", "TransmartTr"),
                 ("ai@x", "ai", "DS")
             ]
         );
@@ -526,5 +566,22 @@ mod tests {
         };
         let res_x = test_deepl(&config_x);
         assert!(matches!(res_x, Err(Error::NotConfigured("custom_url"))));
+    }
+
+    #[test]
+    fn test_baidu_fails_fast_on_missing_settings() {
+        let config = baidu::Config {
+            appid: "".into(),
+            secret: "secret".into(),
+        };
+        let res = test_baidu(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("appid"))));
+
+        let config_secret = baidu::Config {
+            appid: "appid".into(),
+            secret: "  ".into(),
+        };
+        let res_secret = test_baidu(&config_secret);
+        assert!(matches!(res_secret, Err(Error::NotConfigured("secret"))));
     }
 }

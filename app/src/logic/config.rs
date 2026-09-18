@@ -12,9 +12,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::service::{ai, bing, deepl, google, umi};
+use crate::service::{ai, baidu, bing, deepl, google, umi};
 
 pub use crate::service::ai::Config as AiConfig;
+pub use crate::service::baidu::Config as BaiduConfig;
 pub use crate::service::bing::Config as BingConfig;
 pub use crate::service::deepl::Config as DeeplConfig;
 pub use crate::service::google::Config as GoogleConfig;
@@ -84,6 +85,8 @@ pub enum Service {
     Google(Instance<google::Config>),
     Bing(Instance<bing::Config>),
     Deepl(Instance<deepl::Config>),
+    Baidu(Instance<baidu::Config>),
+    Transmart(Instance<NoSettings>),
     Ai(Instance<ai::Config>),
     Wechat(Instance<NoSettings>),
     Umi(Instance<umi::Config>),
@@ -656,6 +659,46 @@ mod tests {
         let out = serde_json::to_value(&config).unwrap();
         assert_eq!(out["translate_services"][0], bing);
         assert_eq!(out["translate_services"][1], deepl);
+    }
+
+    #[test]
+    fn baidu_and_transmart_service_config_round_trip() {
+        let baidu = json!({
+            "id": "baidu@1",
+            "kind": "baidu",
+            "enabled": true,
+            "appid": "baidu-app-id",
+            "secret": "baidu-secret-key",
+            "extra_field": 100
+        });
+        let transmart = json!({
+            "id": "transmart@1",
+            "kind": "transmart",
+            "enabled": false,
+            "extra_field": "preserved"
+        });
+        let input = json!({
+            "translate_services": [baidu, transmart]
+        });
+        let config: Config = serde_json::from_value(input).unwrap();
+
+        let Service::Baidu(b) = &config.translate_services[0] else {
+            panic!("expected baidu");
+        };
+        assert!(b.enabled);
+        assert_eq!(b.config.appid, "baidu-app-id");
+        assert_eq!(b.config.secret, "baidu-secret-key");
+        assert_eq!(b.extra.get("extra_field"), Some(&json!(100)));
+
+        let Service::Transmart(t) = &config.translate_services[1] else {
+            panic!("expected transmart");
+        };
+        assert!(!t.enabled);
+        assert_eq!(t.extra.get("extra_field"), Some(&json!("preserved")));
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["translate_services"][0], baidu);
+        assert_eq!(out["translate_services"][1], transmart);
     }
 
     #[test]

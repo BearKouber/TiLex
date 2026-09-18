@@ -164,6 +164,8 @@ fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
                 // B5 01 / 02 轮先让服务本身能用；品牌图标和配置表单在 03 轮补
                 Service::Bing(i) => ("bing", icons::FALLBACK_ICON, &i.label, i.enabled),
                 Service::Deepl(i) => ("deepl", icons::FALLBACK_ICON, &i.label, i.enabled),
+                Service::Baidu(i) => ("baidu", icons::FALLBACK_ICON, &i.label, i.enabled),
+                Service::Transmart(i) => ("transmart", icons::FALLBACK_ICON, &i.label, i.enabled),
                 // 旧实例存过 icon 就照它显示，否则按地址 / 模型名猜厂商
                 Service::Ai(i) => (
                     "ai",
@@ -226,6 +228,8 @@ fn handle_set_service_enabled(page: &SettingsWindow, kind: &str, real_idx: i32, 
                 Service::Umi(inst) => inst.enabled = enabled,
                 Service::Bing(inst) => inst.enabled = enabled,
                 Service::Deepl(inst) => inst.enabled = enabled,
+                Service::Baidu(inst) => inst.enabled = enabled,
+                Service::Transmart(inst) => inst.enabled = enabled,
                 Service::Unknown(_) => {}
             }
         }
@@ -374,7 +378,11 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_dialog_index(real_idx);
                 page.set_dialog(3);
             }
-            Service::Bing(_) | Service::Deepl(_) | Service::Unknown(_) => {
+            Service::Bing(_)
+            | Service::Deepl(_)
+            | Service::Baidu(_)
+            | Service::Transmart(_)
+            | Service::Unknown(_) => {
                 log::info!("Settings: editing service kind not supported in this batch");
             }
         }
@@ -961,6 +969,8 @@ mod tests {
                 Service::Umi(inst) => &inst.id,
                 Service::Bing(inst) => &inst.id,
                 Service::Deepl(inst) => &inst.id,
+                Service::Baidu(inst) => &inst.id,
+                Service::Transmart(inst) => &inst.id,
                 Service::Unknown(_) => "unknown",
             }
         }
