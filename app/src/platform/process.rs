@@ -54,6 +54,19 @@ pub fn spawn(program: &Path, args: &[OsString]) -> Result<(), Error> {
     Ok(())
 }
 
+/// 启动子进程，stdin 接管道交给调用方（写完 drop 就是 EOF），stdout/stderr 丢弃。
+/// 调用方自己负责 `wait()` 或 `kill()`。
+#[cfg(target_os = "macos")]
+pub fn spawn_piped(program: &Path, args: &[OsString]) -> Result<std::process::Child, Error> {
+    let child = command(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    Ok(child)
+}
+
 /// release 版是 GUI 程序、没有控制台：Windows 上起控制台子进程（tilex-ocr.exe 等）
 /// 每次都会闪一个黑窗，要 CREATE_NO_WINDOW（旧版 ocr.rs 同款）。
 fn command(program: &Path) -> Command {

@@ -3,11 +3,17 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::process;
 use crate::error::Error;
 
+mod autostart;
 mod proxy;
+mod shell;
+mod tts;
+
+pub use autostart::{autostart_enabled, set_autostart};
 pub use proxy::system_proxy;
+pub use shell::{copy_text, open_path, open_url};
+pub use tts::{speak, stop_speaking};
 
 const LOCK_FILE: &str = "tilex.lock";
 const SOCKET: &str = "tilex.sock";
@@ -73,31 +79,6 @@ pub fn listen_activation(on_activate: impl Fn() + Send + 'static) -> Result<(), 
     Ok(())
 }
 
-pub fn open_path(path: &Path) -> Result<(), Error> {
-    let out = process::run(
-        Path::new("/usr/bin/open"),
-        &[path.into()],
-        Duration::from_secs(10),
-    )?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(Error::Platform(format!("open exited with {}", out.status)))
-    }
-}
-
-pub fn open_url(_url: &str) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn autostart_enabled() -> Result<bool, Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn set_autostart(_on: bool) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
 /// macOS 的无边框窗口圆角由 AppKit 负责，这里不做事。
 pub fn round_corners(_window: &slint::Window) -> Result<(), Error> {
     Ok(())
@@ -129,17 +110,6 @@ pub fn attach_selection_button(_window: &slint::Window) -> Result<(), Error> {
 
 pub fn engage_selection() {}
 
-// B6：`/usr/bin/say` 子进程
-pub fn speak(
-    _text: &str,
-    _voice: super::Voice,
-    _done: impl FnOnce() + Send + 'static,
-) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn stop_speaking() {}
-
 pub fn monitor_at(_x: i32, _y: i32) -> Option<(super::geometry::Rect, f32)> {
     None
 }
@@ -170,11 +140,6 @@ pub fn hide_result_window() {}
 
 pub fn result_window_focused() -> Option<bool> {
     None
-}
-
-// B6：`pbcopy` 子进程
-pub fn copy_text(_text: &str) -> Result<(), Error> {
-    Err(Error::Unsupported)
 }
 
 // B6：`screencapture -i` 子进程
