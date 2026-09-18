@@ -114,6 +114,34 @@ pub const ICONS: &[IconInfo] = &[
         letter: "G",
         has_file: true,
     },
+    IconInfo {
+        id: "bing",
+        label: "Bing",
+        color: "#008373",
+        letter: "B",
+        has_file: true,
+    },
+    IconInfo {
+        id: "deepl",
+        label: "DeepL",
+        color: "#0F2B46",
+        letter: "D",
+        has_file: true,
+    },
+    IconInfo {
+        id: "baidu",
+        label: "Baidu",
+        color: "#2932E1",
+        letter: "百",
+        has_file: true,
+    },
+    IconInfo {
+        id: "transmart",
+        label: "Transmart",
+        color: "#0052D9",
+        letter: "T",
+        has_file: true,
+    },
     // 单色图标，用 `color` 上色（旧版也是 react-icons 的 RiWechatFill 配 #07C160）
     IconInfo {
         id: "wechat",

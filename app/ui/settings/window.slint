@@ -189,6 +189,21 @@ export component SettingsWindow inherits Window {
     in-out property <brush> draft-ai-icon-color: Theme.foreground;
     in-out property <string> draft-ai-icon-letter: "";
 
+    // Bing Draft Properties
+    in-out property <int> draft-bing-mode-index: 0;
+    in-out property <string> draft-bing-auth-key: "";
+    in-out property <string> draft-bing-region: "";
+    in-out property <string> draft-bing-custom-url: "";
+
+    // DeepL Draft Properties
+    in-out property <int> draft-deepl-mode-index: 0;
+    in-out property <string> draft-deepl-auth-key: "";
+    in-out property <string> draft-deepl-custom-url: "";
+
+    // Baidu Draft Properties
+    in-out property <string> draft-baidu-appid: "";
+    in-out property <string> draft-baidu-secret: "";
+
     // Umi-OCR Draft Properties
     in-out property <string> draft-umi-url: "";
 
@@ -590,6 +605,18 @@ export component SettingsWindow inherits Window {
         draft-ai-has-logo <=> root.draft-ai-has-logo;
         draft-ai-icon-color <=> root.draft-ai-icon-color;
         draft-ai-icon-letter <=> root.draft-ai-icon-letter;
+
+        draft-bing-mode-index <=> root.draft-bing-mode-index;
+        draft-bing-auth-key <=> root.draft-bing-auth-key;
+        draft-bing-region <=> root.draft-bing-region;
+        draft-bing-custom-url <=> root.draft-bing-custom-url;
+
+        draft-deepl-mode-index <=> root.draft-deepl-mode-index;
+        draft-deepl-auth-key <=> root.draft-deepl-auth-key;
+        draft-deepl-custom-url <=> root.draft-deepl-custom-url;
+
+        draft-baidu-appid <=> root.draft-baidu-appid;
+        draft-baidu-secret <=> root.draft-baidu-secret;
 
         draft-umi-url <=> root.draft-umi-url;
 

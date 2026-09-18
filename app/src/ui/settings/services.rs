@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::error::{Error, HttpKind};
-use crate::logic::config::{self, AiConfig, GoogleConfig, Service, UmiConfig};
+use crate::logic::config::{
+    self, AiConfig, BaiduConfig, BingConfig, DeeplConfig, GoogleConfig, Service, UmiConfig,
+};
 use crate::logic::service_icon as icons;
 use crate::logic::translate;
 use crate::logic::{ai_presets, benchmark, model_cache, recognize};
@@ -161,11 +163,10 @@ fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
                 Service::Google(i) => ("google", "google", &i.label, i.enabled),
                 Service::Wechat(i) => ("wechat", "wechat", &i.label, i.enabled),
                 Service::Umi(i) => ("umi", "umi", &i.label, i.enabled),
-                // B5 01 / 02 轮先让服务本身能用；品牌图标和配置表单在 03 轮补
-                Service::Bing(i) => ("bing", icons::FALLBACK_ICON, &i.label, i.enabled),
-                Service::Deepl(i) => ("deepl", icons::FALLBACK_ICON, &i.label, i.enabled),
-                Service::Baidu(i) => ("baidu", icons::FALLBACK_ICON, &i.label, i.enabled),
-                Service::Transmart(i) => ("transmart", icons::FALLBACK_ICON, &i.label, i.enabled),
+                Service::Bing(i) => ("bing", "bing", &i.label, i.enabled),
+                Service::Deepl(i) => ("deepl", "deepl", &i.label, i.enabled),
+                Service::Baidu(i) => ("baidu", "baidu", &i.label, i.enabled),
+                Service::Transmart(i) => ("transmart", "transmart", &i.label, i.enabled),
                 // 旧实例存过 icon 就照它显示，否则按地址 / 模型名猜厂商
                 Service::Ai(i) => (
                     "ai",
@@ -378,11 +379,53 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_dialog_index(real_idx);
                 page.set_dialog(3);
             }
-            Service::Bing(_)
-            | Service::Deepl(_)
-            | Service::Baidu(_)
-            | Service::Transmart(_)
-            | Service::Unknown(_) => {
+            Service::Bing(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                // 界面上存的是下标（见 service_dialogs.slint 的注记）：0 = builtin，1 = api
+                page.set_draft_bing_mode_index(match inst.config.mode.as_str() {
+                    "api" => 1,
+                    _ => 0,
+                });
+                page.set_draft_bing_auth_key(inst.config.auth_key.as_str().into());
+                page.set_draft_bing_region(inst.config.region.as_str().into());
+                page.set_draft_bing_custom_url(inst.config.custom_url.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("bing".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Deepl(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                // 界面上存的是下标（见 service_dialogs.slint 的注记）：0 = free，1 = api，2 = deeplx
+                page.set_draft_deepl_mode_index(match inst.config.mode.as_str() {
+                    "api" => 1,
+                    "deeplx" => 2,
+                    _ => 0,
+                });
+                page.set_draft_deepl_auth_key(inst.config.auth_key.as_str().into());
+                page.set_draft_deepl_custom_url(inst.config.custom_url.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("deepl".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Baidu(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_draft_baidu_appid(inst.config.appid.as_str().into());
+                page.set_draft_baidu_secret(inst.config.secret.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("baidu".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Transmart(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("transmart".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Unknown(_) => {
                 log::info!("Settings: editing service kind not supported in this batch");
             }
         }
@@ -398,6 +441,15 @@ struct ServiceDraft<'a> {
     custom_url: &'a str,
     api_key: &'a str,
     custom_api_url: &'a str,
+    bing_mode: &'a str,
+    bing_auth_key: &'a str,
+    bing_region: &'a str,
+    bing_custom_url: &'a str,
+    deepl_mode: &'a str,
+    deepl_auth_key: &'a str,
+    deepl_custom_url: &'a str,
+    baidu_appid: &'a str,
+    baidu_secret: &'a str,
     ai_base_url: &'a str,
     ai_api_key: &'a str,
     ai_model: &'a str,
@@ -418,6 +470,15 @@ impl<'a> From<&'a crate::slint_ui::ServiceDraft> for ServiceDraft<'a> {
             custom_url: d.google_custom_url.as_str(),
             api_key: d.google_api_key.as_str(),
             custom_api_url: d.google_custom_api_url.as_str(),
+            bing_mode: d.bing_mode.as_str(),
+            bing_auth_key: d.bing_auth_key.as_str(),
+            bing_region: d.bing_region.as_str(),
+            bing_custom_url: d.bing_custom_url.as_str(),
+            deepl_mode: d.deepl_mode.as_str(),
+            deepl_auth_key: d.deepl_auth_key.as_str(),
+            deepl_custom_url: d.deepl_custom_url.as_str(),
+            baidu_appid: d.baidu_appid.as_str(),
+            baidu_secret: d.baidu_secret.as_str(),
             ai_base_url: d.ai_base_url.as_str(),
             ai_api_key: d.ai_api_key.as_str(),
             ai_model: d.ai_model.as_str(),
@@ -435,6 +496,30 @@ fn draft_google_config(draft: &ServiceDraft<'_>) -> GoogleConfig {
         custom_url: draft.custom_url.trim().to_string(),
         api_key: draft.api_key.trim().to_string(),
         custom_api_url: draft.custom_api_url.trim().to_string(),
+    }
+}
+
+fn draft_bing_config(draft: &ServiceDraft<'_>) -> BingConfig {
+    BingConfig {
+        mode: draft.bing_mode.to_string(),
+        auth_key: draft.bing_auth_key.trim().to_string(),
+        region: draft.bing_region.trim().to_string(),
+        custom_url: draft.bing_custom_url.trim().to_string(),
+    }
+}
+
+fn draft_deepl_config(draft: &ServiceDraft<'_>) -> DeeplConfig {
+    DeeplConfig {
+        mode: draft.deepl_mode.to_string(),
+        auth_key: draft.deepl_auth_key.trim().to_string(),
+        custom_url: draft.deepl_custom_url.trim().to_string(),
+    }
+}
+
+fn draft_baidu_config(draft: &ServiceDraft<'_>) -> BaiduConfig {
+    BaiduConfig {
+        appid: draft.baidu_appid.trim().to_string(),
+        secret: draft.baidu_secret.trim().to_string(),
     }
 }
 
@@ -496,6 +581,10 @@ fn handle_save_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
 
 enum TestTarget {
     Google(GoogleConfig),
+    Bing(BingConfig),
+    Deepl(DeeplConfig),
+    Baidu(BaiduConfig),
+    Transmart,
     Ai(AiConfig),
     Umi(UmiConfig),
     Wechat,
@@ -516,6 +605,10 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
 
     let target = match draft.service {
         "google" => TestTarget::Google(draft_google_config(&draft)),
+        "bing" => TestTarget::Bing(draft_bing_config(&draft)),
+        "deepl" => TestTarget::Deepl(draft_deepl_config(&draft)),
+        "baidu" => TestTarget::Baidu(draft_baidu_config(&draft)),
+        "transmart" => TestTarget::Transmart,
         "ai" => {
             // 编辑已有实例时，界面上编不到的字段（request_arguments 等）从它现在的配置里接着用。
             let base = config::snapshot()
@@ -548,6 +641,10 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
             let start = std::time::Instant::now();
             let res = match &target {
                 TestTarget::Google(c) => translate::test_google(c).map(TestOk::Translated),
+                TestTarget::Bing(c) => translate::test_bing(c).map(TestOk::Translated),
+                TestTarget::Deepl(c) => translate::test_deepl(c).map(TestOk::Translated),
+                TestTarget::Baidu(c) => translate::test_baidu(c).map(TestOk::Translated),
+                TestTarget::Transmart => translate::test_transmart().map(TestOk::Translated),
                 TestTarget::Ai(c) => translate::test_ai(c).map(TestOk::Translated),
                 TestTarget::Umi(c) => recognize::test_umi(c).map(|()| TestOk::Reached),
                 TestTarget::Wechat => recognize::test_wechat().map(TestOk::WechatVersion),
@@ -809,6 +906,38 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 inst.config = draft_google_config(draft);
                 list.push(Service::Google(inst));
             }
+            "bing" => {
+                let mut inst =
+                    config::Instance::<BingConfig>::new(&config::new_instance_id("bing"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_bing_config(draft);
+                list.push(Service::Bing(inst));
+            }
+            "deepl" => {
+                let mut inst =
+                    config::Instance::<DeeplConfig>::new(&config::new_instance_id("deepl"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_deepl_config(draft);
+                list.push(Service::Deepl(inst));
+            }
+            "baidu" => {
+                let mut inst =
+                    config::Instance::<BaiduConfig>::new(&config::new_instance_id("baidu"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_baidu_config(draft);
+                list.push(Service::Baidu(inst));
+            }
+            "transmart" => {
+                let mut inst = config::Instance::<config::NoSettings>::new(
+                    &config::new_instance_id("transmart"),
+                );
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                list.push(Service::Transmart(inst));
+            }
             "wechat" => {
                 let mut inst =
                     config::Instance::<config::NoSettings>::new(&config::new_instance_id("wechat"));
@@ -844,6 +973,21 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
             Service::Google(inst) => {
                 inst.label = draft.label.trim().to_string();
                 inst.config = draft_google_config(draft);
+            }
+            Service::Bing(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_bing_config(draft);
+            }
+            Service::Deepl(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_deepl_config(draft);
+            }
+            Service::Baidu(inst) => {
+                inst.label = draft.label.trim().to_string();
+                inst.config = draft_baidu_config(draft);
+            }
+            Service::Transmart(inst) => {
+                inst.label = draft.label.trim().to_string();
             }
             Service::Wechat(inst) => {
                 inst.label = draft.label.trim().to_string();
@@ -991,6 +1135,15 @@ mod tests {
             custom_url: "",
             api_key: "",
             custom_api_url: "",
+            bing_mode: "builtin",
+            bing_auth_key: "",
+            bing_region: "",
+            bing_custom_url: "",
+            deepl_mode: "free",
+            deepl_auth_key: "",
+            deepl_custom_url: "",
+            baidu_appid: "",
+            baidu_secret: "",
             ai_base_url: "",
             ai_api_key: "",
             ai_model: "",
@@ -1295,5 +1448,103 @@ mod tests {
         assert_eq!(rows[5].state.as_str(), "failed");
         assert_eq!(rows[5].ms, 0);
         assert_eq!(rows[5].rank, 0);
+    }
+
+    #[test]
+    fn apply_draft_adds_and_edits_bing_deepl_baidu_transmart() {
+        let mut list = Vec::new();
+
+        // 1. 添加 Bing
+        let mut bing_draft = draft(-1, "bing", "  Bing CN  ", "");
+        bing_draft.bing_mode = "api";
+        bing_draft.bing_auth_key = "secret_key";
+        bing_draft.bing_region = "eastasia";
+        bing_draft.bing_custom_url = "https://custom.endpoint.com";
+        apply_draft(&mut list, &bing_draft);
+
+        // 2. 添加 DeepL
+        let mut deepl_draft = draft(-1, "deepl", "DeepL Pro", "");
+        deepl_draft.deepl_mode = "deeplx";
+        deepl_draft.deepl_custom_url = "http://127.0.0.1:1188/translate";
+        apply_draft(&mut list, &deepl_draft);
+
+        // 3. 添加 Baidu
+        let mut baidu_draft = draft(-1, "baidu", "  Baidu VIP  ", "");
+        baidu_draft.baidu_appid = "app_123";
+        baidu_draft.baidu_secret = "sec_456";
+        apply_draft(&mut list, &baidu_draft);
+
+        // 4. 添加 Transmart
+        let transmart_draft = draft(-1, "transmart", "Tencent", "");
+        apply_draft(&mut list, &transmart_draft);
+
+        assert_eq!(list.len(), 4);
+
+        // 检查添加结果
+        let Service::Bing(b) = &list[0] else {
+            panic!("expected bing");
+        };
+        assert!(!b.enabled);
+        assert!(b.id.starts_with("bing@"));
+        assert_eq!(b.label, "Bing CN");
+        assert_eq!(b.config.mode, "api");
+        assert_eq!(b.config.auth_key, "secret_key");
+        assert_eq!(b.config.region, "eastasia");
+        assert_eq!(b.config.custom_url, "https://custom.endpoint.com");
+
+        let Service::Deepl(d) = &list[1] else {
+            panic!("expected deepl");
+        };
+        assert!(!d.enabled);
+        assert!(d.id.starts_with("deepl@"));
+        assert_eq!(d.label, "DeepL Pro");
+        assert_eq!(d.config.mode, "deeplx");
+        assert_eq!(d.config.custom_url, "http://127.0.0.1:1188/translate");
+
+        let Service::Baidu(bd) = &list[2] else {
+            panic!("expected baidu");
+        };
+        assert!(!bd.enabled);
+        assert!(bd.id.starts_with("baidu@"));
+        assert_eq!(bd.label, "Baidu VIP");
+        assert_eq!(bd.config.appid, "app_123");
+        assert_eq!(bd.config.secret, "sec_456");
+
+        let Service::Transmart(t) = &list[3] else {
+            panic!("expected transmart");
+        };
+        assert!(!t.enabled);
+        assert!(t.id.starts_with("transmart@"));
+        assert_eq!(t.label, "Tencent");
+
+        // 5. 检查 to_rows 输出各自的品牌图标 id
+        let rows = to_rows(&list);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].id.as_str(), "bing");
+        assert_eq!(rows[1].id.as_str(), "deepl");
+        assert_eq!(rows[2].id.as_str(), "baidu");
+        assert_eq!(rows[3].id.as_str(), "transmart");
+
+        // 6. 模拟用户启用并附加 extra，再编辑已有实例
+        if let Service::Bing(inst) = &mut list[0] {
+            inst.enabled = true;
+            inst.extra
+                .insert("custom_extra".into(), serde_json::json!(42));
+        }
+        let mut edit_bing = draft(0, "bing", "Renamed Bing", "");
+        edit_bing.bing_mode = "builtin";
+        apply_draft(&mut list, &edit_bing);
+
+        let Service::Bing(b_after) = &list[0] else {
+            panic!("expected bing");
+        };
+        assert!(b_after.enabled, "编辑已有实例时 enabled 状态不应丢失");
+        assert_eq!(b_after.label, "Renamed Bing");
+        assert_eq!(b_after.config.mode, "builtin");
+        assert_eq!(
+            b_after.extra.get("custom_extra"),
+            Some(&serde_json::json!(42)),
+            "编辑已有实例时 extra 不应丢失"
+        );
     }
 }

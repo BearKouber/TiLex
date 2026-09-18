@@ -35,6 +35,15 @@ export struct ServiceDraft {
     google-custom-url: string,
     google-api-key: string,
     google-custom-api-url: string,
+    bing-mode: string,
+    bing-auth-key: string,
+    bing-region: string,
+    bing-custom-url: string,
+    deepl-mode: string,
+    deepl-auth-key: string,
+    deepl-custom-url: string,
+    baidu-appid: string,
+    baidu-secret: string,
     ai-base-url: string,
     ai-api-key: string,
     ai-model: string,
@@ -334,6 +343,23 @@ export component ServiceDialogs {
     in-out property <string> draft-google-api-key: "";
     in-out property <string> draft-google-custom-api-url: "";
 
+    // Bing 草稿属性
+    // 0 = builtin，1 = api
+    in-out property <int> draft-bing-mode-index: 0;
+    in-out property <string> draft-bing-auth-key: "";
+    in-out property <string> draft-bing-region: "";
+    in-out property <string> draft-bing-custom-url: "";
+
+    // DeepL 草稿属性
+    // 0 = free，1 = api，2 = deeplx
+    in-out property <int> draft-deepl-mode-index: 0;
+    in-out property <string> draft-deepl-auth-key: "";
+    in-out property <string> draft-deepl-custom-url: "";
+
+    // Baidu 草稿属性
+    in-out property <string> draft-baidu-appid: "";
+    in-out property <string> draft-baidu-secret: "";
+
     // AI 草稿属性
     in-out property <string> draft-ai-base-url: "";
     in-out property <string> draft-ai-api-key: "";
@@ -408,6 +434,15 @@ export component ServiceDialogs {
             google-custom-url: root.draft-google-custom-url,
             google-api-key: root.draft-google-api-key,
             google-custom-api-url: root.draft-google-custom-api-url,
+            bing-mode: root.draft-bing-mode-index == 1 ? "api" : "builtin",
+            bing-auth-key: root.draft-bing-auth-key,
+            bing-region: root.draft-bing-region,
+            bing-custom-url: root.draft-bing-custom-url,
+            deepl-mode: root.draft-deepl-mode-index == 1 ? "api" : (root.draft-deepl-mode-index == 2 ? "deeplx" : "free"),
+            deepl-auth-key: root.draft-deepl-auth-key,
+            deepl-custom-url: root.draft-deepl-custom-url,
+            baidu-appid: root.draft-baidu-appid,
+            baidu-secret: root.draft-baidu-secret,
             ai-base-url: root.draft-ai-base-url,
             ai-api-key: root.draft-ai-api-key,
             ai-model: root.draft-ai-model,
@@ -522,6 +557,63 @@ export component ServiceDialogs {
                 root.draft-google-custom-url = "";
                 root.draft-google-api-key = "";
                 root.draft-google-custom-api-url = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "translate" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/bing.svg");
+            has-colorize: false;
+            title: @tr("Bing Translate");
+            clicked => {
+                root.dialog-service = "bing";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.draft-bing-mode-index = 0;
+                root.draft-bing-auth-key = "";
+                root.draft-bing-region = "";
+                root.draft-bing-custom-url = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "translate" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/deepl.svg");
+            has-colorize: false;
+            title: @tr("DeepL");
+            clicked => {
+                root.dialog-service = "deepl";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.draft-deepl-mode-index = 0;
+                root.draft-deepl-auth-key = "";
+                root.draft-deepl-custom-url = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "translate" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/baidu.svg");
+            has-colorize: false;
+            title: @tr("Baidu Translate");
+            clicked => {
+                root.dialog-service = "baidu";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.draft-baidu-appid = "";
+                root.draft-baidu-secret = "";
+                root.dialog = 3;
+            }
+        }
+
+        if root.dialog-kind == "translate" : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/transmart.png");
+            has-colorize: false;
+            title: @tr("Tencent TranSmart");
+            clicked => {
+                root.dialog-service = "transmart";
+                root.dialog-index = -1;
+                root.draft-label = "";
                 root.dialog = 3;
             }
         }
@@ -720,6 +812,171 @@ export component ServiceDialogs {
                             width: 100%;
                             text <=> root.draft-google-custom-url;
                             placeholder: "https://translate.google.com";
+                        }
+                    }
+                }
+
+                if root.dialog-service == "bing" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Bing Translate");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Mode");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        Select {
+                            width: 100%;
+                            options: [
+                                @tr("Built-in Free (No Key Required)"),
+                                @tr("Azure Official API"),
+                            ];
+                            current-index <=> root.draft-bing-mode-index;
+                        }
+                    }
+
+                    if root.draft-bing-mode-index == 1 : SettingRow {
+                        label: @tr("Azure Key");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            password: true;
+                            text <=> root.draft-bing-auth-key;
+                        }
+                    }
+
+                    if root.draft-bing-mode-index == 1 : SettingRow {
+                        label: @tr("Region");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-bing-region;
+                            placeholder: @tr("Leave blank for global");
+                        }
+                    }
+
+                    if root.draft-bing-mode-index == 1 : SettingRow {
+                        label: @tr("Endpoint URL");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-bing-custom-url;
+                            placeholder: "https://api.cognitive.microsofttranslator.com";
+                        }
+                    }
+                }
+
+                if root.dialog-service == "deepl" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("DeepL");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Mode");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        Select {
+                            width: 100%;
+                            options: [
+                                @tr("Free Web Interface (Default)"),
+                                @tr("DeepL Official API"),
+                                @tr("DeepLX Self-hosted"),
+                            ];
+                            current-index <=> root.draft-deepl-mode-index;
+                        }
+                    }
+
+                    if root.draft-deepl-mode-index == 1 : SettingRow {
+                        label: @tr("Auth Key");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            password: true;
+                            text <=> root.draft-deepl-auth-key;
+                        }
+                    }
+
+                    if root.draft-deepl-mode-index == 2 : SettingRow {
+                        label: @tr("DeepLX URL");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-deepl-custom-url;
+                            placeholder: "http://127.0.0.1:1188/translate";
+                        }
+                    }
+                }
+
+                if root.dialog-service == "baidu" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Baidu Translate");
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("App ID");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-baidu-appid;
+                        }
+                    }
+
+                    SettingRow {
+                        label: @tr("Secret");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            password: true;
+                            text <=> root.draft-baidu-secret;
+                        }
+                    }
+                }
+
+                if root.dialog-service == "transmart" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Tencent TranSmart");
                         }
                     }
                 }
