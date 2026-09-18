@@ -323,7 +323,8 @@ export component WordbookPage inherits Rectangle {
                         Text {
                             text: WordbookState.detail-text;
                             font-size: WordbookState.detail-is-word ? 18px : 16px;
-                            font-weight: 600;
+                            // 旧版 `Wordbook/index.jsx:348/461` 的 h2 没有 font-weight（Tailwind preflight 把标题重置成
+                            // inherit），跟正文一样细。这里跟着继承窗口的 300，别写 600。
                             color: Theme.foreground;
                             wrap: word-wrap;
                             horizontal-stretch: 1;

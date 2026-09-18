@@ -217,11 +217,20 @@ fn pinyin_sort_key(text: &str) -> String {
     out
 }
 
-fn is_ascii_punct(c: char) -> bool {
+/// 需要实体化的字符。旧版 `wordbook_format.js` 把**所有** ASCII 标点都转成 `&#NN;`，
+/// 结果正常句子里的句号逗号分号全成了 `&#46;` `&#44;` `&#59;`，读起来满屏乱码（用户手测提的）。
+/// 这里只留 Markdown 真会吃掉的那几个，其余标点原样输出。
+fn needs_escape(c: char) -> bool {
     matches!(
-        c as u32,
-        0x21..=0x2F | 0x3A..=0x40 | 0x5B..=0x60 | 0x7B..=0x7E
+        c,
+        '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '&' | '|' | '~'
     )
+}
+
+/// 行首才危险的块级标记：`#` 是标题，`-` / `+` 是无序列表，`>` 是引用（`>` 已在上面一律转义）。
+/// 出现在行中间的这些字符没有语法含义，不动。
+fn needs_escape_at_line_start(c: char) -> bool {
+    matches!(c, '#' | '-' | '+' | '=')
 }
 
 fn markdown_text(value: &str) -> String {
@@ -257,7 +266,7 @@ fn markdown_text(value: &str) -> String {
 
         while i < total_len {
             let c = chars[i];
-            if is_ascii_punct(c) {
+            if needs_escape(c) || (i == 0 && needs_escape_at_line_start(c)) {
                 line_out.push_str(&format!("&#{};", c as u32));
                 i += 1;
             } else if c == ' ' {
@@ -498,7 +507,9 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
         &s.translation
     };
     if !translation.trim().is_empty() {
-        blocks.push(quote(&italic(translation)));
+        // 译文不进引用块：跟上面的原句同一个斜体版式、直接跟在下面（用户手测定的，
+        // 旧版 `wordbook_format.js` 这里是 `>` 引用）
+        blocks.push(italic(translation));
     }
 
     if let Some(syntax) = &view.syntax_breakdown {
@@ -874,7 +885,7 @@ mod tests {
         let word_a_chinese_2 = md.find("#### 📖 **爱**");
         let word_b = md.find("### B");
         let word_hash = md.find("### &#35;");
-        let word_7zip = md.find("#### 📖 **7&#45;zip**");
+        let word_7zip = md.find("#### 📖 **7-zip**");
         let word_sushi = md.find("#### 📖 **すし**");
         let word_nihongo = md.find("#### 📖 **日本語です**");
 
@@ -940,12 +951,12 @@ mod tests {
 
         // Within EN02: difficulty ascending (1, 1, 2, unrated=4), ties by created_at desc (200 before 50)
         let s_1 = md.find("#### 1.");
-        let s_2 = md.find("#### 2. *EN02 easy new&#46;*");
-        let s_3 = md.find("#### 3. *EN02 easy old&#46;*");
-        let s_4 = md.find("#### 4. *EN02 hard&#46;*");
-        let s_5 = md.find("#### 5. *EN02 unrated&#46;*");
+        let s_2 = md.find("#### 2. *EN02 easy new.*");
+        let s_3 = md.find("#### 3. *EN02 easy old.*");
+        let s_4 = md.find("#### 4. *EN02 hard.*");
+        let s_5 = md.find("#### 5. *EN02 unrated.*");
         let s_6 = md.find("#### 6. *在数字化转型的背景下，企业需要持续投入。*");
-        let s_7 = md.find("#### 7. *Uncategorized sentence&#46;*");
+        let s_7 = md.find("#### 7. *Uncategorized sentence.*");
 
         let Some(p1) = s_1 else {
             panic!("missing 1.");
@@ -1010,12 +1021,12 @@ mod tests {
         let md = build_markdown(&entries, fixed_now());
 
         // English cuts at last space <= 35 when > 20: "Network latency impacts" + "..."
-        assert!(md.contains("#### 1. *Network latency impacts&#46;&#46;&#46;*"));
+        assert!(md.contains("#### 1. *Network latency impacts...*"));
 
         // Chinese has no spaces, cuts at exactly 35 chars + "..."
         // First 35 chars: "在数字化转型的时代背景下企业必须不断提升自身的软件开发与运维能力及团队"
         let expected_zh =
-            "在数字化转型的时代背景下企业必须不断提升自身的软件开发与运维能力及团队&#46;&#46;&#46;";
+            "在数字化转型的时代背景下企业必须不断提升自身的软件开发与运维能力及团队...";
         assert!(md.contains(&format!("#### 2. *{expected_zh}*")));
     }
 
@@ -1047,12 +1058,23 @@ mod tests {
 
         assert!(md.contains("## 长难句"));
         assert!(md.contains("### 未分类"));
-        assert!(md.contains("#### 1. *Google plain sentence&#46;*"));
-        assert!(md.contains("*Google plain sentence&#46;*"));
-        assert!(md.contains("> *谷歌纯翻译句子。*"));
-        assert!(md.contains("#### 2. *Broken detail sentence&#46;*"));
-        assert!(md.contains("*Broken detail sentence&#46;*"));
-        assert!(md.contains("> *坏数据句子。*"));
+        assert!(md.contains("#### 1. *Google plain sentence.*"));
+        assert!(md.contains("*Google plain sentence.*"));
+        assert!(
+            md.contains(
+                "*Google plain sentence.*
+
+*谷歌纯翻译句子。*"
+            ),
+            "译文紧跟原句、同样的斜体，不进引用块"
+        );
+        assert!(md.contains("#### 2. *Broken detail sentence.*"));
+        assert!(md.contains("*Broken detail sentence.*"));
+        assert!(md.contains(
+            "*Broken detail sentence.*
+
+*坏数据句子。*"
+        ));
 
         for label in [
             "难度：",
@@ -1178,12 +1200,16 @@ mod tests {
         assert!(md.contains("| `v.` | 跟随；听从 |"));
         assert!(md.contains("| `n.` | 关注 |"));
         assert!(md.contains("> **常用搭配**：follow up · as follows"));
-        assert!(md.contains("**例句**\n\n1. Follow the instructions&#46;  \n   *按照说明操作。*"));
+        assert!(md.contains("**例句**\n\n1. Follow the instructions.  \n   *按照说明操作。*"));
         assert!(md.contains("**补充说明**\n\nfollow 后可直接接宾语。"));
 
         // Sentence assertions
         assert!(md.contains("难度：★★ 定语从句后置修饰"));
-        assert!(md.contains("> *网络延迟影响团队间的有效协作。*"));
+        assert!(md.contains(
+            "*Network latency impacts collaboration between teams.*
+
+*网络延迟影响团队间的有效协作。*"
+        ));
         assert!(md.contains("**核心句型**：`Network latency impacts collaboration`"));
         assert!(md.contains("**修饰成分**：between teams 修饰 collaboration"));
         assert!(md.contains("**语境说明**：impact 这里是及物动词。"));

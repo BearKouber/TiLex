@@ -110,6 +110,7 @@ export component SettingsWindow inherits Window {
     // 旧版整套界面的中文落在「微软雅黑 Light」上（量过截图的墨量），Slint 默认 400 会挑 Regular，看着粗一圈。
     // 显式写了 font-weight 的地方（标题 700、正文强调 600）不受影响。
     default-font-weight: 300;
+    default-font-family: Theme.font-family;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
     in property <string> theme-mode: "system";

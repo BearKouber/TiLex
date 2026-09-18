@@ -24,6 +24,7 @@ export component PopResult inherits Window {
     forward-focus: focus-scope;
     // 跟设置窗一致用细体（见 settings/window.slint）
     default-font-weight: 300;
+    default-font-family: Theme.font-family;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
     in property <string> source-text;
@@ -299,6 +300,8 @@ export component PopResult inherits Window {
 
                                 if !row.loading && row.error == "" : EntryBody {
                                     entry: row.display;
+                                    // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
+                                    compact: true;
                                     horizontal-stretch: 1;
                                 }
                             }

@@ -190,14 +190,11 @@ pub fn bind(page: &SettingsWindow) {
 }
 
 fn on_filter_or_search_changed(page: &SettingsWindow) {
-    // 搜索词或筛选变化：清空勾选（旧规范：全选只取当前可见，筛选一变就清）
-    STATE.with_borrow_mut(|s| {
-        s.checked.clear();
-    });
-    let state = page.global::<WordbookState>();
-    state.set_all_checked(false);
-    state.set_all_indeterminate(false);
-    state.set_checked_count(0);
+    // 勾选**不**跟着筛选/搜索清空：在「生词」里勾几条、切到「长难句」再勾几条，切回「全部」
+    // 两边的勾都还在，可以一次删掉（用户手测提的）。
+    // `checked` 一直是「全库范围的勾选集合」，「已选 N 项」和删除都只取它跟 `visible_ids` 的交集
+    // （`checked_visible_count` / `freeze_pending`），所以当前页签上看到的数字和删掉的东西始终一致。
+    // 界面上的全选框状态由 `apply_filter` 末尾的 `update_batch_selection_state` 按新的可见集重算。
     apply_filter(page);
 }
 
@@ -851,9 +848,16 @@ mod tests {
         // 5. 空可见列表一律 Unchecked
         assert_eq!(all_state(&checked, &[]), CheckState::Unchecked);
 
-        // 6. 筛选变化清空勾选
+        // 6. 勾选跨筛选保留：集合里留着不在当前可见集合里的 id，计数和全选态只看交集
         checked.insert(2);
+        checked.insert(999); // 切到别的页签才看得见的那一条
         assert_eq!(checked_visible_count(&checked, &visible), 1);
+        assert_eq!(all_state(&checked, &visible), CheckState::Indeterminate);
+        assert_eq!(
+            freeze_pending(&checked, &visible),
+            vec![2],
+            "删除只动当前可见的那些，999 留着"
+        );
         checked.clear();
         assert_eq!(all_state(&checked, &visible), CheckState::Unchecked);
 

@@ -83,10 +83,16 @@ export component Checkbox {
 
                         animate background, border-color { duration: 150ms; }
 
-                        // 选中对勾（Path）
+                        // 选中对勾（Path）。
+                        // 必须写 viewbox：不写的话 Slint 把 commands 的包围盒缩放到铺满 16×16，
+                        // 对勾被放大到近 2 倍、再加 2px 描边，画出框外（B4 实拍）。
                         if (root.checked && !root.indeterminate) : Path {
                             width: 16px;
                             height: 16px;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 16;
+                            viewbox-height: 16;
                             stroke: Theme.primary-foreground;
                             stroke-width: 2px;
                             commands: "M 3.5 8.5 L 6.5 11.5 L 12.5 4.5";
@@ -96,6 +102,10 @@ export component Checkbox {
                         if root.indeterminate : Path {
                             width: 16px;
                             height: 16px;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 16;
+                            viewbox-height: 16;
                             stroke: Theme.primary-foreground;
                             stroke-width: 2px;
                             commands: "M 3.5 8 L 12.5 8";

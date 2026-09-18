@@ -42,6 +42,10 @@ export global Theme {
     out property <color> icon-active: primary;
     out property <color> icon-done: success;
 
+    // 全局字体。不指定的话 Slint 给拉丁字母挑系统默认西文字体、给中文挑回退字体，
+    // 两边的 Light 面不一定都有，英文会比中文粗一圈（B4 手测）。写死同一家，粗细才一致。
+    out property <string> font-family: "Microsoft YaHei";
+
     out property <length> radius-small: 8px;
     out property <length> radius-medium: 12px;
     out property <length> radius-large: 16px;
