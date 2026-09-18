@@ -2,6 +2,8 @@
 //! 只依赖平台层（系统代理）。加服务 = 加一个文件 + `logic::translate` 的 match 加一行。
 
 pub mod ai;
+pub mod bing;
+pub mod deepl;
 pub mod google;
 pub mod http;
 pub mod umi;

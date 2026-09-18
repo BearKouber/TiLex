@@ -61,6 +61,26 @@ pub fn post_json(
     )
 }
 
+/// POST 文本（自动加 `Content-Type: application/json`）。直接发字符串 body，返回值同 [`get`]。
+pub fn post_text(
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+    timeout: Duration,
+) -> Result<Value, Error> {
+    let mut req = agent().post(url).header("Content-Type", "application/json");
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    finish(
+        req.config()
+            .timeout_global(Some(timeout))
+            .proxy(proxy(url))
+            .build()
+            .send(body.as_bytes()),
+    )
+}
+
 /// POST 表单（`application/x-www-form-urlencoded`）。返回值同 [`get`]。
 pub fn post_form(
     url: &str,
@@ -273,6 +293,21 @@ mod tests {
                 .contains("content-type: application/json")
         );
         assert!(request.ends_with(&body.to_string()), "{request}");
+    }
+
+    #[test]
+    fn post_text_sends_body_and_content_type() {
+        let (url, server) = serve(OK_JSON, Duration::ZERO);
+        let body = "{\"method\" : \"LMT_handle_texts\"}";
+        post_text(&url, &[("x-api-key", "k")], body, TIMEOUT_TRANSLATE).unwrap();
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST / "));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("content-type: application/json")
+        );
+        assert!(request.ends_with(body), "{request}");
     }
 
     #[test]

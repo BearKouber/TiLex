@@ -12,9 +12,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::Error;
-use crate::service::{ai, google, umi};
+use crate::service::{ai, bing, deepl, google, umi};
 
 pub use crate::service::ai::Config as AiConfig;
+pub use crate::service::bing::Config as BingConfig;
+pub use crate::service::deepl::Config as DeeplConfig;
 pub use crate::service::google::Config as GoogleConfig;
 pub use crate::service::umi::Config as UmiConfig;
 
@@ -80,6 +82,8 @@ pub struct Screenshot {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Service {
     Google(Instance<google::Config>),
+    Bing(Instance<bing::Config>),
+    Deepl(Instance<deepl::Config>),
     Ai(Instance<ai::Config>),
     Wechat(Instance<NoSettings>),
     Umi(Instance<umi::Config>),
@@ -608,6 +612,50 @@ mod tests {
 
         let out = serde_json::to_value(&config).unwrap();
         assert_eq!(out["recognize_services"][0], umi);
+    }
+
+    #[test]
+    fn bing_and_deepl_service_config_round_trip() {
+        let bing = json!({
+            "id": "bing@1",
+            "kind": "bing",
+            "enabled": true,
+            "mode": "api",
+            "auth_key": "azure-key",
+            "region": "eastasia",
+            "custom_url": "https://api.cognitive.microsofttranslator.com",
+            "extra_field": 42
+        });
+        let deepl = json!({
+            "id": "deepl@1",
+            "kind": "deepl",
+            "enabled": false,
+            "mode": "deeplx",
+            "custom_url": "http://127.0.0.1:1188/translate",
+            "extra_field": "preserved"
+        });
+        let input = json!({
+            "translate_services": [bing, deepl]
+        });
+        let config: Config = serde_json::from_value(input).unwrap();
+
+        let Service::Bing(b) = &config.translate_services[0] else {
+            panic!("expected bing");
+        };
+        assert_eq!(b.config.auth_key, "azure-key");
+        assert_eq!(b.config.region, "eastasia");
+        assert_eq!(b.extra.get("extra_field"), Some(&json!(42)));
+
+        let Service::Deepl(d) = &config.translate_services[1] else {
+            panic!("expected deepl");
+        };
+        assert!(!d.enabled);
+        assert_eq!(d.config.mode, "deeplx");
+        assert_eq!(d.config.custom_url, "http://127.0.0.1:1188/translate");
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["translate_services"][0], bing);
+        assert_eq!(out["translate_services"][1], deepl);
     }
 
     #[test]

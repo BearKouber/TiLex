@@ -20,7 +20,7 @@ use crate::logic::lang_detect;
 use crate::logic::result::{self, EntryDisplay, Kind};
 use crate::logic::saved_entry::{Item, SavedEntry, Snapshot};
 use crate::logic::wordbook;
-use crate::service::{ai, google};
+use crate::service::{ai, bing, deepl, google};
 
 static CURRENT: AtomicU64 = AtomicU64::new(0);
 static CACHE: Mutex<Lru> = Mutex::new(Lru::new());
@@ -68,6 +68,8 @@ pub enum Update {
 #[derive(Clone)]
 pub(crate) enum Request {
     Google(google::Config),
+    Bing(bing::Config),
+    Deepl(deepl::Config),
     Ai(ai::Effective),
 }
 
@@ -144,6 +146,22 @@ fn job(service: &Service) -> Option<(Row, Job)> {
             },
             Request::Google(i.config.clone()),
         ),
+        Service::Bing(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "bing",
+                label: i.label.clone(),
+            },
+            Request::Bing(i.config.clone()),
+        ),
+        Service::Deepl(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "deepl",
+                label: i.label.clone(),
+            },
+            Request::Deepl(i.config.clone()),
+        ),
         Service::Ai(i) if i.enabled => (
             Row {
                 service_id: i.id.clone(),
@@ -156,6 +174,8 @@ fn job(service: &Service) -> Option<(Row, Job)> {
     };
     let snapshot = match &request {
         Request::Google(c) => serde_json::to_value(c),
+        Request::Bing(c) => serde_json::to_value(c),
+        Request::Deepl(c) => serde_json::to_value(c),
         Request::Ai(e) => serde_json::to_value(e),
     }
     .unwrap_or(Value::Null);
@@ -281,6 +301,8 @@ struct Ctx {
 fn run_one(ctx: Ctx, job: Job) {
     let kind = match job.request {
         Request::Google(_) => "google",
+        Request::Bing(_) => "bing",
+        Request::Deepl(_) => "deepl",
         Request::Ai(_) => "ai",
     };
     let key = cache::key(
@@ -346,6 +368,8 @@ pub(crate) fn call(
 ) -> Result<Value, Error> {
     match request {
         Request::Google(c) => google::translate(text, from, to, c),
+        Request::Bing(c) => bing::translate(text, from, to, c),
+        Request::Deepl(c) => deepl::translate(text, from, to, c),
         Request::Ai(e) => {
             let kind = Kind::of(text);
             let raw = ai::translate(text, from, to, detected, kind.as_str(), e)?;
@@ -363,6 +387,16 @@ pub fn test_google(config: &google::Config) -> Result<String, Error> {
 }
 
 /// 见 [`test_google`]。
+pub fn test_bing(config: &bing::Config) -> Result<String, Error> {
+    test_request(&Request::Bing(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_deepl(config: &deepl::Config) -> Result<String, Error> {
+    test_request(&Request::Deepl(config.clone()))
+}
+
+/// 见 [`test_google`]。
 pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
     test_request(&Request::Ai(config.effective()))
 }
@@ -370,6 +404,8 @@ pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
 fn test_request(request: &Request) -> Result<String, Error> {
     let name = match request {
         Request::Google(_) => "google",
+        Request::Bing(_) => "bing",
+        Request::Deepl(_) => "deepl",
         Request::Ai(_) => "ai",
     };
     // 只记分类：错误里本来就不带响应体、地址和 key。
@@ -410,6 +446,9 @@ mod tests {
         let services: Vec<Service> = serde_json::from_value(serde_json::json!([
             {"id": "google", "kind": "google"},
             {"id": "g2", "kind": "google", "enabled": false},
+            {"id": "bing@1", "kind": "bing", "label": "BingTr"},
+            {"id": "deepl@1", "kind": "deepl", "enabled": false},
+            {"id": "deepl@2", "kind": "deepl", "label": "DeepLTr"},
             {"id": "ai@x", "kind": "ai", "label": "DS", "base_url": "u", "model": "m", "api_key": "k"},
             {"id": "wechat", "kind": "wechat"},
             {"id": "x", "kind": "future"},
@@ -420,7 +459,12 @@ mod tests {
             rows.iter()
                 .map(|r| (r.service_id.as_str(), r.kind, r.label.as_str()))
                 .collect::<Vec<_>>(),
-            [("google", "google", ""), ("ai@x", "ai", "DS")]
+            [
+                ("google", "google", ""),
+                ("bing@1", "bing", "BingTr"),
+                ("deepl@2", "deepl", "DeepLTr"),
+                ("ai@x", "ai", "DS")
+            ]
         );
     }
 
@@ -455,5 +499,32 @@ mod tests {
         let config = ai::Config::default();
         let res = test_ai(&config);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_bing_fails_fast_on_missing_settings() {
+        let config = bing::Config {
+            mode: "api".into(),
+            ..bing::Config::default()
+        };
+        let res = test_bing(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("auth_key"))));
+    }
+
+    #[test]
+    fn test_deepl_fails_fast_on_missing_settings() {
+        let config = deepl::Config {
+            mode: "api".into(),
+            ..deepl::Config::default()
+        };
+        let res = test_deepl(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("auth_key"))));
+
+        let config_x = deepl::Config {
+            mode: "deeplx".into(),
+            ..deepl::Config::default()
+        };
+        let res_x = test_deepl(&config_x);
+        assert!(matches!(res_x, Err(Error::NotConfigured("custom_url"))));
     }
 }
