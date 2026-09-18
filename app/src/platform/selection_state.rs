@@ -1,5 +1,10 @@
 //! 手势与剪贴板候选的归属规则（从旧版 `pop_button/selection.rs` 原样搬来）。
-//! 取词 worker 和测试共用；这里不许出现 Win32、剪贴板、配置、窗口调用。
+//! 取词 worker 和测试共用；这里不许出现 Win32、AppKit、剪贴板、配置、窗口调用。
+//!
+//! **Windows 和 macOS 共用这一份**（B6 从 `windows/selection/` 提上来）：两个平台的归属问题完全一样 ——
+//! 一个手势只认第一次剪贴板更新、600ms 宽限、窗口必须一致。平台相关的只是那几个字段怎么填：
+//! `window` 在 Windows 上是 HWND，在 macOS 上是前台应用的 pid；
+//! `clipboard_sequence` 在 Windows 上是 `GetClipboardSequenceNumber`，在 macOS 上是 `NSPasteboard.changeCount`。
 
 /// 剪贴板更新离手势多久以内还算"这次选中自己复制的"（毫秒，按产生时刻算）。
 pub const CLIP_GRACE_MS: u32 = 600;

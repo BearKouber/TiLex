@@ -14,7 +14,6 @@
 
 mod force_copy;
 pub(crate) use force_copy::write_text;
-mod state;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -61,13 +60,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PWSTR, w};
 
-use self::state::{
-    CLIP_GRACE_MS, Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer,
-    PendingGesture, ReadContext,
-};
 use crate::error::Error;
 use crate::platform::geometry::{
     DISMISS_DIST, Rect, dismissal_limit_squared, distance_squared, place,
+};
+use crate::platform::selection_state::{
+    CLIP_GRACE_MS, Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer,
+    PendingGesture, ReadContext,
 };
 use crate::platform::{AcceptFn, BeforeShowFn, EngagedFn, EngagedSelection, SettingsFn};
 

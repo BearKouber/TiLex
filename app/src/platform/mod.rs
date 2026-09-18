@@ -18,6 +18,8 @@ use windows as imp;
 mod bypass;
 pub mod geometry;
 pub mod process;
+/// 手势与剪贴板候选的归属规则。纯逻辑、零平台调用，Windows 和 macOS 共用同一套。
+pub(crate) mod selection_state;
 
 use geometry::Side;
 
