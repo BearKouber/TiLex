@@ -20,7 +20,7 @@ use crate::logic::lang_detect;
 use crate::logic::result::{self, EntryDisplay, Kind};
 use crate::logic::saved_entry::{Item, SavedEntry, Snapshot};
 use crate::logic::wordbook;
-use crate::service::{ai, google};
+use crate::service::{ai, baidu, bing, deepl, detect, google, transmart};
 
 static CURRENT: AtomicU64 = AtomicU64::new(0);
 static CACHE: Mutex<Lru> = Mutex::new(Lru::new());
@@ -68,6 +68,10 @@ pub enum Update {
 #[derive(Clone)]
 pub(crate) enum Request {
     Google(google::Config),
+    Bing(bing::Config),
+    Deepl(deepl::Config),
+    Baidu(baidu::Config),
+    Transmart,
     Ai(ai::Effective),
 }
 
@@ -134,6 +138,26 @@ pub fn detection_with_fallback(
     }
 }
 
+fn detect_language(engine: &str, text: &str) -> Option<&'static str> {
+    detect_language_with(engine, text, lang_detect::detect, detect::detect)
+}
+
+fn detect_language_with<FLocal, FOnline>(
+    engine: &str,
+    text: &str,
+    local: FLocal,
+    online: FOnline,
+) -> Option<&'static str>
+where
+    FLocal: FnOnce(&str) -> Option<&'static str>,
+    FOnline: FnOnce(&str, &str) -> Option<&'static str>,
+{
+    match engine {
+        "niutrans" | "baidu" | "google" => online(engine, text),
+        _ => local(text),
+    }
+}
+
 fn job(service: &Service) -> Option<(Row, Job)> {
     let (row, request) = match service {
         Service::Google(i) if i.enabled => (
@@ -143,6 +167,38 @@ fn job(service: &Service) -> Option<(Row, Job)> {
                 label: i.label.clone(),
             },
             Request::Google(i.config.clone()),
+        ),
+        Service::Bing(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "bing",
+                label: i.label.clone(),
+            },
+            Request::Bing(i.config.clone()),
+        ),
+        Service::Deepl(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "deepl",
+                label: i.label.clone(),
+            },
+            Request::Deepl(i.config.clone()),
+        ),
+        Service::Baidu(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "baidu",
+                label: i.label.clone(),
+            },
+            Request::Baidu(i.config.clone()),
+        ),
+        Service::Transmart(i) if i.enabled => (
+            Row {
+                service_id: i.id.clone(),
+                kind: "transmart",
+                label: i.label.clone(),
+            },
+            Request::Transmart,
         ),
         Service::Ai(i) if i.enabled => (
             Row {
@@ -156,6 +212,10 @@ fn job(service: &Service) -> Option<(Row, Job)> {
     };
     let snapshot = match &request {
         Request::Google(c) => serde_json::to_value(c),
+        Request::Bing(c) => serde_json::to_value(c),
+        Request::Deepl(c) => serde_json::to_value(c),
+        Request::Baidu(c) => serde_json::to_value(c),
+        Request::Transmart => Ok(Value::Null),
         Request::Ai(e) => serde_json::to_value(e),
     }
     .unwrap_or(Value::Null);
@@ -204,29 +264,30 @@ pub fn start(raw: &str, on_update: impl Fn(u64, Update) + Send + Sync + 'static)
         jobs.len(),
         text.chars().count()
     );
-    let from = config.translate.source.clone();
-    let to = config.translate.target.clone();
+    let translate_cfg = config.translate.clone();
     let on_update: Callback = Arc::new(on_update);
     let spawned = thread::Builder::new()
         .name("translate".into())
-        .spawn(move || dispatch(id, text, from, to, jobs, saved, on_update));
+        .spawn(move || dispatch(id, text, translate_cfg, jobs, saved, on_update));
     if let Err(e) = spawned {
         log::error!("Translate: cannot start query thread: {e}");
     }
     query
 }
 
-/// 后台线程：检测语种（B1 只有本地引擎；在线引擎在 B5），再给每个服务起一个线程。
+/// 后台线程：检测语种（local 走本地 lingua；niutrans / baidu / google 走在线引擎），再给每个服务起一个线程。
 fn dispatch(
     id: u64,
     text: String,
-    from: String,
-    to: String,
+    translate_cfg: config::Translate,
     jobs: Vec<Job>,
     saved: Arc<Mutex<Saved>>,
     on_update: Callback,
 ) {
-    let (detected, badge) = detection_with_fallback(lang_detect::detect(&text), &from);
+    let (detected, badge) = detection_with_fallback(
+        detect_language(&translate_cfg.detect_engine, &text),
+        &translate_cfg.source,
+    );
     let requested = saved
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -244,8 +305,8 @@ fn dispatch(
             id,
             row,
             text: Arc::clone(&text),
-            from: from.clone(),
-            to: to.clone(),
+            from: translate_cfg.source.clone(),
+            to: translate_cfg.target.clone(),
             detected: detected.clone(),
             saved: Arc::clone(&saved),
             on_update: Arc::clone(&on_update),
@@ -281,6 +342,10 @@ struct Ctx {
 fn run_one(ctx: Ctx, job: Job) {
     let kind = match job.request {
         Request::Google(_) => "google",
+        Request::Bing(_) => "bing",
+        Request::Deepl(_) => "deepl",
+        Request::Baidu(_) => "baidu",
+        Request::Transmart => "transmart",
         Request::Ai(_) => "ai",
     };
     let key = cache::key(
@@ -346,6 +411,10 @@ pub(crate) fn call(
 ) -> Result<Value, Error> {
     match request {
         Request::Google(c) => google::translate(text, from, to, c),
+        Request::Bing(c) => bing::translate(text, from, to, c),
+        Request::Deepl(c) => deepl::translate(text, from, to, c),
+        Request::Baidu(c) => baidu::translate(text, from, to, c),
+        Request::Transmart => transmart::translate(text, from, to),
         Request::Ai(e) => {
             let kind = Kind::of(text);
             let raw = ai::translate(text, from, to, detected, kind.as_str(), e)?;
@@ -363,6 +432,26 @@ pub fn test_google(config: &google::Config) -> Result<String, Error> {
 }
 
 /// 见 [`test_google`]。
+pub fn test_bing(config: &bing::Config) -> Result<String, Error> {
+    test_request(&Request::Bing(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_deepl(config: &deepl::Config) -> Result<String, Error> {
+    test_request(&Request::Deepl(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_baidu(config: &baidu::Config) -> Result<String, Error> {
+    test_request(&Request::Baidu(config.clone()))
+}
+
+/// 见 [`test_google`]。
+pub fn test_transmart() -> Result<String, Error> {
+    test_request(&Request::Transmart)
+}
+
+/// 见 [`test_google`]。
 pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
     test_request(&Request::Ai(config.effective()))
 }
@@ -370,6 +459,10 @@ pub fn test_ai(config: &ai::Config) -> Result<String, Error> {
 fn test_request(request: &Request) -> Result<String, Error> {
     let name = match request {
         Request::Google(_) => "google",
+        Request::Bing(_) => "bing",
+        Request::Deepl(_) => "deepl",
+        Request::Baidu(_) => "baidu",
+        Request::Transmart => "transmart",
         Request::Ai(_) => "ai",
     };
     // 只记分类：错误里本来就不带响应体、地址和 key。
@@ -410,6 +503,11 @@ mod tests {
         let services: Vec<Service> = serde_json::from_value(serde_json::json!([
             {"id": "google", "kind": "google"},
             {"id": "g2", "kind": "google", "enabled": false},
+            {"id": "bing@1", "kind": "bing", "label": "BingTr"},
+            {"id": "deepl@1", "kind": "deepl", "enabled": false},
+            {"id": "deepl@2", "kind": "deepl", "label": "DeepLTr"},
+            {"id": "baidu@1", "kind": "baidu", "label": "BaiduTr", "appid": "id", "secret": "sec"},
+            {"id": "transmart@1", "kind": "transmart", "label": "TransmartTr"},
             {"id": "ai@x", "kind": "ai", "label": "DS", "base_url": "u", "model": "m", "api_key": "k"},
             {"id": "wechat", "kind": "wechat"},
             {"id": "x", "kind": "future"},
@@ -420,7 +518,14 @@ mod tests {
             rows.iter()
                 .map(|r| (r.service_id.as_str(), r.kind, r.label.as_str()))
                 .collect::<Vec<_>>(),
-            [("google", "google", ""), ("ai@x", "ai", "DS")]
+            [
+                ("google", "google", ""),
+                ("bing@1", "bing", "BingTr"),
+                ("deepl@2", "deepl", "DeepLTr"),
+                ("baidu@1", "baidu", "BaiduTr"),
+                ("transmart@1", "transmart", "TransmartTr"),
+                ("ai@x", "ai", "DS")
+            ]
         );
     }
 
@@ -455,5 +560,108 @@ mod tests {
         let config = ai::Config::default();
         let res = test_ai(&config);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_bing_fails_fast_on_missing_settings() {
+        let config = bing::Config {
+            mode: "api".into(),
+            ..bing::Config::default()
+        };
+        let res = test_bing(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("auth_key"))));
+    }
+
+    #[test]
+    fn test_deepl_fails_fast_on_missing_settings() {
+        let config = deepl::Config {
+            mode: "api".into(),
+            ..deepl::Config::default()
+        };
+        let res = test_deepl(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("auth_key"))));
+
+        let config_x = deepl::Config {
+            mode: "deeplx".into(),
+            ..deepl::Config::default()
+        };
+        let res_x = test_deepl(&config_x);
+        assert!(matches!(res_x, Err(Error::NotConfigured("custom_url"))));
+    }
+
+    #[test]
+    fn test_baidu_fails_fast_on_missing_settings() {
+        let config = baidu::Config {
+            appid: "".into(),
+            secret: "secret".into(),
+        };
+        let res = test_baidu(&config);
+        assert!(matches!(res, Err(Error::NotConfigured("appid"))));
+
+        let config_secret = baidu::Config {
+            appid: "appid".into(),
+            secret: "  ".into(),
+        };
+        let res_secret = test_baidu(&config_secret);
+        assert!(matches!(res_secret, Err(Error::NotConfigured("secret"))));
+    }
+
+    #[test]
+    fn detect_language_dispatches_per_engine() {
+        let mut local_called = false;
+        let mut online_called = false;
+        let res = detect_language_with(
+            "local",
+            "hello",
+            |_| {
+                local_called = true;
+                Some("en")
+            },
+            |_, _| {
+                online_called = true;
+                None
+            },
+        );
+        assert_eq!(res, Some("en"));
+        assert!(local_called);
+        assert!(!online_called);
+
+        for engine in ["niutrans", "baidu", "google"] {
+            let mut dispatched_engine = String::new();
+            let res = detect_language_with(
+                engine,
+                "hello",
+                |_| panic!("should not call local for {engine}"),
+                |eng, _| {
+                    dispatched_engine.push_str(eng);
+                    Some("en")
+                },
+            );
+            assert_eq!(dispatched_engine, engine);
+            assert_eq!(res, Some("en"));
+        }
+
+        for unknown in ["yandex", "tencent", "custom", ""] {
+            let mut local_called = false;
+            let mut online_called = false;
+            let res = detect_language_with(
+                unknown,
+                "hello",
+                |_| {
+                    local_called = true;
+                    Some("en")
+                },
+                |_, _| {
+                    online_called = true;
+                    None
+                },
+            );
+            assert_eq!(res, Some("en"));
+            assert!(
+                local_called,
+                "unknown engine {unknown} should fall back to local"
+            );
+            assert!(!online_called);
+        }
     }
 }

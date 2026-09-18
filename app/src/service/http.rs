@@ -13,8 +13,10 @@ use ureq::{Agent, Body, Proxy, ResponseExt};
 use crate::error::{Error, HttpKind};
 use crate::platform;
 
-/// 普通翻译、语种检测。
+/// 普通翻译。
 pub const TIMEOUT_TRANSLATE: Duration = Duration::from_secs(15);
+/// 在线语种检测（niutrans / baidu / google）。
+pub const TIMEOUT_DETECT: Duration = Duration::from_secs(5);
 /// AI 翻译：模型出一段 JSON 可能要几十秒。
 pub const TIMEOUT_AI: Duration = Duration::from_secs(60);
 
@@ -58,6 +60,26 @@ pub fn post_json(
             .proxy(proxy(url))
             .build()
             .send(&bytes[..]),
+    )
+}
+
+/// POST 文本（自动加 `Content-Type: application/json`）。直接发字符串 body，返回值同 [`get`]。
+pub fn post_text(
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+    timeout: Duration,
+) -> Result<Value, Error> {
+    let mut req = agent().post(url).header("Content-Type", "application/json");
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    finish(
+        req.config()
+            .timeout_global(Some(timeout))
+            .proxy(proxy(url))
+            .build()
+            .send(body.as_bytes()),
     )
 }
 
@@ -273,6 +295,21 @@ mod tests {
                 .contains("content-type: application/json")
         );
         assert!(request.ends_with(&body.to_string()), "{request}");
+    }
+
+    #[test]
+    fn post_text_sends_body_and_content_type() {
+        let (url, server) = serve(OK_JSON, Duration::ZERO);
+        let body = "{\"method\" : \"LMT_handle_texts\"}";
+        post_text(&url, &[("x-api-key", "k")], body, TIMEOUT_TRANSLATE).unwrap();
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST / "));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("content-type: application/json")
+        );
+        assert!(request.ends_with(body), "{request}");
     }
 
     #[test]

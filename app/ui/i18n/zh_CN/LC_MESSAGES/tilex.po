@@ -634,3 +634,54 @@ msgstr "已导出到 {}"
 
 msgid "Export failed: {}"
 msgstr "导出失败：{}"
+
+msgid "Bing Translate"
+msgstr "必应翻译"
+
+msgid "DeepL"
+msgstr "DeepL"
+
+msgid "Baidu Translate"
+msgstr "百度翻译"
+
+msgid "Tencent TranSmart"
+msgstr "腾讯交互翻译"
+
+msgid "Built-in Free (No Key Required)"
+msgstr "内置免费 (无需配置)"
+
+msgid "Azure Official API"
+msgstr "Azure 官方 API"
+
+msgid "Azure Key"
+msgstr "Azure 密钥 (Key)"
+
+msgid "Region"
+msgstr "区域 (Region)"
+
+msgid "Leave blank for global"
+msgstr "如 eastasia，留空则为全局"
+
+msgid "Endpoint URL"
+msgstr "Endpoint 地址"
+
+msgid "Free Web Interface (Default)"
+msgstr "免费网页接口 (默认)"
+
+msgid "DeepL Official API"
+msgstr "官方 API"
+
+msgid "DeepLX Self-hosted"
+msgstr "DeepLX 自建"
+
+msgid "Auth Key"
+msgstr "API 密钥"
+
+msgid "DeepLX URL"
+msgstr "DeepLX 地址"
+
+msgid "App ID"
+msgstr "App ID"
+
+msgid "Secret"
+msgstr "密钥 (Secret)"
