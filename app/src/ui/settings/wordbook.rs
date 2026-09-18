@@ -479,6 +479,12 @@ fn handle_wordbook_changed(page: &SettingsWindow) {
         return;
     }
     load_list(page.as_weak());
+    // 列表那一路只在「选中项换了人」时才重查详情（`apply_filter_internal`），
+    // 而晚到的 AI 结果是就地更新同一行：id 没变，右卡得自己再查一遍，否则停在早到的结果上。
+    let selected = STATE.with_borrow(|s| s.selected_id);
+    if selected != 0 {
+        load_detail(page.as_weak(), selected);
+    }
 }
 
 fn load_list(weak: slint::Weak<SettingsWindow>) {
@@ -605,7 +611,11 @@ fn select_entry(page: &SettingsWindow, id: i64) {
         return;
     }
 
-    let weak = page.as_weak();
+    load_detail(page.as_weak(), id);
+}
+
+/// 只重查并重填右卡，不动选中项、不打断发音。选中项已经换人时丢弃这次结果。
+fn load_detail(weak: slint::Weak<SettingsWindow>, id: i64) {
     wordbook::entry(id, move |res| {
         // ignore: 窗口可能已关闭，丢弃该回调
         let _ = slint::invoke_from_event_loop(move || {

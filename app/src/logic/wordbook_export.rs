@@ -12,6 +12,9 @@ const HARD_BREAK: &str = "  \n";
 /// 每行尾都会画一个 ↵ 箭头，一整段全是箭头（用户看实际导出文件时提的）。
 /// 代价是渲染时这几行会接成一段流式文字 —— 想渲染后也分行只能用 `<br>`，那是 HTML，另说。
 const SOFT_BREAK: &str = "\n";
+/// 表格单元格里换不了行：`\n` 会当场把表格截断。只有这一处用 `<br>`
+/// （HTML，Typora / GitHub 都认），别的地方仍然走 [`SOFT_BREAK`]。
+const CELL_BREAK: &str = "<br>";
 
 /// 生词本导出成 Markdown。`now` 注入，不读时钟、不写盘、不改入参。
 pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
@@ -452,7 +455,7 @@ fn word_blocks(view: &EntryDisplay, w: &Entry, from_text: Option<&str>) -> Vec<S
             let meaning = exp
                 .explains
                 .iter()
-                .map(|e| markdown_text(e))
+                .map(|e| markdown_text(e).replace(SOFT_BREAK, CELL_BREAK))
                 .collect::<Vec<_>>()
                 .join("；");
             rows.push(format!("| {pos} | {meaning} |"));
@@ -698,6 +701,41 @@ mod tests {
             .any(|e| matches!(e, Event::Start(Tag::BlockQuote(_))));
         assert!(has_table, "expected explanation table");
         assert!(has_quote, "expected association blockquote");
+    }
+
+    /// 释义里带硬换行时，单元格必须仍然是一行 `| ... |`：`\n` 会当场把表格截断。
+    #[test]
+    fn test_1b_table_cell_newline_becomes_br() {
+        let detail = json!({
+            "schemaVersion": 1,
+            "kind": "word",
+            "explanations": [{"trait": "n.", "explains": ["第一行\n第二行"]}]
+        });
+        let entry = Entry {
+            id: 1,
+            kind: Kind::Word,
+            text: "word".into(),
+            translation: String::new(),
+            detail: Some(detail),
+            service: "ai".into(),
+            created_at: 100,
+        };
+
+        let md = build_markdown(&[entry], fixed_now());
+        assert!(
+            md.contains("| `n.` | 第一行<br>第二行 |"),
+            "表格单元格该整行落在一行里：\n{md}"
+        );
+
+        let (html, _, events) = render(&md);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Start(Tag::Table(_)))),
+            "表格没被换行截断"
+        );
+        assert!(html.contains("第一行"), "{html}");
+        assert!(html.contains("第二行"), "{html}");
     }
 
     #[test]
