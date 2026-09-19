@@ -788,12 +788,25 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
         log::debug!("PopButton: UIA raw tree walker unavailable");
         return (String::new(), true);
     };
-    // 取不到或不在前台窗口树里的链算"没有 TextPattern"。
-    // 返回值的这一位是**「有元素报出了空选区」**，不是「见过 TextPattern」：
-    // 报不了选区的元素（PDF 文档）不置它，否则增强选中识别会被自己的准入条件挡死（P13）。
-    let mut saw_empty_selection = false;
-    // 只为日志：分得清"空选区"和"报不了选区"，PDF 那类问题才有现场证据。
-    let mut saw_unreported = false;
+    // 一票否决位：`true` = 有元素报出了空选区 = 用户真的什么都没选中，不许模拟复制。
+    //
+    // **只看每条链上最内层（depth 最小）那个带 TextPattern 的元素，祖先没有否决权。**
+    // 它才是鼠标底下那个东西的权威；外层文档说"我没选中"和里层报不报得了选区是两回事。
+    // 实测三种签名（P13 第四份日志，同一次运行）：
+    //
+    // | 场景 | pointer 链 | 该不该放行 |
+    // | --- | --- | --- |
+    // | Edge PDF 划词 | d0 报不了 / d3 空选区 / d6 报不了 | 放行（现在的 bug 就是被 d3 挡了）|
+    // | Word 里空拖 | d0 d1 d2 全是空选区 | 否决 |
+    // | 普通网页，没选中 | d8 空选区 | 否决 |
+    // | 普通网页，选中但 UIA 读不出 | d8 报不了 | 放行（实测靠这条读到 68 字符）|
+    //
+    // 最后一行是关键：同一个元素，没选中时报"空选区"、有选中读不出时报"报不了选区"。
+    // 这个区分只在最内层成立，按"任意一层"聚合就被 PDF 链上的外层文档冲掉了。
+    //
+    // 指针链优先；指针链上一个 TextPattern 都没有时才轮到焦点链。
+    // 两条链都没有 TextPattern → `None` → 放行（和这套准入条件诞生时的行为一致）。
+    let mut veto: Option<bool> = None;
     // 文字叶子不一定实现 TextPattern：选区常常归外层文档。Raw view 保留了被过滤掉的包装元素。
     // 手势位置优先，免得读到一个无关的、有焦点的输入框。
     let point = POINT {
@@ -823,6 +836,9 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
             );
             continue;
         };
+        // 本条链最内层那个带 TextPattern 的元素说了什么。外层的照旧要走（文字可能在外层文档上），
+        // 但它们只能提供文字，不能改否决位。
+        let mut innermost = None;
         for (depth, element) in path.into_iter().enumerate() {
             if !still_current() {
                 return (String::new(), true);
@@ -837,14 +853,14 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
                     return (text, true);
                 }
                 UiaRead::EmptySelection => {
-                    saw_empty_selection = true;
+                    innermost.get_or_insert(true);
                     log::debug!(
                         "PopButton: UIA {source} depth {depth} {} -> empty selection",
                         describe(&element)
                     );
                 }
                 UiaRead::NoSelectionReported => {
-                    saw_unreported = true;
+                    innermost.get_or_insert(false);
                     log::debug!(
                         "PopButton: UIA {source} depth {depth} {} -> cannot report a selection",
                         describe(&element)
@@ -853,12 +869,19 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
                 UiaRead::NoPattern => {}
             }
         }
+        if veto.is_none() {
+            veto = innermost;
+        }
     }
     log::debug!(
-        "PopButton: UIA no selected text in foreground ancestor chains \
-         (empty selection: {saw_empty_selection}, cannot report selection: {saw_unreported})"
+        "PopButton: UIA no selected text in foreground ancestor chains ({})",
+        match veto {
+            Some(true) => "innermost TextPattern reports an empty selection -> force copy blocked",
+            Some(false) => "innermost TextPattern cannot report a selection -> force copy allowed",
+            None => "no TextPattern at all -> force copy allowed",
+        }
     );
-    (String::new(), saw_empty_selection)
+    (String::new(), veto.unwrap_or(false))
 }
 
 /// 读选区之前先验证整条链：只比进程号会把同一程序的其他窗口也放进来。
