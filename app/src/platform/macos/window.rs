@@ -131,7 +131,6 @@ fn screen_scale_for_rect(
         .unwrap_or(1.0)
 }
 
-#[allow(dead_code)]
 pub(crate) fn button_window(mtm: MainThreadMarker) -> Option<&'static NSWindow> {
     load_window(&BUTTON_WINDOW, mtm)
 }
@@ -167,6 +166,40 @@ pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
     store_window(&BUTTON_WINDOW, w);
     log::info!("PopButton: window attached");
     Ok(())
+}
+
+/// 把浮标摆到 rect（物理像素）并显示，不激活、不抢焦点（UI 线程调）。
+pub fn show_button_window(rect: Rect) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let Some(w) = button_window(mtm) else {
+        return;
+    };
+
+    let screens = NSScreen::screens(mtm);
+    let Some(main_screen) = screens.firstObject() else {
+        return;
+    };
+    let main_height = main_screen.frame().size.height;
+    let scale = screen_scale_for_rect(rect, &screens, main_height);
+
+    let (ox, oy, width, height) = rect_to_appkit(rect, main_height, scale);
+    let ns_rect = NSRect::new(NSPoint::new(ox, oy), NSSize::new(width, height));
+
+    w.setFrame_display(ns_rect, true);
+    w.orderFrontRegardless();
+}
+
+/// 隐藏浮标（UI 线程调）。
+pub fn hide_button_window() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let Some(w) = button_window(mtm) else {
+        return;
+    };
+    w.orderOut(None);
 }
 
 /// 把结果浮窗交给平台层（UI 线程调）。

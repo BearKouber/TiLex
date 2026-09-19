@@ -77,10 +77,24 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
     "NSApplication",
     "NSEvent",
+    "NSPasteboard",
     "NSResponder",
+    "NSRunningApplication",
     "NSScreen",
     "NSView",
     "NSWindow",
+    "NSWorkspace",
+] }
+objc2-core-foundation = { version = "0.3", features = [
+    "CFDictionary",
+    "CFMachPort",
+    "CFNumber",
+    "CFRunLoop",
+    "CFString",
+] }
+objc2-core-graphics = { version = "0.3", features = [
+    "CGEvent",
+    "CGEventTypes",
 ] }
 objc2-foundation = "0.3"
 

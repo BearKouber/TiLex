@@ -7,12 +7,14 @@ use crate::error::Error;
 
 mod autostart;
 mod proxy;
+mod selection;
 mod shell;
 mod tts;
 mod window;
 
 pub use autostart::{autostart_enabled, set_autostart};
 pub use proxy::system_proxy;
+pub use selection::{engage_selection, start_selection};
 pub use shell::{copy_text, open_path, open_url};
 pub use tts::{speak, stop_speaking};
 pub use window::{
@@ -94,18 +96,6 @@ pub fn round_corners(_window: &slint::Window) -> Result<(), Error> {
 pub fn style_frameless_window(_window: &slint::Window) -> Result<(), Error> {
     Ok(())
 }
-
-// B6：CGEventTap + AX 取词，浮标窗口用 AppKit 的对应做法。
-pub fn start_selection(
-    _settings: super::SettingsFn,
-    _accept: super::AcceptFn,
-    _engaged: super::EngagedFn,
-    _before_show: super::BeforeShowFn,
-) -> Result<(), Error> {
-    Err(Error::Unsupported)
-}
-
-pub fn engage_selection() {}
 
 // B6：`screencapture -i` 子进程
 pub fn capture_screen() -> Result<super::Shot, Error> {

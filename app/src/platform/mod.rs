@@ -19,7 +19,8 @@ mod bypass;
 pub mod geometry;
 pub mod process;
 /// 手势与剪贴板候选的归属规则。纯逻辑、零平台调用，Windows 和 macOS 共用同一套。
-// 目前只有 windows/selection 在用；macOS 侧的取词（B6 03）接上后删掉这行。
+// B6 03 起 macOS 侧用了 Gesture / Candidates / Display 这一半；PendingGesture、ClipboardCandidate
+// 和 Candidates 的两个剪贴板方法要等 04 的兜底接上才有消费者。04 完成后删掉这行。
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) mod selection_state;
 
