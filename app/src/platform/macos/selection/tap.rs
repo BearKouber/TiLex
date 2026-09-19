@@ -42,13 +42,16 @@ pub fn start_tap_thread() -> Result<(), Error> {
     std::thread::Builder::new()
         .name("selection-tap".into())
         .spawn(move || {
+            // macOS 10.15 起，只要 CGEventTapCreate 的掩码包含键盘事件，就需要独立的
+            // 「输入监控」(Input Monitoring) TCC 权限，和「辅助功能」是两个开关。
+            // 没授权时 CGEventTapCreate 照样返回有效 port、不报错，但一个事件都收不到，
+            // 鼠标事件也收不到。所以掩码里只留鼠标事件，键盘的 Esc 走 NSEvent 全局监听（只要辅助功能权限）。
             let events_of_interest: CGEventMask = (1u64 << CGEventType::LeftMouseDown.0)
                 | (1u64 << CGEventType::LeftMouseUp.0)
                 | (1u64 << CGEventType::MouseMoved.0)
                 | (1u64 << CGEventType::ScrollWheel.0)
                 | (1u64 << CGEventType::RightMouseDown.0)
-                | (1u64 << CGEventType::OtherMouseDown.0)
-                | (1u64 << CGEventType::KeyDown.0);
+                | (1u64 << CGEventType::OtherMouseDown.0);
 
             // SAFETY: 回调函数 tap_callback 为 extern "C-unwind" 且具有正确签名；
             // tap 为 ListenOnly 模式，不修改任何事件。
@@ -70,6 +73,8 @@ pub fn start_tap_thread() -> Result<(), Error> {
                 )));
                 return;
             };
+
+            CGEvent::tap_enable(&port, true);
 
             TAP_PORT.store(
                 CFRetained::as_ptr(&port).as_ptr().cast(),
@@ -93,6 +98,7 @@ pub fn start_tap_thread() -> Result<(), Error> {
             // SAFETY: kCFRunLoopCommonModes 是 CoreFoundation 在进程启动时就初始化好的常量字符串，读取始终有效。
             let mode = unsafe { kCFRunLoopCommonModes };
             rl.add_source(Some(&source), mode);
+            log::info!("Selection: event tap running");
             // ignore: 同上；发不出去时 tap 照样跑，只是调用方已经不等结果了
             let _ = init_tx.send(Ok(()));
 
@@ -145,17 +151,6 @@ unsafe extern "C-unwind" fn tap_callback(
             PRESS.with(|press| press.set(None));
             cancel_current();
         }
-        CGEventType::KeyDown => {
-            // SAFETY: event 为系统传入的非空 CGEvent。
-            let event_ref = unsafe { event.as_ref() };
-            let keycode =
-                CGEvent::integer_value_field(Some(event_ref), CGEventField::KeyboardEventKeycode);
-            // 仅关注 Esc 键（macOS virtual keycode 53），其余按键完全放过，不记录任何按键内容。
-            if keycode == 53 {
-                PRESS.with(|press| press.set(None));
-                cancel_current();
-            }
-        }
         _ => {}
     }
 
@@ -186,6 +181,12 @@ fn on_up(x: f64, y: f64) {
         let window = foreground_pid();
         let at_ms = current_at_ms();
         let clipboard_sequence = current_clipboard_sequence();
+        let pt_x = x.round() as i32;
+        let pt_y = y.round() as i32;
+        log::info!(
+            "Selection: gesture {id} at ({pt_x}, {pt_y}), dragged={dragged} double={}",
+            press.double
+        );
         send(Ev::Select(RawSelect {
             id,
             window,

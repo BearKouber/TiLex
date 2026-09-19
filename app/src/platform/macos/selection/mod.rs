@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSPasteboard, NSRunningApplication, NSScreen, NSWorkspace,
+    NSEvent, NSEventMask, NSPasteboard, NSRunningApplication, NSScreen, NSWorkspace,
     NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_foundation::NSNotification;
@@ -103,6 +103,7 @@ pub fn start_selection(
 
     // 4. 注册前台切换观察者（主线程注册，失败仅记录 warn，不影响核心功能）
     install_foreground_observer();
+    install_escape_monitor();
 
     // 5. 初始刷新屏幕几何快照：
     // 这里就在主线程上（调用方是 ui/pop_button.rs），同步刷一次，
@@ -152,6 +153,30 @@ fn install_foreground_observer() {
     std::mem::forget(token);
 }
 
+fn install_escape_monitor() {
+    let block = block2::RcBlock::new(|event: NonNull<NSEvent>| {
+        // SAFETY: event 为系统传入的非空 NSEvent。
+        let event_ref = unsafe { event.as_ref() };
+        // 仅关注 Esc 键（macOS virtual keycode 53），其余按键立刻返回，不读取、不记录任何按键内容（隐私）。
+        if event_ref.keyCode() == 53 {
+            tap::cancel_current();
+        }
+    });
+
+    let token =
+        NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block);
+    match token {
+        Some(token) => {
+            // 监听注册一次就随进程活到底：drop 掉 token 会把监听摘掉。
+            // ObjC 对象不是 Sync，放不进 static，所以在这里故意泄漏一次引用。
+            std::mem::forget(token);
+        }
+        None => {
+            log::warn!("Selection: failed to install global escape monitor");
+        }
+    }
+}
+
 pub fn engage_selection() {
     let owner = VISIBLE_GESTURE.load(Ordering::SeqCst);
     if owner != 0 {
@@ -186,6 +211,7 @@ fn show_at(x: i32, y: i32, px: i32, owner: u64, dismiss_limit: u64, scale: f64) 
         r: x + px,
         b: y + px,
     };
+    log::info!("Selection: show button at ({x}, {y}) size {px}");
     // ignore: 事件循环没了只会是进程正在退出，那时不出浮标正是想要的
     let _ = slint::invoke_from_event_loop(move || {
         if VISIBLE_GESTURE.load(Ordering::SeqCst) == owner {
@@ -404,6 +430,7 @@ impl Worker {
             clipboard_sequence: raw.clipboard_sequence,
         };
         if !gesture.is_current(self.read_context()) {
+            log::info!("Selection: gesture {} superseded", raw.id);
             return;
         }
         self.candidates.begin(gesture);
@@ -412,14 +439,26 @@ impl Worker {
         // 用 worker 这一份 gesture，保证和 clipboard_ready 比较时结构完全相等。
         clip_watch::notify_gesture(PendingGesture::new(gesture));
         let mut text = ax::read_selected_text();
-        if text.trim().is_empty() && self.force_copy_allowed(gesture) {
-            text = force_copy::copy_selection(|| gesture.is_current(self.read_context()));
+        log::info!("Selection: ax read {} chars", text.trim().chars().count());
+        if text.trim().is_empty() {
+            if self.force_copy_allowed(gesture) {
+                text = force_copy::copy_selection(|| gesture.is_current(self.read_context()));
+                log::info!(
+                    "Selection: force copy got {} chars",
+                    text.trim().chars().count()
+                );
+            } else {
+                log::info!("Selection: force copy not eligible");
+            }
         }
         let context = self.read_context();
         let mut offered = None;
         let pending = self
             .candidates
             .complete_uia(gesture, text, context, |c| offered = Some(c));
+        if offered.is_none() && pending.is_none() {
+            log::info!("Selection: no candidate offered");
+        }
         if let Some(candidate) = offered {
             self.offer(candidate, work, scale);
         }

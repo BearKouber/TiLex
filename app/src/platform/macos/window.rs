@@ -156,7 +156,7 @@ pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
     let _mtm =
         MainThreadMarker::new().ok_or_else(|| Error::Platform("not on main thread".into()))?;
     let w = get_nswindow(window)?;
-    w.setLevel(NSFloatingWindowLevel);
+    w.setLevel(NSScreenSaverWindowLevel);
     w.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::Stationary

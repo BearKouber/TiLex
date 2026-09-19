@@ -85,6 +85,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSView",
     "NSWindow",
     "NSWorkspace",
+    "block2",
 ] }
 objc2-core-foundation = { version = "0.3", features = [
     "CFArray",
