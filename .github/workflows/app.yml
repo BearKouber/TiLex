@@ -43,6 +43,12 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo build --release -p tilex-ocr
 
+      # macOS 的 OCR 是 Apple Vision，一个 Swift 小工具子进程（design §2.11）。
+      # Xcode 预装在 runner 上，不用额外装工具链。
+      - name: Build OCR sidecar (macOS)
+        if: runner.os == 'macOS'
+        run: swiftc -O -o target/release/tilex-ocr macos/ocr.swift
+
       # B3 起 zip 里再加 tilex-ocr.exe 和 wcocr.dll。
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -57,6 +63,7 @@ jobs:
           rm -rf "$app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp target/release/tilex "$app/Contents/MacOS/tilex"
+          cp target/release/tilex-ocr "$app/Contents/MacOS/tilex-ocr"
           # 图标：源图只有 512×512，所以 iconset 最大做到 512（没有 512@2x）。
           # 缺了这一步 Finder 显示系统的通用应用图标（朋友 09-19 实测）。
           iconset=target/TiLex.iconset
@@ -87,6 +94,9 @@ jobs:
           </plist>
           EOF
           plutil -lint "$app/Contents/Info.plist"
+          # 嵌套的可执行文件要先单独签：`codesign "$app"` 不会递归进 Contents/MacOS/，
+          # 里面留一个没签名的二进制会让整个 bundle 的签名校验失败。
+          codesign --force --sign - "$app/Contents/MacOS/tilex-ocr"
           codesign --force --sign - "$app"
           ditto -c -k --keepParent "$app" ../tilex-macos-arm64.zip
 

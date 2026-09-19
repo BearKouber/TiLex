@@ -62,6 +62,14 @@ pub fn pick_region_natively(_out: &Path) -> Result<bool, Error> {
 mod ocr;
 pub use ocr::{wechat_ocr, wechat_ocr_status};
 
+pub fn apple_ocr(_image: &Path) -> Result<String, Error> {
+    Err(Error::Unsupported)
+}
+
+pub fn apple_ocr_status() -> Result<String, Error> {
+    Err(Error::Unsupported)
+}
+
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");

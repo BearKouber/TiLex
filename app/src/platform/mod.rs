@@ -273,6 +273,16 @@ pub fn wechat_ocr_status() -> Result<String, Error> {
     imp::wechat_ocr_status()
 }
 
+/// Apple Vision 识别一张图，返回图里的文字。几百毫秒到几秒，**不要在 UI 线程上调**（R-5）。
+pub fn apple_ocr(image: &Path) -> Result<String, Error> {
+    imp::apple_ocr(image)
+}
+
+/// Apple Vision 能不能用。能用返回引擎名（识别服务列表要显示），不能用返回缺什么。
+pub fn apple_ocr_status() -> Result<String, Error> {
+    imp::apple_ocr_status()
+}
+
 /// 系统自带的交互式区域截图：系统自己画选区 UI，裁好的 PNG 直接落到 `out`。
 /// macOS 走 `screencapture -i -s`；Windows 没有，返回 `Error::Unsupported`，
 /// 调用方退回自绘遮罩那条路（`capture_screen` + overlay + `crop_region`）。

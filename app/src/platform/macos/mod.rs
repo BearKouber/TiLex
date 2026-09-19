@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use crate::error::Error;
 
 mod autostart;
+mod ocr;
 mod proxy;
 mod screenshot;
 mod selection;
@@ -14,6 +15,7 @@ mod tts;
 mod window;
 
 pub use autostart::{autostart_enabled, set_autostart};
+pub use ocr::{apple_ocr, apple_ocr_status};
 pub use proxy::system_proxy;
 pub use screenshot::pick_region_natively;
 pub use selection::{engage_selection, start_selection};
