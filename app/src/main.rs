@@ -31,9 +31,12 @@ fn run() -> Result<(), Error> {
 
     let data = platform::data_dir()?;
     logger::init(&data)?;
+    // 带上生效的日志级别：排查划词那类只有 debug 行的问题时，一眼能看出 TILEX_LOG 到底吃上没有
+    // （用户交上来的第一份日志就是因为环境变量没生效，全是 INFO，白跑一轮）。
     log::info!(
-        "============== Start TiLex {} ==============",
-        env!("CARGO_PKG_VERSION")
+        "============== Start TiLex {} (log={}) ==============",
+        env!("CARGO_PKG_VERSION"),
+        log::max_level()
     );
     let startup = config::init(&data)?;
     if let Err(e) = wordbook::init(&data) {

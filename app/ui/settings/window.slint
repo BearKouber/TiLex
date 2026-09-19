@@ -530,10 +530,15 @@ export component SettingsWindow inherits Window {
                 viewport-height: max(self.visible-height, content.preferred-height);
 
                 content := VerticalLayout {
-                    // 窗口放大后内容列不跟着变宽，居中留白（Windows 11 设置 / VS Code 设置都是这么干的）。
-                    // 上限直接用「窗口在 min-width 时内容列的宽度」= 当前宽度减去窗口超出 800px 的那部分，
-                    // 所以默认 800×600 下 self.width 就是 parent.width，逐像素不变（slint-ui.md §7 的量图对照不受影响）。
-                    width: parent.width - max(0px, root.width - 800px);
+                    // 窗口放大后内容列跟着长到 1200px 就封顶，再宽就居中留白
+                    // （Windows 11 设置 / VS Code 设置都是这个做法）。
+                    // 第一版封顶在 800px（= 窗口 min-width），用户实测「放大了距离没增大，只是背景变大」，
+                    // 所以放宽到 1200px：1920 宽的屏上内容列占 1200、两边各留 360，既不会把标签和控件甩到两头，
+                    // 也不会整页黏在中间一条。**这个数字是观感取舍，不合适就直接改这一处。**
+                    // 关于页（page == 3）通栏出血，不封顶 —— 它的内边距本来就是 0。
+                    // 默认 800×600 下 parent.width < 1200px，self.width == parent.width，逐像素不变
+                    //（slint-ui.md §7 的量图对照不受影响）。
+                    width: root.page == 3 ? parent.width : min(parent.width, 1200px);
                     x: (parent.width - self.width) / 2;
                     padding-left: root.page == 3 ? 0px : 10px;
                     padding-right: root.page == 3 ? 0px : 10px;
