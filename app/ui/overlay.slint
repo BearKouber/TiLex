@@ -3,6 +3,7 @@ import { Theme } from "common/theme.slint";
 
 export component Overlay inherits Window {
     title: "TiLex Overlay";
+    icon: @image-url("icons/app.png");
     no-frame: true;
     default-font-weight: 300;
     default-font-family: Theme.font-family;
@@ -87,62 +88,28 @@ export component Overlay inherits Window {
             height: 100%;
         }
 
-        // 没有选区时：整屏盖一层 #00000073
-        if !root.has-selection : Rectangle {
-            width: 100%;
-            height: 100%;
-            background: #00000073;
-        }
-
-        // 有选区时：四个矩形压暗选区外 + 选区 1px 白边
+        // 有选区时：外黑内白双线边框（去掉压暗后单色边在同色背景上隐形）
         if root.has-selection : Rectangle {
             width: 100%;
             height: 100%;
 
-            // 顶部压暗矩形
+            // 外圈黑（1px），比选区各边大 1px（去掉压暗后单色边在同色背景上隐形）
             Rectangle {
-                x: 0px;
-                y: 0px;
-                width: parent.width;
-                height: root.sel-y;
-                background: #00000073;
+                x: root.sel-x - 1px;
+                y: root.sel-y - 1px;
+                width: root.sel-w + 2px;
+                height: root.sel-h + 2px;
+                border-width: 1px;
+                border-color: #000000cc;
             }
-
-            // 底部压暗矩形
-            Rectangle {
-                x: 0px;
-                y: root.sel-y + root.sel-h;
-                width: parent.width;
-                height: parent.height - (root.sel-y + root.sel-h);
-                background: #00000073;
-            }
-
-            // 左侧压暗矩形
-            Rectangle {
-                x: 0px;
-                y: root.sel-y;
-                width: root.sel-x;
-                height: root.sel-h;
-                background: #00000073;
-            }
-
-            // 右侧压暗矩形
-            Rectangle {
-                x: root.sel-x + root.sel-w;
-                y: root.sel-y;
-                width: parent.width - (root.sel-x + root.sel-w);
-                height: root.sel-h;
-                background: #00000073;
-            }
-
-            // 选区 1px 边框 (rgba(255, 255, 255, 0.8))
+            // 内圈白（1px），就是原来那个矩形（去掉压暗后单色边在同色背景上隐形）
             Rectangle {
                 x: root.sel-x;
                 y: root.sel-y;
                 width: root.sel-w;
                 height: root.sel-h;
                 border-width: 1px;
-                border-color: #ffffffcc;
+                border-color: #ffffffee;
             }
         }
 

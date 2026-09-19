@@ -113,6 +113,7 @@ export component PillTabs {
                 enabled: root.enabled;
                 mouse-cursor: pointer;
                 clicked => {
+                    fs.focus();
                     root.current = i;
                     root.changed-tab(i);
                 }
@@ -137,11 +138,14 @@ export component PillTabs {
         }
     }
 
+    // 只是个接焦点的空壳（照 settings/window.slint 的 blur-catcher）。
+    // 不能铺满 100%：它是最后一个子元素、盖在标签的 TouchArea 上面，而 FocusScope 在
+    // 「自己还没焦点」时会把这次 Pressed 整个吃掉换焦点（i-slint-core input_items.rs
+    // FocusScope::input_event），于是每次切标签都要点两下。焦点改由 item-touch 显式给。
     fs := FocusScope {
-        width: 100%;
-        height: 100%;
+        width: 0px;
+        height: 0px;
         enabled: root.enabled;
-        focus-on-click: true;
         focus-on-tab-navigation: true;
         focus-gained(reason) => {
             root.kb-focus = reason == FocusReason.tab-navigation;

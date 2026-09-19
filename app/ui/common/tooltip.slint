@@ -52,7 +52,12 @@ export component Tooltip {
         border-color: Theme.default-200;
         border-radius: Theme.radius-small;
 
-        x: root.alignment == "left" ? 0px : (root.alignment == "right" ? parent.width - self.width : (parent.width - self.width) / 2);
+        // 居中时气泡向左伸出 (自身宽 - 触发区宽) / 2；触发区常常只有 16px 的 ⓘ 图标，
+        // 而气泡最宽 260px，于是往左伸 122px —— 靠窗口左沿的那些行整段文字被挤到窗口外
+        // （用户报的「增强选中识别」）。按窗口左沿夹一次，所有 Tooltip 一起受益。
+        // 只夹左沿：ⓘ 永远紧跟在左对齐的标题后面，右沿溢出构造不出来。
+        property <length> wanted-x: root.alignment == "left" ? 0px : (root.alignment == "right" ? parent.width - self.width : (parent.width - self.width) / 2);
+        x: Math.max(8px - ta.absolute-position.x, self.wanted-x);
         y: root.position == "bottom" ? parent.height + 6px : -self.height - 6px;
 
         // 宽高必须自己算：Rectangle 不会被子元素撑开，默认取父元素的尺寸，

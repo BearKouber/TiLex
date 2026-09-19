@@ -39,7 +39,7 @@ pub fn init(data_dir: &Path) -> Result<(), Error> {
         return Err(Error::Platform("logger missing after set".into()));
     };
     log::set_logger(logger).map_err(|e| Error::Platform(e.to_string()))?;
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(level_from_env());
 
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -50,6 +50,22 @@ pub fn init(data_dir: &Path) -> Result<(), Error> {
         previous(info);
     }));
     Ok(())
+}
+
+/// 日志级别：默认 Info，`TILEX_LOG` 可以抬到 debug/trace（排查划词取词这类只有 debug 行的问题）。
+/// 认不出的值当没写 —— 排查用的环境变量不值得为拼错去报错。
+fn level_from_env() -> LevelFilter {
+    match std::env::var("TILEX_LOG") {
+        Ok(v) => match v.trim().to_ascii_lowercase().as_str() {
+            "off" => LevelFilter::Off,
+            "error" => LevelFilter::Error,
+            "warn" => LevelFilter::Warn,
+            "debug" => LevelFilter::Debug,
+            "trace" => LevelFilter::Trace,
+            _ => LevelFilter::Info,
+        },
+        Err(_) => LevelFilter::Info,
+    }
 }
 
 /// 日志目录（托盘"查看日志"打开它）。没初始化时是 None。
