@@ -1,0 +1,52 @@
+// 自绘滚动条的滑块（ui.md §2.7 / §5）。原来长在 scroll_area.slint 里，
+// B10 P24 抽出来共用：ListView 自带 fluent 的滚动条，滑块颜色偏深、
+// 而且压在列表项上（`fluent/scrollview.slint` 的 vertical-bar 是覆盖在 flickable 上的）。
+// 宿主把自己的 viewport-y / viewport-height / visible-height 接进来即可。
+import { Theme } from "theme.slint";
+
+export component ScrollThumb inherits Rectangle {
+    // 和 Flickable / ScrollView 一样是负值，双向绑定到宿主的 viewport-y
+    in-out property <length> viewport-y;
+    in property <length> viewport-height;
+    in property <length> visible-height;
+    in property <color> thumb-color: Theme.scrollbar-thumb;
+
+    // 能滚多远；为 0 时整条隐藏
+    out property <length> max-offset: max(0px, root.viewport-height - root.visible-height);
+
+    width: 5px;
+    horizontal-stretch: 0;
+    visible: root.max-offset > 0px;
+
+    thumb := Rectangle {
+        width: 100%;
+        // 内容再长滑块也留 24px，不然按不住
+        height: max(24px, parent.height * root.visible-height / max(1px, root.viewport-height));
+        y: (parent.height - self.height) * (-root.viewport-y / max(1px, root.max-offset));
+        border-radius: self.width / 2;
+        background: root.thumb-color;
+    }
+
+    touch := TouchArea {
+        // 按下时记住起点，moved 里按位移算（fluent 的实现只在按下时记，被别的元素抢过事件就会甩飞）
+        property <length> press-offset;
+        property <length> press-y;
+
+        mouse-cursor: default;
+
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                self.press-offset = -root.viewport-y;
+                self.press-y = self.mouse-y;
+            }
+        }
+
+        moved => {
+            if self.pressed {
+                root.viewport-y = -max(0px, min(root.max-offset,
+                    self.press-offset
+                        + (self.mouse-y - self.press-y) * root.max-offset / max(1px, root.height - thumb.height)));
+            }
+        }
+    }
+}

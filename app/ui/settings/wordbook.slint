@@ -6,6 +6,7 @@ import { TextField } from "../common/text_field.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
 import { Theme } from "../common/theme.slint";
 import { ScrollArea } from "../common/scroll_area.slint";
+import { ScrollThumb } from "../common/scroll_thumb.slint";
 import { EntryBody, EntryView } from "../common/entry_view.slint";
 import { ListView } from "std-widgets.slint";
 import { Checkbox } from "../common/checkbox.slint";
@@ -231,68 +232,82 @@ export component WordbookPage inherits Rectangle {
                 }
             }
 
-            if WordbookState.rows.length > 0 : ListView {
+            // ListView 自带的是 fluent 的滚动条：14px 宽、覆盖在内容上，滑块用 FluentPalette.border
+            // （偏深），正好压在生词块右沿。关掉它，旁边单列一条和设置页同款的自绘滑块（B10 P24）。
+            if WordbookState.rows.length > 0 : HorizontalLayout {
                 vertical-stretch: 1;
+                spacing: 2px;
 
-                for row in WordbookState.rows : Rectangle {
-                    property <bool> is-selected: row.id == WordbookState.selected-id;
-                    height: 50px;
+                list := ListView {
+                    horizontal-stretch: 1;
+                    vertical-scrollbar-policy: always-off;
 
-                    row-inner := Rectangle {
-                        x: 0px;
-                        y: 2px;
-                        width: 100%;
-                        height: 46px;
-                        border-radius: Theme.radius-small;
-                        background: is-selected
-                            ? Theme.primary.with-alpha(0.1)
-                            : (touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0));
-                        animate background { duration: 150ms; }
+                    for row in WordbookState.rows : Rectangle {
+                        property <bool> is-selected: row.id == WordbookState.selected-id;
+                        height: 50px;
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 4px;
-                            cross-axis-alignment: center;
+                        row-inner := Rectangle {
+                            x: 0px;
+                            y: 2px;
+                            width: 100%;
+                            height: 46px;
+                            border-radius: Theme.radius-small;
+                            background: is-selected
+                                ? Theme.primary.with-alpha(0.1)
+                                : (touch.has-hover ? Theme.default-100 : Theme.default-100.with-alpha(0));
+                            animate background { duration: 150ms; }
 
-                            if WordbookState.batch-mode : Checkbox {
-                                checked: row.checked;
-                                enabled: !WordbookState.deleting;
-                                toggled(val) => {
-                                    WordbookState.toggle-row(row.id, val);
-                                }
-                            }
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 4px;
+                                cross-axis-alignment: center;
 
-                            touch := TouchArea {
-                                horizontal-stretch: 1;
-                                mouse-cursor: MouseCursor.pointer;
-                                clicked => {
-                                    WordbookState.select(row.id);
+                                if WordbookState.batch-mode : Checkbox {
+                                    checked: row.checked;
+                                    enabled: !WordbookState.deleting;
+                                    toggled(val) => {
+                                        WordbookState.toggle-row(row.id, val);
+                                    }
                                 }
 
-                                VerticalLayout {
-                                    padding-top: 6px;
-                                    padding-bottom: 6px;
-                                    spacing: 2px;
-                                    alignment: center;
-
-                                    Text {
-                                        text: row.text;
-                                        font-size: 13px;
-                                        color: Theme.foreground;
-                                        overflow: elide;
+                                touch := TouchArea {
+                                    horizontal-stretch: 1;
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        WordbookState.select(row.id);
                                     }
 
-                                    Text {
-                                        text: row.preview;
-                                        font-size: 11px;
-                                        color: Theme.default-400;
-                                        overflow: elide;
+                                    VerticalLayout {
+                                        padding-top: 6px;
+                                        padding-bottom: 6px;
+                                        spacing: 2px;
+                                        alignment: center;
+
+                                        Text {
+                                            text: row.text;
+                                            font-size: 13px;
+                                            color: Theme.foreground;
+                                            overflow: elide;
+                                        }
+
+                                        Text {
+                                            text: row.preview;
+                                            font-size: 11px;
+                                            color: Theme.default-400;
+                                            overflow: elide;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                ScrollThumb {
+                    viewport-y <=> list.viewport-y;
+                    viewport-height: list.viewport-height;
+                    visible-height: list.visible-height;
                 }
             }
 

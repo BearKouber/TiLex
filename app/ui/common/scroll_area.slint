@@ -2,6 +2,7 @@
 // 跟旧版对不上（旧版 `*::-webkit-scrollbar { width: 5px }` + 半透明滑块），所以自绘。
 // 只做竖向：设置页和下拉菜单都只竖着滚。
 import { Theme } from "theme.slint";
+import { ScrollThumb } from "scroll_thumb.slint";
 
 export component ScrollArea {
     // 内容高度。不设就用 Flickable 自动算的（子布局 min-height，见 settings/window.slint 的注记）
@@ -32,42 +33,13 @@ export component ScrollArea {
         @children
     }
 
-    if root.max-offset > 0px : bar := Rectangle {
+    if root.max-offset > 0px : ScrollThumb {
         x: parent.width - self.width - root.track-margin;
         y: root.track-inset;
-        width: 5px;
         height: parent.height - 2 * root.track-inset;
-
-        thumb := Rectangle {
-            width: 100%;
-            // 内容再长滑块也留 24px，不然按不住
-            height: max(24px, parent.height * fl.height / fl.viewport-height);
-            y: (parent.height - self.height) * (-fl.viewport-y / root.max-offset);
-            border-radius: self.width / 2;
-            background: root.thumb-color;
-        }
-
-        touch := TouchArea {
-            // 按下时记住起点，moved 里按位移算（fluent 的实现只在按下时记，被别的元素抢过事件就会甩飞）
-            property <length> press-offset;
-            property <length> press-y;
-
-            mouse-cursor: default;
-
-            pointer-event(event) => {
-                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                    self.press-offset = -fl.viewport-y;
-                    self.press-y = self.mouse-y;
-                }
-            }
-
-            moved => {
-                if self.pressed {
-                    fl.viewport-y = -max(0px, min(root.max-offset,
-                        self.press-offset
-                            + (self.mouse-y - self.press-y) * root.max-offset / max(1px, bar.height - thumb.height)));
-                }
-            }
-        }
+        viewport-y <=> fl.viewport-y;
+        viewport-height: fl.viewport-height;
+        visible-height: fl.height;
+        thumb-color: root.thumb-color;
     }
 }
