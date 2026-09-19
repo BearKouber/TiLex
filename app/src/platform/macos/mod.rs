@@ -7,6 +7,7 @@ use crate::error::Error;
 
 mod autostart;
 mod proxy;
+mod screenshot;
 mod selection;
 mod shell;
 mod tts;
@@ -14,6 +15,7 @@ mod window;
 
 pub use autostart::{autostart_enabled, set_autostart};
 pub use proxy::system_proxy;
+pub use screenshot::pick_region_natively;
 pub use selection::{engage_selection, start_selection};
 pub use shell::{copy_text, open_path, open_url};
 pub use tts::{speak, stop_speaking};

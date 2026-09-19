@@ -55,6 +55,10 @@ pub use autostart::{autostart_enabled, set_autostart};
 mod screenshot;
 pub use screenshot::capture_screen;
 
+pub fn pick_region_natively(_out: &Path) -> Result<bool, Error> {
+    Err(Error::Unsupported)
+}
+
 mod ocr;
 pub use ocr::{wechat_ocr, wechat_ocr_status};
 

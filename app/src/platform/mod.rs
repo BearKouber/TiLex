@@ -272,3 +272,15 @@ pub fn wechat_ocr(image: &Path) -> Result<String, Error> {
 pub fn wechat_ocr_status() -> Result<String, Error> {
     imp::wechat_ocr_status()
 }
+
+/// 系统自带的交互式区域截图：系统自己画选区 UI，裁好的 PNG 直接落到 `out`。
+/// macOS 走 `screencapture -i -s`；Windows 没有，返回 `Error::Unsupported`，
+/// 调用方退回自绘遮罩那条路（`capture_screen` + overlay + `crop_region`）。
+/// - `Ok(true)`：用户框选完成，`out` 已写好
+/// - `Ok(false)`：用户取消了（Esc / 右键）
+///
+/// 会一直阻塞到用户操作完（可能几十秒），**不要在 UI 线程上调**（R-5）。
+/// macOS 首次运行时可能会弹出系统的「屏幕录制」权限授权框，属系统正常行为。
+pub fn pick_region_natively(out: &Path) -> Result<bool, Error> {
+    imp::pick_region_natively(out)
+}

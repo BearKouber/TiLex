@@ -107,6 +107,11 @@ pub fn start() {
     }
     let started = Instant::now();
     std::thread::spawn(move || {
+        // 系统截图（macOS）把事办完了就收工，遮罩一下都不碰；
+        // 这个平台没有系统截图时 `native_pick` 返回 None，才走下面的自绘遮罩。
+        if native_pick().is_some() {
+            return;
+        }
         let shot = match platform::capture_screen() {
             Ok(s) => s,
             Err(e) => {
@@ -120,6 +125,52 @@ pub fn start() {
             crate::logic::screenshot::end();
         }
     });
+}
+
+fn native_pick() -> Option<()> {
+    let path = match crate::logic::screenshot::region_path() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Screenshot: region_path failed: {e}");
+            crate::logic::screenshot::end();
+            return Some(());
+        }
+    };
+    match platform::pick_region_natively(&path) {
+        Ok(true) => {
+            let dispatched = slint::invoke_from_event_loop(move || {
+                // ponytail: macOS 用光标位置当浮窗锚点。screencapture 不回报选区矩形，
+                // 拿不到真正的选区；用户松手时光标就在选区角上，差不了多少。
+                // 要做准得自己画遮罩（就是 Windows 那条路），不值当。
+                let (x, y) = platform::cursor_pos();
+                let rect = Rect {
+                    l: x,
+                    t: y,
+                    r: x,
+                    b: y,
+                };
+                let region = crate::logic::screenshot::Region { path, rect };
+                super::pop_result::show_recognizing(region);
+                crate::logic::screenshot::end();
+            });
+            if let Err(e) = dispatched {
+                log::error!("Screenshot: event loop gone: {e}");
+                crate::logic::screenshot::end();
+            }
+            Some(())
+        }
+        Ok(false) => {
+            log::info!("Screenshot: cancelled");
+            crate::logic::screenshot::end();
+            Some(())
+        }
+        Err(Error::Unsupported) => None,
+        Err(e) => {
+            log::error!("Screenshot: native pick failed: {e}");
+            crate::logic::screenshot::end();
+            Some(())
+        }
+    }
 }
 
 /// 显示遮罩（UI 线程）。窗口早就建好了，这里只是填内容、撑到整个虚拟屏、解除 cloak。
