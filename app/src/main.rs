@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use tilex::error::Error;
-use tilex::logic::{config, hotkey, wordbook};
+use tilex::logic::{config, hotkey, migrate, wordbook};
 use tilex::{logger, platform, ui};
 
 fn main() {
@@ -38,6 +38,9 @@ fn run() -> Result<(), Error> {
         env!("CARGO_PKG_VERSION"),
         log::max_level()
     );
+    // 0.1.2 的 profile 在另一个目录（`com.tilex.desktop`），要在 config/wordbook 初始化之前搬过来，
+    // 否则 `config::init` 会先写一份默认配置、把「首次启动」这个判据吃掉（B10 P17）。失败只记日志。
+    migrate::run(&data);
     let startup = config::init(&data)?;
     if let Err(e) = wordbook::init(&data) {
         log::error!("Main: wordbook init failed: {e}");

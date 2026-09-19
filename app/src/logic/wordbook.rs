@@ -21,7 +21,7 @@ use crate::logic::saved_entry::Snapshot;
 
 pub const FILE: &str = "wordbook.db";
 
-const SCHEMA: &str = "
+pub(crate) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS entries (
   id          INTEGER PRIMARY KEY,
   kind        TEXT NOT NULL CHECK (kind IN ('word','sentence')),
