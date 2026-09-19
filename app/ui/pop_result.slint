@@ -29,7 +29,7 @@ export component PopResult inherits Window {
     background: root.repaint-tick ? Theme.content1 : Theme.content1.darker(0.01);
     forward-focus: focus-scope;
     // 跟设置窗一致用细体（见 settings/window.slint）
-    default-font-weight: 300;
+    default-font-weight: Theme.font-weight;
     default-font-family: Theme.font-family;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;

@@ -42,9 +42,18 @@ export global Theme {
     out property <color> icon-active: primary;
     out property <color> icon-done: success;
 
+    // 界面语言探针。中文 .po 把 "Settings" 翻成「设置」，所以这条只在英文界面下等于自身。
+    // Theme 是 global、窗口之间不共享，走 @tr 就不用在 Rust 侧给四个窗口逐个推属性：
+    // select_bundled_translation 切语言时所有 @tr 重算，字体跟着立即变。
+    out property <bool> english-ui: @tr("Settings") == "Settings";
+
     // 全局字体。不指定的话 Slint 给拉丁字母挑系统默认西文字体、给中文挑回退字体，
     // 两边的 Light 面不一定都有，英文会比中文粗一圈（B4 手测）。写死同一家，粗细才一致。
-    out property <string> font-family: "Microsoft YaHei";
+    // 雅黑的拉丁字形是按中文全角度量设计的，西文字距偏松，英文界面下换 Segoe UI（B10 P14）。
+    // 不用 "Segoe UI Variable Text"：Win11 专有，而 Slint 的 font-family 是单个名字、没有回退列表。
+    out property <string> font-family: english-ui ? "Segoe UI" : "Microsoft YaHei";
+    // 300 是为对齐旧版中文排版定的；Segoe UI Light 太细，也和英文界面里回退到雅黑的中文内容对不齐。
+    out property <int> font-weight: english-ui ? 400 : 300;
 
     out property <length> radius-small: 8px;
     out property <length> radius-medium: 12px;

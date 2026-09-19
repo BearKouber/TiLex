@@ -130,13 +130,20 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
     if !sentences.is_empty() {
         out.push("## 长难句".to_owned());
         out.push(String::new());
+        // 界面语言取一次：`Category::name()` 每次都要克隆一整份配置（含所有服务），别放在循环里。
+        let lang = crate::logic::config::snapshot().general.language;
         let mut current_cat_index: Option<usize> = None;
         for (index, s) in sentences.iter().enumerate() {
             if current_cat_index != Some(s.category_index) {
                 current_cat_index = Some(s.category_index);
                 let title = if s.category_index < CATEGORIES.len() {
                     let cat = &CATEGORIES[s.category_index];
-                    format!("### {} · {} {}", cat.lang, cat.no, cat.name)
+                    format!(
+                        "### {} · {} {}",
+                        cat.lang_for(&lang),
+                        cat.no,
+                        cat.name_for(&lang)
+                    )
                 } else {
                     "### 未分类".to_owned()
                 };

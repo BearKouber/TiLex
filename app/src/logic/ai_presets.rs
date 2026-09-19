@@ -98,10 +98,6 @@ pub fn resolved_chat_url(base: &str, model: &str, protocol: &str) -> String {
         .unwrap_or_default()
 }
 
-pub fn default_custom_instructions() -> &'static str {
-    crate::service::ai::DEFAULT_CUSTOM_INSTRUCTIONS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

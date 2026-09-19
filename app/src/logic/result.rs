@@ -11,36 +11,145 @@ use serde_json::{Map, Value, json};
 pub struct Category {
     pub code: &'static str,
     pub lang: &'static str,
+    pub lang_en: &'static str,
     pub no: &'static str,
     pub name: &'static str,
+    pub name_en: &'static str,
+}
+
+impl Category {
+    pub fn lang_for(&self, lang: &str) -> &'static str {
+        if lang == "en" {
+            self.lang_en
+        } else {
+            self.lang
+        }
+    }
+
+    pub fn name_for(&self, lang: &str) -> &'static str {
+        if lang == "en" {
+            self.name_en
+        } else {
+            self.name
+        }
+    }
+
+    pub fn lang(&self) -> &'static str {
+        self.lang_for(&crate::logic::config::snapshot().general.language)
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name_for(&crate::logic::config::snapshot().general.language)
+    }
 }
 
 const fn cat(
     code: &'static str,
     lang: &'static str,
+    lang_en: &'static str,
     no: &'static str,
     name: &'static str,
+    name_en: &'static str,
 ) -> Category {
     Category {
         code,
         lang,
+        lang_en,
         no,
         name,
+        name_en,
     }
 }
 
 pub const CATEGORIES: [Category; 11] = [
-    cat("EN01", "英文", "01", "定语从句类"),
-    cat("EN02", "英文", "02", "状语从句类"),
-    cat("EN03", "英文", "03", "名词性从句类"),
-    cat("EN04", "英文", "04", "非谓语与独立主格"),
-    cat("EN05", "英文", "05", "特殊句式（倒装/强调）"),
-    cat("EN06", "英文", "06", "并列与长插入语"),
-    cat("ZH01", "中文", "01", "多重长定语类"),
-    cat("ZH02", "中文", "02", "长状语阻隔类"),
-    cat("ZH03", "中文", "03", "多层复句嵌套类"),
-    cat("ZH04", "中文", "04", "流水句与主语隐换类"),
-    cat("ZH05", "中文", "05", "长连谓与兼语句"),
+    cat(
+        "EN01",
+        "英文",
+        "English",
+        "01",
+        "定语从句类",
+        "Relative clauses",
+    ),
+    cat(
+        "EN02",
+        "英文",
+        "English",
+        "02",
+        "状语从句类",
+        "Adverbial clauses",
+    ),
+    cat(
+        "EN03",
+        "英文",
+        "English",
+        "03",
+        "名词性从句类",
+        "Noun clauses",
+    ),
+    cat(
+        "EN04",
+        "英文",
+        "English",
+        "04",
+        "非谓语与独立主格",
+        "Non-finite verbs & absolute constructions",
+    ),
+    cat(
+        "EN05",
+        "英文",
+        "English",
+        "05",
+        "特殊句式（倒装/强调）",
+        "Special structures (inversion / cleft)",
+    ),
+    cat(
+        "EN06",
+        "英文",
+        "English",
+        "06",
+        "并列与长插入语",
+        "Coordination & long parentheticals",
+    ),
+    cat(
+        "ZH01",
+        "中文",
+        "Chinese",
+        "01",
+        "多重长定语类",
+        "Stacked long attributives",
+    ),
+    cat(
+        "ZH02",
+        "中文",
+        "Chinese",
+        "02",
+        "长状语阻隔类",
+        "Long adverbial interruption",
+    ),
+    cat(
+        "ZH03",
+        "中文",
+        "Chinese",
+        "03",
+        "多层复句嵌套类",
+        "Nested complex sentences",
+    ),
+    cat(
+        "ZH04",
+        "中文",
+        "Chinese",
+        "04",
+        "流水句与主语隐换类",
+        "Run-on sentences & shifting subjects",
+    ),
+    cat(
+        "ZH05",
+        "中文",
+        "Chinese",
+        "05",
+        "长连谓与兼语句",
+        "Serial verbs & pivotal sentences",
+    ),
 ];
 
 pub fn category(code: &str) -> Option<&'static Category> {
@@ -1083,6 +1192,15 @@ mod tests {
         let d = entry_display(Some(&v), "x");
         assert_eq!(d.category.as_deref(), Some("EN02"));
         assert_eq!(category("EN02").unwrap().name, "状语从句类");
+        assert_eq!(category("EN02").unwrap().name(), "状语从句类");
+        assert_eq!(category("EN02").unwrap().lang(), "英文");
+        assert_eq!(
+            category("EN02").unwrap().name_for("en"),
+            "Adverbial clauses"
+        );
+        assert_eq!(category("EN02").unwrap().lang_for("en"), "English");
+        assert_eq!(category("EN02").unwrap().name_en, "Adverbial clauses");
+        assert_eq!(category("EN02").unwrap().lang_en, "English");
         assert_eq!(d.difficulty, Some(2));
         assert_eq!(d.difficulty_reason, "主谓被逗号隔开");
         let mut broken = full("sentence");

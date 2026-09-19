@@ -134,8 +134,6 @@ pub fn refresh(page: &SettingsWindow) {
             .any(|s| matches!(s, Service::Umi(_))),
     );
 
-    page.set_default_ai_custom_instructions(ai_presets::default_custom_instructions().into());
-
     let presets: Vec<crate::slint_ui::AiPreset> = ai_presets::AI_PRESETS
         .iter()
         .map(|p| {

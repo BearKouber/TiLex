@@ -423,7 +423,13 @@ pub(crate) fn call(
     }
 }
 
-const TEST_TEXT: &str = "Hello world";
+fn test_sample(target: &str) -> (&'static str, &'static str) {
+    if target.starts_with("zh") {
+        ("Hello world", "en")
+    } else {
+        ("你好世界", "zh_cn")
+    }
+}
 
 /// 用给定配置真发一次翻译，返回译文。设置窗口的「测试连接」用。
 /// 耗时由调用方计：失败时也要显示耗时，计时只能有一处，否则两个数对不上。
@@ -465,8 +471,10 @@ fn test_request(request: &Request) -> Result<String, Error> {
         Request::Transmart => "transmart",
         Request::Ai(_) => "ai",
     };
+    let target = config::snapshot().translate.target;
+    let (text, detected) = test_sample(&target);
     // 只记分类：错误里本来就不带响应体、地址和 key。
-    let value = call(request, TEST_TEXT, "auto", "zh_cn", "en")
+    let value = call(request, text, "auto", &target, detected)
         .inspect_err(|e| log::warn!("Translate: {name} test failed: {e}"))?;
     Ok(result::result_text(&value))
 }
@@ -663,5 +671,101 @@ mod tests {
             );
             assert!(!online_called);
         }
+    }
+
+    #[test]
+    fn test_sample_selection() {
+        assert_eq!(test_sample("zh_cn"), ("Hello world", "en"));
+        assert_eq!(test_sample("zh_tw"), ("Hello world", "en"));
+        assert_eq!(test_sample("en"), ("你好世界", "zh_cn"));
+        assert_eq!(test_sample("ja"), ("你好世界", "zh_cn"));
+        assert_eq!(test_sample("ko"), ("你好世界", "zh_cn"));
+    }
+
+    #[test]
+    fn default_ai_custom_instructions_in_po_matches_constant() {
+        let po_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ui/i18n/zh_CN/LC_MESSAGES/tilex.po");
+        let po_content = std::fs::read_to_string(&po_path).unwrap();
+
+        fn unescape_po(s: &str) -> String {
+            let mut out = String::new();
+            let mut chars = s.chars();
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    match chars.next() {
+                        Some('"') => out.push('"'),
+                        Some('\\') => out.push('\\'),
+                        Some('n') => out.push('\n'),
+                        Some('t') => out.push('\t'),
+                        Some(other) => {
+                            out.push('\\');
+                            out.push(other);
+                        }
+                        None => out.push('\\'),
+                    }
+                } else {
+                    out.push(c);
+                }
+            }
+            out
+        }
+
+        fn parse_po_entries(text: &str) -> Vec<(String, String)> {
+            let mut entries = Vec::new();
+            let mut cur_id: Option<String> = None;
+            let mut cur_str = String::new();
+            let mut in_msgstr = false;
+
+            let extract_str = |line: &str| -> Option<String> {
+                let start = line.find('"')?;
+                let end = line.rfind('"')?;
+                if start < end {
+                    Some(unescape_po(&line[start + 1..end]))
+                } else {
+                    None
+                }
+            };
+
+            for line in text.lines().map(str::trim) {
+                if let Some(rest) = line.strip_prefix("msgid ") {
+                    if let Some(prev_id) = cur_id.take() {
+                        entries.push((prev_id, std::mem::take(&mut cur_str)));
+                    }
+                    cur_id = extract_str(rest).or(Some(String::new()));
+                    in_msgstr = false;
+                } else if let Some(rest) = line.strip_prefix("msgstr ") {
+                    cur_str = extract_str(rest).unwrap_or_default();
+                    in_msgstr = true;
+                } else if line.starts_with('"')
+                    && let Some(part) = extract_str(line)
+                {
+                    if in_msgstr {
+                        cur_str.push_str(&part);
+                    } else if let Some(id) = cur_id.as_mut() {
+                        id.push_str(&part);
+                    }
+                }
+            }
+            if let Some(id) = cur_id {
+                entries.push((id, cur_str));
+            }
+            entries
+        }
+
+        let entries = parse_po_entries(&po_content);
+        let found = entries
+            .iter()
+            .find(|(_, s)| s == ai::DEFAULT_CUSTOM_INSTRUCTIONS);
+        assert!(
+            found.is_some(),
+            "tilex.po must contain a msgstr exactly equal to DEFAULT_CUSTOM_INSTRUCTIONS"
+        );
+        let (msgid, msgstr) = found.unwrap();
+        assert_eq!(msgstr, ai::DEFAULT_CUSTOM_INSTRUCTIONS);
+        assert_eq!(
+            msgid,
+            "Accurately, naturally, and concisely convey the original meaning in the selected target language. Use context to understand polysemous words, and prioritize standard terminology for specialized content. For words and phrases, highlight common definitions and collocations; for sentences, preserve the original meaning and tone, and break down complex sentences into core structures, modifiers, and key terms. Provide brief examples or explanations when necessary, and avoid irrelevant elaborations."
+        );
     }
 }

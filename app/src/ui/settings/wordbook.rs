@@ -727,11 +727,16 @@ pub fn on_close() {
 /// 将分类码转换为展示字符串，如 "EN01" -> "英文 · 01 定语从句类"。
 /// 无分类或未知分类码返回空串。
 pub fn format_category(code: Option<&str>) -> String {
+    format_category_for(code, &crate::logic::config::snapshot().general.language)
+}
+
+/// 按指定语言代码将分类码转换为展示字符串。
+pub fn format_category_for(code: Option<&str>, lang: &str) -> String {
     let Some(code) = code else {
         return String::new();
     };
     match result::category(code) {
-        Some(cat) => format!("{} · {} {}", cat.lang, cat.no, cat.name),
+        Some(cat) => format!("{} · {} {}", cat.lang_for(lang), cat.no, cat.name_for(lang)),
         None => String::new(),
     }
 }
@@ -813,6 +818,18 @@ mod tests {
         assert_eq!(format_category(Some("ZH05")), "中文 · 05 长连谓与兼语句");
         assert_eq!(format_category(Some("UNKNOWN")), "");
         assert_eq!(format_category(None), "");
+        assert_eq!(
+            format_category_for(Some("EN01"), "en"),
+            "English · 01 Relative clauses"
+        );
+        assert_eq!(
+            format_category_for(Some("ZH03"), "en"),
+            "Chinese · 03 Nested complex sentences"
+        );
+        assert_eq!(
+            format_category_for(Some("ZH05"), "en"),
+            "Chinese · 05 Serial verbs & pivotal sentences"
+        );
     }
 
     #[test]

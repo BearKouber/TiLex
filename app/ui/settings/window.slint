@@ -110,7 +110,7 @@ export component SettingsWindow inherits Window {
     background: Theme.background;
     // 旧版整套界面的中文落在「微软雅黑 Light」上（量过截图的墨量），Slint 默认 400 会挑 Regular，看着粗一圈。
     // 显式写了 font-weight 的地方（标题 700、正文强调 600）不受影响。
-    default-font-weight: 300;
+    default-font-weight: Theme.font-weight;
     default-font-family: Theme.font-family;
 
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
@@ -212,7 +212,7 @@ export component SettingsWindow inherits Window {
 
     in-out property <string> resolved-chat-url: "";
     in property <[AiPreset]> ai-presets: [];
-    in property <string> default-ai-custom-instructions: "";
+    in property <string> default-ai-custom-instructions: @tr("Accurately, naturally, and concisely convey the original meaning in the selected target language. Use context to understand polysemous words, and prioritize standard terminology for specialized content. For words and phrases, highlight common definitions and collocations; for sentences, preserve the original meaning and tone, and break down complex sentences into core structures, modifiers, and key terms. Provide brief examples or explanations when necessary, and avoid irrelevant elaborations.");
 
     in property <brush> wechat-icon-color;
     in property <brush> umi-icon-color;
