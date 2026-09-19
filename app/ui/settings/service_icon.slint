@@ -45,6 +45,57 @@ export component ServiceIcon {
         height: root.size;
         source: @image-url("../icons/logo/deepseek.svg");
     }
+    // 以下 8 个来自 simple-icons，都是单路径单色图，用品牌色上色（来源见 NOTICE.md）
+    if root.id == "claude" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/claude.svg");
+        colorize: root.icon-color;
+    }
+    if root.id == "gemini" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/gemini.svg");
+        colorize: root.icon-color;
+    }
+    if root.id == "qwen" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/qwen.svg");
+        colorize: root.icon-color;
+    }
+    if root.id == "copilot" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/copilot.svg");
+        colorize: root.icon-color;
+    }
+    if root.id == "ollama" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/ollama.svg");
+        colorize: root.icon-color;
+    }
+    if root.id == "kimi" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/kimi.svg");
+        colorize: root.icon-color;
+    }
+    // MiMo 是小米自研模型，simple-icons 没有 MiMo 专属图标，用小米的厂商 logo
+    if root.id == "mimo" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/mimo.svg");
+        colorize: root.icon-color;
+    }
+    // Grok 同理：simple-icons 没有 Grok/xAI，用同一家的 X logo
+    if root.id == "grok" : Image {
+        width: root.size;
+        height: root.size;
+        source: @image-url("../icons/logo/grok.svg");
+        colorize: root.icon-color;
+    }
     // 单色图标，用品牌色上色（旧版 RiWechatFill + #07C160）
     if root.id == "wechat" : Image {
         width: root.size;

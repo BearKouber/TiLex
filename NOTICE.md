@@ -34,6 +34,24 @@ TiLex 是 [pot-app/pot-desktop](https://github.com/pot-app/pot-desktop) 的衍�
 
 感谢以上项目的作者。
 
+## 图标资源
+
+`app/ui/icons/logo/` 下这 8 个厂商图标取自
+[simple-icons](https://github.com/simple-icons/simple-icons) v16.31.0（图标集以 **CC0-1.0** 发布）：
+
+| 文件 | simple-icons slug |
+| --- | --- |
+| `claude.svg` | `claude` |
+| `gemini.svg` | `googlegemini` |
+| `qwen.svg` | `qwen` |
+| `copilot.svg` | `githubcopilot` |
+| `ollama.svg` | `ollama` |
+| `kimi.svg` | `kimi` |
+| `mimo.svg` | `xiaomi`（MiMo 无专属图标，用小米的厂商 logo）|
+| `grok.svg` | `x`（Grok / xAI 无专属图标，用同一家的 X logo）|
+
+图标集本身是 CC0，但**各图标所表示的商标归各自权利人所有**，此处仅作服务识别用途。
+
 ## 外部动态库与驱动组件
 
 `app/vendor/wcocr.dll` 编译自
