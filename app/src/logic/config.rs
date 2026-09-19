@@ -30,7 +30,6 @@ const SLOW_WRITE: Duration = Duration::from_millis(50);
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub version: u32,
     pub general: General,
     pub translate: Translate,
     pub selection: Selection,
@@ -120,7 +119,6 @@ pub struct NoSettings {}
 impl Default for Config {
     fn default() -> Self {
         Self {
-            version: 1,
             general: General::default(),
             translate: Translate::default(),
             selection: Selection::default(),

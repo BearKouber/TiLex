@@ -6,10 +6,6 @@ use std::time::Duration;
 
 use crate::error::Error;
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-use macos as imp;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -24,13 +20,12 @@ use geometry::Side;
 /// 托盘"重启"拉起的新进程带这个参数，启动时多等旧实例退出。
 pub const RESTART_FLAG: &str = "--restart";
 
-/// 数据目录：Windows `%APPDATA%\TiLex`，macOS `~/Library/Application Support/TiLex`（design §2.2）。
-/// 只拼路径，不创建。
+/// 数据目录：`%APPDATA%\TiLex`（design §2.2）。只拼路径，不创建。
 pub fn data_dir() -> Result<PathBuf, Error> {
     imp::data_dir()
 }
 
-/// 缓存目录：Windows `%LOCALAPPDATA%\TiLex\cache`，macOS `~/Library/Caches/TiLex`（design §2.2）。
+/// 缓存目录：`%LOCALAPPDATA%\TiLex\cache`（design §2.2）。
 /// OCR 的临时图落在这里。只拼路径，不创建。
 pub fn cache_dir() -> Result<PathBuf, Error> {
     imp::cache_dir()
@@ -43,12 +38,12 @@ pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
 }
 
 /// `claim_single_instance` 成功后调用：起一个后台线程等别的实例的通知，每次调 `on_activate`（在那个线程上）。
-/// Windows 上 claim 与 listen 之间到达的通知不会丢；macOS 上 socket 建好之前的会丢。
+/// claim 与 listen 之间到达的通知不会丢。
 pub fn listen_activation(on_activate: impl Fn() + Send + 'static) -> Result<(), Error> {
     imp::listen_activation(on_activate)
 }
 
-/// 用系统默认方式打开文件或文件夹（资源管理器 / 访达）。
+/// 用系统默认方式打开文件或文件夹（资源管理器）。
 pub fn open_path(path: &Path) -> Result<(), Error> {
     imp::open_path(path)
 }
@@ -58,12 +53,12 @@ pub fn open_url(url: &str) -> Result<(), Error> {
     imp::open_url(url)
 }
 
-/// 开机自启是否已开启（Windows 检查 Run 注册表键且指向当前 exe；macOS 返回 Unsupported）。
+/// 开机自启是否已开启（检查 Run 注册表键且指向当前 exe）。
 pub fn autostart_enabled() -> Result<bool, Error> {
     imp::autostart_enabled()
 }
 
-/// 设置开机自启（Windows 写/删 Run 注册表键；macOS 返回 Unsupported）。
+/// 设置开机自启（写/删 Run 注册表键）。
 pub fn set_autostart(on: bool) -> Result<(), Error> {
     imp::set_autostart(on)
 }
