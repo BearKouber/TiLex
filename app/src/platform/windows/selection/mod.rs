@@ -830,13 +830,26 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
             match selection_of(&element) {
                 UiaRead::Text(text) => {
                     log::debug!(
-                        "PopButton: UIA selection via {source} at ancestor depth {depth} ({} chars)",
+                        "PopButton: UIA selection via {source} at ancestor depth {depth} {} ({} chars)",
+                        describe(&element),
                         text.chars().count()
                     );
                     return (text, true);
                 }
-                UiaRead::EmptySelection => saw_empty_selection = true,
-                UiaRead::NoSelectionReported => saw_unreported = true,
+                UiaRead::EmptySelection => {
+                    saw_empty_selection = true;
+                    log::debug!(
+                        "PopButton: UIA {source} depth {depth} {} -> empty selection",
+                        describe(&element)
+                    );
+                }
+                UiaRead::NoSelectionReported => {
+                    saw_unreported = true;
+                    log::debug!(
+                        "PopButton: UIA {source} depth {depth} {} -> cannot report a selection",
+                        describe(&element)
+                    );
+                }
                 UiaRead::NoPattern => {}
             }
         }
@@ -882,6 +895,19 @@ enum UiaRead {
     EmptySelection,
     NoSelectionReported,
     NoPattern,
+}
+
+/// 排查用的元素标识。**只记控件类型和类名，绝不记 Name 或文字** ——
+/// 那两样会把用户正在看的内容写进日志（design §2.9 的同一条红线）。
+fn describe(element: &IUIAutomationElement) -> String {
+    // SAFETY: COM 调用，element 活着。
+    let control_type = unsafe { element.CurrentControlType() }.map_or(-1, |t| t.0);
+    // SAFETY: 同上。
+    let class = unsafe { element.CurrentClassName() }.map(|s| s.to_string());
+    format!(
+        "[type={control_type} class={}]",
+        class.as_deref().unwrap_or("?")
+    )
 }
 
 fn selection_of(element: &IUIAutomationElement) -> UiaRead {
