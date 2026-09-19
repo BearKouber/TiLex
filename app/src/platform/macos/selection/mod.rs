@@ -186,15 +186,15 @@ pub fn matches_blacklist(app_name: Option<&str>, bundle_id: Option<&str>, list: 
     for item in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let item_lower = item.to_lowercase();
         let stripped = item_lower.strip_suffix(".exe").unwrap_or(&item_lower);
-        if let Some(ref name) = app_name_lower {
-            if name == &item_lower || name == stripped {
-                return true;
-            }
+        if let Some(ref name) = app_name_lower
+            && (name == &item_lower || name == stripped)
+        {
+            return true;
         }
-        if let Some(ref last) = bundle_last_lower {
-            if last == &item_lower || last == stripped {
-                return true;
-            }
+        if let Some(ref last) = bundle_last_lower
+            && (last == &item_lower || last == stripped)
+        {
+            return true;
         }
     }
     false
