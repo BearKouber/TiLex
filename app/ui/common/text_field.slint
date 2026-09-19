@@ -18,6 +18,8 @@ export component TextField {
     in property <bool> read-only: false;
     // 是否启用：禁用时透明度 0.5
     in property <bool> enabled: true;
+    // 文字比框宽时缩字号（快捷键框用）
+    in property <bool> auto-shrink: false;
 
     // 每次输入文本变动回调
     callback edited(string);
@@ -39,6 +41,12 @@ export component TextField {
     private property <bool> password-revealed: false;
     // 记录本轮编辑是否已触发过 editing-finished，避免 Enter 后失焦重复触发
     private property <bool> finished-called: true;
+    private property <length> min-font-size: 10px;
+    private property <length> base-font-size: root.is-bordered ? 14px : 12px;
+    private property <length> available-width: max(0px, root.width - (root.is-bordered ? 24px : 16px));
+    private property <length> shown-font-size: (root.auto-shrink && root.available-width > 0px && measure.preferred-width > root.available-width)
+        ? max(root.min-font-size, root.base-font-size * (root.available-width / measure.preferred-width))
+        : root.base-font-size;
 
     forward-focus: text-input;
 
@@ -51,6 +59,14 @@ export component TextField {
     accessible-placeholder-text: root.placeholder;
     accessible-enabled: root.enabled;
     accessible-read-only: root.read-only;
+
+    measure := Text {
+        width: 0px;
+        height: 0px;
+        visible: false;
+        font-size: root.base-font-size;
+        text: root.text == "" ? root.placeholder : root.text;
+    }
 
     shell := Rectangle {
         width: 100%;
@@ -100,7 +116,7 @@ export component TextField {
                     vertical-alignment: TextVerticalAlignment.center;
                     horizontal-alignment: root.center ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
                     text: root.placeholder;
-                    font-size: root.is-bordered ? 14px : 12px;
+                    font-size: root.shown-font-size;
                     color: Theme.default-400;
                 }
 
@@ -114,7 +130,7 @@ export component TextField {
                     height: 100%;
                     vertical-alignment: TextVerticalAlignment.center;
                     horizontal-alignment: root.center ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
-                    font-size: root.is-bordered ? 14px : 12px;
+                    font-size: root.shown-font-size;
                     color: Theme.foreground;
                     single-line: true;
                     enabled: root.enabled;

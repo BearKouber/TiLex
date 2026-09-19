@@ -52,7 +52,7 @@ export component ServicesPage inherits VerticalLayout {
         PillTabs {
             tabs: [
                 @tr("Text Translation"),
-                @tr("Text Recognition"),
+                @tr("OCR"),
             ];
             current <=> root.sub-page;
             changed-tab(idx) => {

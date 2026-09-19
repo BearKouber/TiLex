@@ -386,6 +386,8 @@ export component ServiceDialogs {
     in property <bool> testing: false;
     in property <bool> fetching: false;
     in property <[ModelRow]> ai-models: [];
+    in property <[string]> ai-model-names: [];
+    in-out property <int> ai-model-index: -1;
     in property <bool> bench-running: false;
     in property <string> bench-current: "";
     in property <int> bench-remaining: 0;
@@ -404,6 +406,8 @@ export component ServiceDialogs {
     property <string> test-result: "";
     property <bool> test-ok: false;
     property <bool> models-expanded: false;
+    property <bool> model-manual: false;
+    property <bool> model-use-select: root.ai-model-names.length > 0 && !root.model-manual;
 
     public function show-test-result(message: string, ok: bool) {
         root.test-result = message;
@@ -414,6 +418,7 @@ export component ServiceDialogs {
     changed dialog => {
         root.test-result = "";
         root.models-expanded = false;
+        root.model-manual = false;
     }
 
     function current-protocol-str() -> string {
@@ -461,6 +466,7 @@ export component ServiceDialogs {
         root.draft-ai-icon-color = p.icon-color;
         root.draft-ai-icon-letter = p.icon-letter;
         root.draft-ai-model = "";
+        root.model-manual = false;
         root.draft-ai-api-key = "";
         root.draft-label = "";
         root.draft-ai-custom-instructions = root.default-ai-custom-instructions;
@@ -475,6 +481,7 @@ export component ServiceDialogs {
         root.draft-ai-protocol-index = 0;
         root.draft-ai-icon = "";
         root.draft-ai-model = "";
+        root.model-manual = false;
         root.draft-ai-api-key = "";
         root.draft-label = "";
         root.draft-ai-custom-instructions = root.default-ai-custom-instructions;
@@ -1138,8 +1145,23 @@ export component ServiceDialogs {
                             property <length> ctl: cfg-modal.content-width * 50%;
                             spacing: 8px;
 
-                            TextField {
-                                width: parent.ctl - 48px;
+                            if root.model-use-select : Select {
+                                width: parent.ctl - 96px;
+                                options: root.ai-model-names;
+                                current-index <=> root.ai-model-index;
+                                selected(idx) => {
+                                    root.draft-ai-model = root.ai-model-names[idx];
+                                    root.refresh-resolved-url(
+                                        root.draft-ai-base-url,
+                                        root.ai-model-names[idx],
+                                        root.current-protocol-str(),
+                                        root.draft-ai-icon
+                                    );
+                                }
+                            }
+
+                            if !root.model-use-select : TextField {
+                                width: parent.ctl - 96px;
                                 text <=> root.draft-ai-model;
                                 edited(text) => {
                                     root.refresh-resolved-url(
@@ -1149,6 +1171,15 @@ export component ServiceDialogs {
                                         root.draft-ai-icon
                                     );
                                 }
+                            }
+
+                            Button {
+                                icon-only: true;
+                                variant: root.model-manual ? "solid" : "bordered";
+                                size: "md";
+                                icon: @image-url("../icons/edit.svg");
+                                enabled: root.ai-model-names.length > 0;
+                                clicked => { root.model-manual = !root.model-manual; }
                             }
 
                             Button {

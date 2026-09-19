@@ -100,6 +100,7 @@ component LanguageButton {
 
 export component SettingsWindow inherits Window {
     title: @tr("TiLex Settings");
+    icon: @image-url("../icons/app.png");
     no-frame: true;
     resize-border-width: 5px;
     min-width: 800px;
@@ -166,6 +167,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> testing-service: false;
     in-out property <bool> fetching-models: false;
     in property <[ModelRow]> ai-models: [];
+    in property <[string]> ai-model-names: [];
+    in-out property <int> ai-model-index: -1;
     in property <bool> bench-running: false;
     in property <string> bench-current: "";
     in property <int> bench-remaining: 0;
@@ -632,6 +635,8 @@ export component SettingsWindow inherits Window {
         testing: root.testing-service;
         fetching: root.fetching-models;
         ai-models: root.ai-models;
+        ai-model-names: root.ai-model-names;
+        ai-model-index <=> root.ai-model-index;
         bench-running: root.bench-running;
         bench-current: root.bench-current;
         bench-remaining: root.bench-remaining;

@@ -371,8 +371,8 @@ msgstr "部分程序（如微信聊天记录）无法直接读取选中文字。
 msgid "Text Translation"
 msgstr "文本翻译"
 
-msgid "Text Recognition"
-msgstr "文本识别"
+msgid "OCR"
+msgstr "OCR识别"
 
 msgid "Add Service"
 msgstr "添加服务"
@@ -572,7 +572,7 @@ msgid "No text found in the selected area"
 msgstr "选区里没认出文字"
 
 msgid "No text recognition service is enabled — turn one on in Service Settings"
-msgstr "没有启用的文本识别服务 —— 去「服务设置」里开一个"
+msgstr "没有启用的 OCR 服务 —— 去「服务设置」里开一个"
 
 msgid "Cannot reach Umi-OCR. Start Umi-OCR and enable its HTTP interface (default port 1224)"
 msgstr "无法连接 Umi-OCR，请先启动 Umi-OCR 并开启 HTTP 接口（默认端口 1224）"

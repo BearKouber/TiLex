@@ -279,6 +279,7 @@ export component TranslatePage {
                 label: @tr("Screenshot Translate");
                 hk := TextField {
                     width: 130px;
+                    auto-shrink: true;
                     variant: "bordered";
                     center: true;
                     read-only: true;
@@ -313,7 +314,7 @@ export component TranslatePage {
                 Stepper {
                     value <=> TranslateSettings.button-distance;
                     minimum: 0;
-                    maximum: 20;
+                    maximum: 50;
                     suffix: "px";
                     enabled: TranslateSettings.selection-enabled;
                     committed(val) => { TranslateSettings.button-distance-changed(val); }

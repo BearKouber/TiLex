@@ -64,7 +64,7 @@ pub struct Selection {
     pub force_copy: bool,
     pub blacklist: String,
     pub button_pos: String,
-    /// 浮标离选区的间距，物理像素，0–20（`normalize` 夹紧）。手改成字符串、小数等非法值时用默认 10，
+    /// 浮标离选区的间距，物理像素，0–50（`normalize` 夹紧）。手改成字符串、小数等非法值时用默认 10，
     /// 不让整份配置因为这一项被当成损坏。
     #[serde(deserialize_with = "distance")]
     pub button_distance: i64,
@@ -154,10 +154,10 @@ impl Default for Translate {
 impl Default for Selection {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             trigger: "hover".into(),
             exclude_native: true,
-            force_copy: false,
+            force_copy: true,
             blacklist: String::new(),
             button_pos: "BottomLeft".into(),
             button_distance: 10,
@@ -216,7 +216,7 @@ fn distance<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
         .as_f64()
         .filter(|n| n.is_finite() && n.fract() == 0.0)
         .map_or(Selection::default().button_distance, |n| {
-            n.clamp(0.0, 20.0) as i64
+            n.clamp(0.0, 50.0) as i64
         }))
 }
 
@@ -226,7 +226,7 @@ impl Config {
         if !LANGUAGES.contains(&self.general.language.as_str()) {
             self.general.language = General::default().language;
         }
-        self.selection.button_distance = self.selection.button_distance.clamp(0, 20);
+        self.selection.button_distance = self.selection.button_distance.clamp(0, 50);
     }
 }
 
@@ -496,10 +496,11 @@ mod tests {
             (4, 4),
             (10, 10),
             (20, 20),
+            (50, 50),
             (-1, 0),
             (-100, 0),
-            (21, 20),
-            (1000, 20),
+            (51, 50),
+            (1000, 50),
         ] {
             config.selection.button_distance = value;
             config.normalize();
@@ -521,8 +522,8 @@ mod tests {
         let dir = temp_dir("update-normalize");
         let (store, _) = Store::open(&dir).unwrap();
         store.update(|c| c.selection.button_distance = 99).unwrap();
-        assert_eq!(store.snapshot().selection.button_distance, 20);
-        assert_eq!(disk(&dir).selection.button_distance, 20);
+        assert_eq!(store.snapshot().selection.button_distance, 50);
+        assert_eq!(disk(&dir).selection.button_distance, 50);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -734,7 +735,7 @@ mod tests {
             c.normalize();
             c.selection.button_distance
         };
-        for v in [0, 4, 10, 19, 20] {
+        for v in [0, 4, 10, 19, 20, 21, 37, 50] {
             assert_eq!(parse(json!(v)), v, "整数原样保留");
         }
         assert_eq!(parse(json!(4.0)), 4, "JSON 的 4.0 也是整数");
@@ -757,16 +758,48 @@ mod tests {
             assert_eq!(parse(v.clone()), 0, "{v}");
         }
         for v in [
-            json!(21),
-            json!(37),
+            json!(51),
+            json!(100),
             json!(1000),
             json!(1.0e300),
             json!(u64::MAX),
         ] {
-            assert_eq!(parse(v.clone()), 20, "{v}");
+            assert_eq!(parse(v.clone()), 50, "{v}");
         }
         let missing: Config = serde_json::from_value(json!({"selection": {}})).unwrap();
         assert_eq!(missing.selection.button_distance, 10);
+    }
+
+    #[test]
+    fn selection_default_values() {
+        let def = Selection::default();
+        assert!(def.enabled);
+        assert!(def.force_copy);
+        assert_eq!(def.trigger, "hover");
+    }
+
+    #[test]
+    fn selection_explicit_false_not_overwritten_by_defaults() {
+        // 磁盘上已有配置里显式写了 false 时，反序列化不能被新的默认值 (true) 覆盖。
+        let input = json!({
+            "selection": {
+                "enabled": false,
+                "force_copy": false,
+            }
+        });
+        let mut config: Config = serde_json::from_value(input).unwrap();
+        config.normalize();
+        assert!(!config.selection.enabled);
+        assert!(!config.selection.force_copy);
+
+        let input_enabled_only = json!({
+            "selection": {
+                "enabled": false,
+            }
+        });
+        let mut config2: Config = serde_json::from_value(input_enabled_only).unwrap();
+        config2.normalize();
+        assert!(!config2.selection.enabled);
     }
 
     #[test]

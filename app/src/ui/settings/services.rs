@@ -806,12 +806,20 @@ fn refresh_models_panel(page: &SettingsWindow, base: &str, protocol: &str, model
     let tested_count = rows.iter().filter(|r| r.state.as_str() == "ms").count() as i32;
     let failed_count = rows.iter().filter(|r| r.state.as_str() == "failed").count() as i32;
 
+    let names: Vec<slint::SharedString> = rows.iter().map(|r| r.name.clone()).collect();
+    let index = names
+        .iter()
+        .position(|n| n.as_str() == current)
+        .map_or(-1, |i| i as i32);
+
     page.set_ai_models(Rc::new(VecModel::from(rows)).into());
     page.set_bench_running(progress.running);
     page.set_bench_current(progress.current.into());
     page.set_bench_remaining(progress.remaining as i32);
     page.set_bench_tested(tested_count);
     page.set_bench_failed(failed_count);
+    page.set_ai_model_names(Rc::new(VecModel::from(names)).into());
+    page.set_ai_model_index(index);
 }
 
 /// 从窗口属性上读 base / protocol / model 再调上面那个（给通知回调用）。

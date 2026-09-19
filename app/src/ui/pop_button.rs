@@ -83,7 +83,7 @@ fn settings() -> SelectionSettings {
         blacklist: s.blacklist,
         force_copy: s.force_copy,
         corner: corner(&s.button_pos).unwrap_or((Side::Before, Side::After)),
-        gap: s.button_distance.clamp(0, 20) as i32,
+        gap: s.button_distance.clamp(0, 50) as i32,
     }
 }
 

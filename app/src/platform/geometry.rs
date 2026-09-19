@@ -93,7 +93,7 @@ pub fn place(
 }
 
 /// 普通间距下浮标的消失半径（物理像素）。
-pub const DISMISS_DIST: u64 = 60;
+pub const DISMISS_DIST: u64 = 100;
 
 /// 两点距离的平方。钩子里比较用它，不开平方；相距再远也不溢出。
 pub fn distance_squared(x: i32, y: i32, cx: i32, cy: i32) -> u64 {
@@ -104,7 +104,7 @@ pub fn distance_squared(x: i32, y: i32, cx: i32, cy: i32) -> u64 {
 
 /// 鼠标离浮标中心 (cx, cy) 超过多远（平方）就收起浮标。
 /// 在 worker 上、翻转/夹边之后按浮标的真实中心算一次：松开鼠标的位置到浮标的整段路都要在范围内，
-/// 再留 10px 余量；普通间距仍是 60px。钩子只拿发布出去的结果比较平方。
+/// 再留 10px 余量；普通间距仍是 100px。钩子只拿发布出去的结果比较平方。
 pub fn dismissal_limit_squared(anchor: Rect, cx: i32, cy: i32) -> u64 {
     let approach = (distance_squared(anchor.l, anchor.t, cx, cy) as f64)
         .sqrt()
@@ -291,9 +291,9 @@ mod tests {
                     let (x, y, _) = place(anchor, size, size, sx, sy, gap, SCREEN);
                     let (cx, cy) = (x + size / 2, y + size / 2);
                     let limit = dismissal_limit_squared(anchor, cx, cy);
-                    assert_eq!(limit, 60 * 60);
-                    assert!(distance_squared(cx + 60, cy, cx, cy) <= limit);
-                    assert!(distance_squared(cx + 61, cy, cx, cy) > limit);
+                    assert_eq!(limit, 100 * 100);
+                    assert!(distance_squared(cx + 100, cy, cx, cy) <= limit);
+                    assert!(distance_squared(cx + 101, cy, cx, cy) > limit);
                 }
             }
         }
@@ -313,7 +313,7 @@ mod tests {
                     (After, Before),
                     (After, After),
                 ] {
-                    let (x, y, _) = place(anchor, size, size, sx, sy, 20, SCREEN);
+                    let (x, y, _) = place(anchor, size, size, sx, sy, 50, SCREEN);
                     let (cx, cy) = (x + size / 2, y + size / 2);
                     let limit = dismissal_limit_squared(anchor, cx, cy);
                     // 从松开鼠标的位置到浮标中心，每一点都在范围内（含第一下移动和悬停目标）。
@@ -322,8 +322,8 @@ mod tests {
                         let py = anchor.t + (cy - anchor.t) * step / 100;
                         assert!(distance_squared(px, py, cx, cy) <= limit);
                     }
-                    let away_x = anchor.l - (cx - anchor.l).signum() * 20;
-                    let away_y = anchor.t - (cy - anchor.t).signum() * 20;
+                    let away_x = anchor.l - (cx - anchor.l).signum() * 50;
+                    let away_y = anchor.t - (cy - anchor.t).signum() * 50;
                     assert!(distance_squared(away_x, away_y, cx, cy) > limit);
                 }
             }
@@ -341,8 +341,8 @@ mod tests {
         let anchor = Rect::point(25, 25);
         let (x, y, _) = place(anchor, 36, 36, After, After, 20, bounds);
         assert_eq!((x, y), (14, 14));
-        // 夹边后中心离得近，用标准 60px，而不是 36px 浮标、20px 间距需要的加大半径。
-        assert_eq!(dismissal_limit_squared(anchor, x + 18, y + 18), 60 * 60);
+        // 夹边后中心离得近，用标准 100px，而不是 36px 浮标、20px 间距需要的加大半径。
+        assert_eq!(dismissal_limit_squared(anchor, x + 18, y + 18), 100 * 100);
     }
 
     #[test]

@@ -87,7 +87,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     let pop_res_pos_idx = find_index(&POP_RESULT_POS, &cfg.selection.result_pos);
     let screenshot_pos_idx = find_index(&SCREENSHOT_POS, &cfg.screenshot.result_pos);
     let force_copy_idx = if cfg.selection.force_copy { 0 } else { 1 };
-    let distance = cfg.selection.button_distance.clamp(0, 20) as i32;
+    let distance = cfg.selection.button_distance.clamp(0, 50) as i32;
 
     ts.set_source_lang_index(source_idx);
     ts.set_target_lang_index(target_idx);
@@ -715,7 +715,7 @@ fn handle_force_copy_change(page: &SettingsWindow, idx: i32) {
 }
 
 fn handle_button_distance_change(page: &SettingsWindow, val: i32) {
-    let old_val = config::snapshot().selection.button_distance.clamp(0, 20) as i32;
+    let old_val = config::snapshot().selection.button_distance.clamp(0, 50) as i32;
     if !save(page, "button_distance", |c| {
         c.selection.button_distance = val as i64
     }) {
