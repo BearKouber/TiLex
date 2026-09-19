@@ -335,22 +335,30 @@ export component PopResult inherits Window {
         y: 0;
         width: 14px;
         height: 14px;
-        mouse-cursor: pointer;
+        // TouchArea 只有矩形，而画出来的是三角形：这个 14×14 的方块里，斜边右下那一半
+        // 是顶栏的空白，悬停到那儿不该关窗口（悬停即关，连点都不用点，误触很凶）。
+        // 斜边在本坐标系里是 x+y=11：Path 从 (-3,-3) 起画，viewbox 里的斜边是 x+y=17，
+        // 平移 3px 就成了 11。**不是 14** —— 14 是这个 TouchArea 的边长，别混。
+        property <bool> on-triangle: self.has-hover && self.mouse-x + self.mouse-y <= 11px;
+        // 指针也跟着收，不然鼠标在空白半边上变成手型，看着像能点。
+        mouse-cursor: self.on-triangle ? MouseCursor.pointer : MouseCursor.default;
         accessible-role: button;
         accessible-label: @tr("Close");
-        changed has-hover => {
-            if self.has-hover && root.close-armed {
+        // 盯 on-triangle 而不是 has-hover：从空白半边横着挪进三角时 has-hover 一直为真、
+        // 不会再触发 changed，那样就点不着了。
+        changed on-triangle => {
+            if self.on-triangle && root.close-armed {
                 root.close-requested();
             }
         }
         clicked => {
-            if root.close-armed {
+            if root.close-armed && self.mouse-x + self.mouse-y <= 11px {
                 root.close-requested();
             }
         }
 
-        // 往左上多画 3px（斜边仍是 x+y=14 那条线）：窗口圆角会切掉三角的尖，画到边界外面才填得满，
-        // 多出来的部分被窗口边缘裁掉。
+        // 往左上多画 3px：窗口圆角会切掉三角的尖，画到边界外面才填得满，
+        // 多出来的部分被窗口边缘裁掉。斜边落在 TouchArea 坐标的 x+y=11 上（见上面的命中判定）。
         Path {
             x: -3px;
             y: -3px;
