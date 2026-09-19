@@ -1,21 +1,23 @@
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::time::Duration;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::WinitWindowAccessor;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
-use windows::Win32::Foundation::{HANDLE, HWND, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{BOOL, HANDLE, HWND, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Graphics::Dwm::{
     DWM_WINDOW_CORNER_PREFERENCE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
 };
+use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
 use windows::Win32::System::Threading::{
     AttachThreadInput, CreateEventW, CreateMutexW, GetCurrentThreadId, INFINITE, SetEvent,
     WaitForSingleObject,
 };
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     ASFW_ANY, AllowSetForegroundWindow, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
@@ -155,6 +157,49 @@ pub fn open_path(path: &Path) -> Result<(), Error> {
 pub fn open_url(url: &str) -> Result<(), Error> {
     let wide: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
     shell_open_wide(&wide)
+}
+
+/// `DWMWA_WINDOW_CORNER_PREFERENCE` 是 Win11 22000 才有的。这台机器上用不了（= Win10）时置位，
+/// 圆角改由 [`round_region`] 裁窗口区域。
+///
+/// 这是**系统属性不是窗口属性**，几个无边框窗口共用一份：谁先试出来谁置位。
+static DWM_ROUNDING_UNAVAILABLE: AtomicBool = AtomicBool::new(false);
+
+/// DWM 圆角这次没吃上，后面改用窗口区域裁。
+fn mark_dwm_rounding_unavailable() {
+    DWM_ROUNDING_UNAVAILABLE.store(true, Ordering::SeqCst);
+}
+
+/// Win10 上把窗口裁成圆角矩形（DWM 圆角能用时直接返回，不动它的平滑圆角）。
+/// 裁掉四个角的同时，系统沿直角边缘画的那圈强调色也一起没了 —— 它画在窗口区域最外圈，
+/// 区域裁掉就不再合成（Win10 22H2 实机验证过）。代价是边缘没有抗锯齿，比 DWM 的圆角糙一点。
+///
+/// 窗口区域不跟着 `SetWindowPos` 走，**每次尺寸变化后都要重设**，
+/// 和 `DWMWCP_*` 的遮罩要重算是同一个道理。
+/// `w`/`h_px` 是窗口矩形的物理像素尺寸，`radius` 是逻辑像素半径（按窗口 DPI 换算）。
+fn round_region(h: HWND, w: i32, h_px: i32, radius: f32) {
+    if !DWM_ROUNDING_UNAVAILABLE.load(Ordering::SeqCst) || w <= 0 || h_px <= 0 {
+        return;
+    }
+    // SAFETY: h 是活着的窗口，无指针参数。
+    let dpi = unsafe { GetDpiForWindow(h) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+    // CreateRoundRectRgn 收的是椭圆的**直径**，不是半径。
+    let d = (radius * scale).round() as i32 * 2;
+    // SAFETY: 纯计算，不碰指针。右下角是 exclusive，+1 才盖得满整个窗口。
+    let rgn = unsafe { CreateRoundRectRgn(0, 0, w + 1, h_px + 1, d, d) };
+    if rgn.is_invalid() {
+        log::warn!("round_region: CreateRoundRectRgn failed");
+        return;
+    }
+    // SAFETY: rgn 刚建好且有效；h 是活着的窗口。
+    // 成功时 region 的所有权转给系统，**不能**再 DeleteObject。
+    if unsafe { SetWindowRgn(h, rgn, BOOL::from(true)) } == 0 {
+        log::warn!("round_region: SetWindowRgn failed");
+        // SAFETY: 失败时所有权还在我们手上，不删就泄漏。
+        // ignore: 删不掉也只是漏一个 region 对象
+        let _ = unsafe { DeleteObject(rgn) };
+    }
 }
 
 pub fn round_corners(window: &slint::Window) -> Result<(), Error> {

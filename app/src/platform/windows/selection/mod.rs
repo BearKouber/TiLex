@@ -74,6 +74,9 @@ use crate::platform::{AcceptFn, BeforeShowFn, EngagedFn, EngagedSelection, Setti
 
 /// 浮标的逻辑边长，和 `ui/pop_button.slint` 的 18px 一致。物理边长按目标显示器的 DPI 算。
 const BUTTON_LOGICAL: f64 = 18.0;
+/// Win10 上裁窗口区域用的圆角半径，逻辑像素。取 4px 对齐 `DWMWCP_ROUNDSMALL` 实测的弧度
+/// （见 `round_corners` 的注释：Win11 上量出来就是 4px 弧）。
+const CORNER_RADIUS: f32 = 4.0;
 const DRAG_MIN: i32 = 6;
 const DOUBLE_CLICK_SLOP: i32 = 4;
 
@@ -149,7 +152,9 @@ pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
             "PopButton: subclass failed, clicking the button may activate the result window"
         );
     }
-    round_corners(h);
+    // 这里只为设 DWM 属性、顺带探出这台机器支不支持；窗口尺寸还没定，
+    // 传 0 让区域那步跳过，等 show_at 摆好大小再裁。
+    round_corners(h, 0);
     cloak(h, true);
     // SAFETY: 只刷新样式，不动位置、大小、激活。
     // ignore: 刷新失败时样式照样生效，只是边框缓存晚一点更新
@@ -202,12 +207,16 @@ fn button_hwnd() -> Option<HWND> {
 
 /// 不抢焦点（UIA 读的是焦点元素，点浮标抢了焦点就读不到了）、不进任务栏和 Alt+Tab、置顶；
 /// 去掉标题栏那组样式（窗口有 WS_CAPTION 时系统会套最小尺寸）。
-/// 小圆角贴近旧版 5px 的圆角。Win10 不支持（`DWMWCP_*` 是 Win11 专有），直角照用。
+/// 小圆角贴近旧版 5px 的圆角。Win10 不支持（`DWMWCP_*` 是 Win11 专有），
+/// 退回 `super::round_region` 裁窗口区域（和结果浮窗同一条路）。
 ///
-/// **每次改完窗口大小都要再调一遍。** DWM 的圆角遮罩是按调用那一刻的窗口矩形算的，
+/// **每次改完窗口大小都要再调一遍。** 两条路都要：DWM 的圆角遮罩是按调用那一刻的窗口矩形算的，
 /// 窗口后来被 `SetWindowPos` 改大改小时不会自动重算：实测（用户 Win10 22H2 / 125% 的截图逐像素量）
 /// 上面两个角是完整的 4px 弧、下面两个角只剩 2px，正好等于「遮罩比当前窗口高 2px，下沿被裁掉」。
-fn round_corners(h: HWND) {
+/// 窗口区域同理不跟着 `SetWindowPos` 走。
+///
+/// `px` 是浮标的边长（正方形，物理像素）。
+fn round_corners(h: HWND, px: i32) {
     let pref = DWMWCP_ROUNDSMALL;
     // SAFETY: h 是活着的窗口；pref 在调用期间有效，长度与类型一致。
     if let Err(e) = unsafe {
@@ -219,7 +228,10 @@ fn round_corners(h: HWND) {
         )
     } {
         log::debug!("PopButton: no rounded corners: {e}");
+        super::mark_dwm_rounding_unavailable();
     }
+    // Win10 才会真的做事；DWM 圆角能用时直接返回。
+    super::round_region(h, px, px, CORNER_RADIUS);
 }
 
 fn apply_styles(h: HWND) {
@@ -287,7 +299,8 @@ fn show_at(x: i32, y: i32, px: i32, owner: u64, dismiss_limit: u64) {
         );
     }
     // 大小刚变过，趁还 cloak 着让 DWM 按新矩形重算圆角遮罩，不然四个角弧度不一样大。
-    round_corners(h);
+    // Win10 上这一步改为按新尺寸重裁窗口区域，同理不能省。
+    round_corners(h, px);
     BTN_PX.store(px, Relaxed);
     BTN_X.store(x + px / 2, Relaxed);
     BTN_Y.store(y + px / 2, Relaxed);

@@ -3,7 +3,7 @@
 //! 永远不调 Slint 的 show()/hide()（platform-windows.md §1）。
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
@@ -11,17 +11,16 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
-    CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromPoint, SetWindowRgn,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
-    HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_EX_APPWINDOW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
-    WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
+    GetWindowLongPtrW, GetWindowThreadProcessId, HWND_TOPMOST, SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
 use crate::error::Error;
@@ -34,8 +33,6 @@ const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
 const CORNER_RADIUS: f32 = 8.0;
 
 static RESULT_WINDOW: AtomicIsize = AtomicIsize::new(0);
-/// `DWMWCP_ROUND` 没吃上（Win10）：圆角改由 `SetWindowRgn` 裁，见 `apply_round_region`。
-static NEEDS_ROUND_REGION: AtomicBool = AtomicBool::new(false);
 static PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
 /// 截图遮罩用自己的一份：它和结果浮窗会先后显示（框选完紧接着弹浮窗），
 /// 共用一个记录位会让浮窗关闭时把焦点还给已经隐藏的遮罩。
@@ -127,9 +124,9 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
     } {
         // Win10：这个属性是 Win11 22000 才有的。窗口就是直角，而且系统会沿着直角边缘
         // 画一圈 1px 强调色（用户在「颜色」里选的，颜色因机而异，不能按颜色去 hack）。
-        // 退回 SetWindowRgn 把四个角裁掉，见 `apply_round_region`。
+        // 退回 SetWindowRgn 把四个角裁掉，见 `super::round_region`。
         log::info!("PopResult: DWM rounding unavailable, falling back to window region: {e}");
-        NEEDS_ROUND_REGION.store(true, Ordering::SeqCst);
+        super::mark_dwm_rounding_unavailable();
     }
     // 关掉 DWM 那 1px 边框：它画在客户区外面，左上角的红三角盖不住，会露出一圈浅灰。
     // 边框改由 pop_result.slint 里的 1px 内描边画。
@@ -298,37 +295,6 @@ fn apply_styles(h: HWND) {
     }
 }
 
-/// Win10 上把窗口裁成圆角矩形（Win11 走 DWM，这里直接返回）。
-/// 裁掉四个角的同时，系统沿直角边缘画的那圈强调色也一起没了 —— 它画在窗口区域最外圈，
-/// 区域裁掉就不合成了。代价是边缘没有抗锯齿，比 DWM 的圆角糙一点。
-///
-/// 窗口区域不跟着 `SetWindowPos` 走，**每次尺寸变化后都要重设**（`show` / `move` 两处）。
-/// `w`/`h_px` 是窗口矩形的物理像素尺寸。
-fn apply_round_region(h: HWND, w: i32, h_px: i32) {
-    if !NEEDS_ROUND_REGION.load(Ordering::SeqCst) || w <= 0 || h_px <= 0 {
-        return;
-    }
-    // SAFETY: h 是活着的窗口，无指针参数。
-    let dpi = unsafe { GetDpiForWindow(h) };
-    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-    // CreateRoundRectRgn 收的是椭圆的**直径**，不是半径。
-    let d = (CORNER_RADIUS * scale).round() as i32 * 2;
-    // SAFETY: 纯计算，不碰指针。右下角是 exclusive，+1 才盖得满整个窗口。
-    let rgn = unsafe { CreateRoundRectRgn(0, 0, w + 1, h_px + 1, d, d) };
-    if rgn.is_invalid() {
-        log::warn!("PopResult: CreateRoundRectRgn failed");
-        return;
-    }
-    // SAFETY: rgn 刚建好且有效；h 是活着的窗口。
-    // 成功时 region 的所有权转给系统，**不能**再 DeleteObject。
-    if unsafe { SetWindowRgn(h, rgn, BOOL::from(true)) } == 0 {
-        log::warn!("PopResult: SetWindowRgn failed");
-        // SAFETY: 失败时所有权还在我们手上，不删就泄漏。
-        // ignore: 删不掉也只是漏一个 region 对象
-        let _ = unsafe { DeleteObject(rgn) };
-    }
-}
-
 fn styles_intact(h: HWND) -> bool {
     // SAFETY: 同 apply_styles。
     let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
@@ -384,7 +350,7 @@ pub fn show_result_window(rect: Rect) {
         let _ = SetWindowPos(h, HWND_TOPMOST, rect.l, rect.t, w, h_px, SWP_NOACTIVATE);
     }
     // 尺寸定了才能裁区域，而且要赶在显示之前，否则 Win10 上会闪一帧直角。
-    apply_round_region(h, w, h_px);
+    super::round_region(h, w, h_px, CORNER_RADIUS);
     // SAFETY: h 是活着的有效窗口。
     unsafe {
         // 上一次是 SW_HIDE 隐藏的（见 hide_result_window），要重新显示；启动那次窗口本来就可见，是空操作。
@@ -408,7 +374,7 @@ pub fn move_result_window(rect: Rect) {
     // ignore: 调整尺寸失败不影响后续
     let _ = unsafe { SetWindowPos(h, HWND_TOPMOST, rect.l, rect.t, w, h_px, SWP_NOACTIVATE) };
     // 内容撑大后窗口变高了，区域不会自己跟着长，要按新尺寸重裁。
-    apply_round_region(h, w, h_px);
+    super::round_region(h, w, h_px, CORNER_RADIUS);
 }
 
 pub fn hide_result_window() {
@@ -447,5 +413,38 @@ pub fn result_window_focused() -> Option<bool> {
     let h = HWND(raw as *mut c_void);
     // SAFETY: 无指针参数。
     let fg = unsafe { GetForegroundWindow() };
-    Some(fg == h)
+    let focused = fg == h;
+    if !focused {
+        log_foreground_thief(fg);
+    }
+    Some(focused)
+}
+
+/// 丢焦点是结果浮窗自动隐藏的**唯一**判据（`logic::popup_state`），
+/// 所以"它自己莫名其妙关了"这类问题只能从"焦点被谁抢走了"查起。
+/// 只在真判定失焦时记一条，不会刷屏。
+fn log_foreground_thief(fg: HWND) {
+    if fg.0.is_null() {
+        log::debug!("PopResult: lost focus, no foreground window at all");
+        return;
+    }
+    let mut pid = 0u32;
+    let mut buf = [0u16; 64];
+    // SAFETY: fg 非空；窗口可能已经销毁，那样这两个调用只是返回 0，不是 UB。
+    let class = unsafe {
+        // ignore: 要的是 pid（出参），线程 id 用不上
+        let _ = GetWindowThreadProcessId(fg, Some(&mut pid));
+        let n = GetClassNameW(fg, &mut buf);
+        String::from_utf16_lossy(&buf[..n.max(0) as usize])
+    };
+    // 本进程抢走的话就是我们自己的 bug（浮标、设置窗口都在同一个进程里）。
+    let whose = if pid == std::process::id() {
+        " <- 本进程"
+    } else {
+        ""
+    };
+    log::debug!(
+        "PopResult: lost focus to hwnd={:?} pid={pid}{whose} class={class:?}",
+        fg.0
+    );
 }
