@@ -264,7 +264,7 @@ export component TranslatePage {
             SettingRow {
                 z: 2;
                 label: @tr("Enhanced Selection");
-                info: @tr("Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy.");
+                info: @tr("Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and clipboard history may keep a record of this copy.");
                 enabled: TranslateSettings.selection-enabled;
                 Select {
                     options: root.boolean-options;

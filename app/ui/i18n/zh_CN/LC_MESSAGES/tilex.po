@@ -125,8 +125,8 @@ msgstr "生词本"
 msgid "About"
 msgstr "关于"
 
-msgid "Selection translation and screenshot OCR for Windows"
-msgstr "Windows 划词翻译与截图文字识别"
+msgid "Selection translation and screenshot OCR"
+msgstr "划词翻译与截图文字识别"
 
 msgid "Source Code"
 msgstr "源代码"
@@ -365,8 +365,8 @@ msgstr "浮标距离"
 msgid "App Blacklist"
 msgstr "应用黑名单"
 
-msgid "Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and Win+V history may keep a record of this copy."
-msgstr "部分程序（如微信聊天记录）无法直接读取选中文字。开启后，TiLex 会在这些程序中模拟一次复制来获取文字，随后自动恢复剪贴板原有内容。\n注意：剪贴板管理工具和 Win+V 历史中可能会留下这次复制的记录。"
+msgid "Some apps (such as WeChat chat history) do not expose selected text directly. When on, TiLex simulates one copy in these apps to get the text, then restores what was on the clipboard.\nNote: clipboard managers and clipboard history may keep a record of this copy."
+msgstr "部分程序（如微信聊天记录）无法直接读取选中文字。开启后，TiLex 会在这些程序中模拟一次复制来获取文字，随后自动恢复剪贴板原有内容。\n注意：剪贴板管理工具和剪贴板历史中可能会留下这次复制的记录。"
 
 msgid "Text Translation"
 msgstr "文本翻译"
