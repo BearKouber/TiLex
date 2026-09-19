@@ -23,7 +23,7 @@ pub use crate::service::umi::Config as UmiConfig;
 
 /// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
 pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
-pub(crate) const FILE: &str = "config.json";
+const FILE: &str = "config.json";
 /// 写盘超过这个时间记一条 warn（design §2.1：真出现卡顿再挪到后台线程）。
 const SLOW_WRITE: Duration = Duration::from_millis(50);
 
@@ -270,24 +270,20 @@ fn migrate_result_pos(config: &mut Config, raw: &serde_json::Value) {
         .get("screenshot")
         .and_then(|s| s.get("result_pos"))
         .and_then(|v| v.as_str())
-        && let Some(new_pos) = screenshot_pos_to_result_pos(pos)
     {
-        config.translate.result_pos = new_pos.into();
-    }
-}
-
-/// 截图弹窗位置的旧取值 → 新的 `translate.result_pos`。
-/// 0.2.x 早期的 `screenshot.result_pos` 和 0.1.2（Tauri 版）的 `screenshot_pos` 是同一套值，
-/// 所以两条迁移路径（这里和 `migrate::config_from_legacy`）共用这张表，免得改一处漏一处。
-pub(crate) fn screenshot_pos_to_result_pos(pos: &str) -> Option<&'static str> {
-    match pos {
-        "box_bottom_left" | "box_bottom_right" => Some("sel_bottom"),
-        "box_right_top" => Some("sel_right"),
-        "cursor_bottom_right" => Some("cursor_bottom_right"),
-        "cursor_bottom_left" => Some("cursor_bottom_left"),
-        "cursor_top_right" => Some("cursor_top_right"),
-        "cursor_top_left" => Some("cursor_top_left"),
-        _ => None,
+        let mapped = match pos {
+            "box_bottom_left" => Some("sel_bottom"),
+            "box_bottom_right" => Some("sel_bottom"),
+            "box_right_top" => Some("sel_right"),
+            "cursor_bottom_right" => Some("cursor_bottom_right"),
+            "cursor_bottom_left" => Some("cursor_bottom_left"),
+            "cursor_top_right" => Some("cursor_top_right"),
+            "cursor_top_left" => Some("cursor_top_left"),
+            _ => None,
+        };
+        if let Some(new_pos) = mapped {
+            config.translate.result_pos = new_pos.into();
+        }
     }
 }
 
