@@ -55,8 +55,18 @@ jobs:
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           app=target/TiLex.app
           rm -rf "$app"
-          mkdir -p "$app/Contents/MacOS"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp target/release/tilex "$app/Contents/MacOS/tilex"
+          # 图标：源图只有 512×512，所以 iconset 最大做到 512（没有 512@2x）。
+          # 缺了这一步 Finder 显示系统的通用应用图标（朋友 09-19 实测）。
+          iconset=target/TiLex.iconset
+          rm -rf "$iconset" && mkdir -p "$iconset"
+          for spec in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
+                      128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
+                      512:icon_256x256@2x 512:icon_512x512; do
+            sips -z "${spec%%:*}" "${spec%%:*}" icon.png --out "$iconset/${spec##*:}.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o "$app/Contents/Resources/TiLex.icns"
           # LSUIElement：只在菜单栏，不显示 Dock 图标。
           cat > "$app/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -66,6 +76,7 @@ jobs:
             <key>CFBundleIdentifier</key><string>com.tilex.app</string>
             <key>CFBundleName</key><string>TiLex</string>
             <key>CFBundleExecutable</key><string>tilex</string>
+            <key>CFBundleIconFile</key><string>TiLex</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>${version}</string>
             <key>CFBundleVersion</key><string>${version}</string>
