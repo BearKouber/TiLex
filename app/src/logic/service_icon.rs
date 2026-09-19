@@ -150,6 +150,14 @@ pub const ICONS: &[IconInfo] = &[
         letter: "微",
         has_file: true,
     },
+    // Apple Vision 没有可用的品牌图标（苹果 logo 有商标限制），走通用的字母底
+    IconInfo {
+        id: "apple",
+        label: "Apple Vision",
+        color: "#1D1D1F",
+        letter: "A",
+        has_file: false,
+    },
     // Umi-OCR 没有品牌 logo，旧版用的也是通用「文字识别」图标配中性灰（text-default-600）
     IconInfo {
         id: "umi",

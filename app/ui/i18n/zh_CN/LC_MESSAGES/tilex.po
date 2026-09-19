@@ -386,6 +386,9 @@ msgstr "AI 服务"
 msgid "WeChat OCR"
 msgstr "微信 OCR"
 
+msgid "Apple Vision OCR"
+msgstr "Apple Vision 文字识别"
+
 msgid "Please keep at least one translation service"
 msgstr "请至少保留一个翻译服务"
 
@@ -582,6 +585,9 @@ msgstr "文字识别失败，请重试。"
 
 msgid "WeChat {} found ({}ms)"
 msgstr "找到微信 {}（{}ms）"
+
+msgid "{} ready ({}ms)"
+msgstr "{} 就绪（{}ms）"
 
 msgid "All available text recognition services are already installed"
 msgstr "可选的识别服务都已经装上了"

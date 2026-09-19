@@ -89,6 +89,7 @@ pub enum Service {
     Transmart(Instance<NoSettings>),
     Ai(Instance<ai::Config>),
     Wechat(Instance<NoSettings>),
+    Apple(Instance<NoSettings>),
     Umi(Instance<umi::Config>),
     /// 认不出的 kind（例如从新版降级回来）或字段对不上的：原样保留、原样写回，界面不显示。
     /// 不因为认不出就丢掉用户的 API key。
@@ -127,7 +128,10 @@ impl Default for Config {
             selection: Selection::default(),
             screenshot: Screenshot::default(),
             translate_services: vec![Service::Google(Instance::new("google"))],
-            recognize_services: vec![Service::Wechat(Instance::new("wechat"))],
+            recognize_services: vec![match crate::platform::native_ocr_kind() {
+                "apple" => Service::Apple(Instance::new("apple")),
+                _ => Service::Wechat(Instance::new("wechat")),
+            }],
         }
     }
 }
@@ -615,6 +619,29 @@ mod tests {
 
         let out = serde_json::to_value(&config).unwrap();
         assert_eq!(out["recognize_services"][0], umi);
+    }
+
+    #[test]
+    fn apple_service_config_round_trip() {
+        let apple = json!({
+            "id": "apple@1",
+            "kind": "apple",
+            "enabled": true,
+            "extra_field": "preserved"
+        });
+        let input = json!({
+            "recognize_services": [apple]
+        });
+        let config: Config = serde_json::from_value(input).unwrap();
+        let Service::Apple(instance) = &config.recognize_services[0] else {
+            panic!("apple entry not recognized");
+        };
+        assert_eq!(instance.id, "apple@1");
+        assert!(instance.enabled);
+        assert_eq!(instance.extra.get("extra_field"), Some(&json!("preserved")));
+
+        let out = serde_json::to_value(&config).unwrap();
+        assert_eq!(out["recognize_services"][0], apple);
     }
 
     #[test]

@@ -121,12 +121,20 @@ pub fn refresh(page: &SettingsWindow) {
     let umi_info = icons::get_icon("umi");
     page.set_umi_icon_color(parse_hex_color(umi_info.color));
 
+    page.set_recognize_supports_wechat(crate::platform::native_ocr_kind() == "wechat");
+    page.set_recognize_supports_apple(crate::platform::native_ocr_kind() == "apple");
+
     // 识别服务每种只能装一个，装过的就从「添加内置服务」里去掉（旧版 `Recognize/index.jsx` 的 addable）。
     // 翻译服务不受这条限制：同一家可以配多个实例（不同镜像、不同 key）。
     page.set_recognize_has_wechat(
         cfg.recognize_services
             .iter()
             .any(|s| matches!(s, Service::Wechat(_))),
+    );
+    page.set_recognize_has_apple(
+        cfg.recognize_services
+            .iter()
+            .any(|s| matches!(s, Service::Apple(_))),
     );
     page.set_recognize_has_umi(
         cfg.recognize_services
@@ -162,6 +170,7 @@ fn to_rows(services: &[Service]) -> Vec<ServiceRow> {
             let (kind, icon_id, label, enabled) = match service {
                 Service::Google(i) => ("google", "google", &i.label, i.enabled),
                 Service::Wechat(i) => ("wechat", "wechat", &i.label, i.enabled),
+                Service::Apple(i) => ("apple", "apple", &i.label, i.enabled),
                 Service::Umi(i) => ("umi", "umi", &i.label, i.enabled),
                 Service::Bing(i) => ("bing", "bing", &i.label, i.enabled),
                 Service::Deepl(i) => ("deepl", "deepl", &i.label, i.enabled),
@@ -226,6 +235,7 @@ fn handle_set_service_enabled(page: &SettingsWindow, kind: &str, real_idx: i32, 
                 Service::Google(inst) => inst.enabled = enabled,
                 Service::Ai(inst) => inst.enabled = enabled,
                 Service::Wechat(inst) => inst.enabled = enabled,
+                Service::Apple(inst) => inst.enabled = enabled,
                 Service::Umi(inst) => inst.enabled = enabled,
                 Service::Bing(inst) => inst.enabled = enabled,
                 Service::Deepl(inst) => inst.enabled = enabled,
@@ -327,6 +337,13 @@ fn handle_edit_service(page: &SettingsWindow, kind: &str, real_idx: i32) {
                 page.set_draft_label(inst.label.as_str().into());
                 page.set_dialog_kind(kind.into());
                 page.set_dialog_service("wechat".into());
+                page.set_dialog_index(real_idx);
+                page.set_dialog(3);
+            }
+            Service::Apple(inst) => {
+                page.set_draft_label(inst.label.as_str().into());
+                page.set_dialog_kind(kind.into());
+                page.set_dialog_service("apple".into());
                 page.set_dialog_index(real_idx);
                 page.set_dialog(3);
             }
@@ -588,12 +605,14 @@ enum TestTarget {
     Ai(AiConfig),
     Umi(UmiConfig),
     Wechat,
+    Apple,
 }
 
 /// 测试通了之后结果条上写什么：翻译服务回显译文，微信回显探到的版本，其余只报通没通。
 enum TestOk {
     Translated(String),
     WechatVersion(String),
+    AppleEngine(String),
     Reached,
 }
 
@@ -622,6 +641,7 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
         }
         "umi" => TestTarget::Umi(draft_umi_config(&draft)),
         "wechat" => TestTarget::Wechat,
+        "apple" => TestTarget::Apple,
         _ => {
             log::warn!(
                 "Settings: unexpected service kind for test: {}",
@@ -648,6 +668,7 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                 TestTarget::Ai(c) => translate::test_ai(c).map(TestOk::Translated),
                 TestTarget::Umi(c) => recognize::test_umi(c).map(|()| TestOk::Reached),
                 TestTarget::Wechat => recognize::test_wechat().map(TestOk::WechatVersion),
+                TestTarget::Apple => recognize::test_apple().map(TestOk::AppleEngine),
             };
             let elapsed_ms = start.elapsed().as_millis().min(i32::MAX as u128) as i32;
             // ignore: window might be closed during async test
@@ -661,6 +682,9 @@ fn handle_test_service(page: &SettingsWindow, draft: ServiceDraft<'_>) {
                     }
                     Ok(TestOk::WechatVersion(version)) => {
                         page.invoke_show_wechat_test_success(version.as_str().into(), elapsed_ms);
+                    }
+                    Ok(TestOk::AppleEngine(engine)) => {
+                        page.invoke_show_apple_test_success(engine.as_str().into(), elapsed_ms);
                     }
                     Ok(TestOk::Reached) => page.invoke_show_recognize_test_success(elapsed_ms),
                     Err(Error::Http {
@@ -945,6 +969,13 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 inst.label = draft.label.trim().to_string();
                 list.push(Service::Wechat(inst));
             }
+            "apple" => {
+                let mut inst =
+                    config::Instance::<config::NoSettings>::new(&config::new_instance_id("apple"));
+                inst.enabled = false;
+                inst.label = draft.label.trim().to_string();
+                list.push(Service::Apple(inst));
+            }
             "umi" => {
                 let mut inst = config::Instance::<UmiConfig>::new(&config::new_instance_id("umi"));
                 inst.enabled = false;
@@ -990,6 +1021,9 @@ fn apply_draft(list: &mut Vec<Service>, draft: &ServiceDraft<'_>) {
                 inst.label = draft.label.trim().to_string();
             }
             Service::Wechat(inst) => {
+                inst.label = draft.label.trim().to_string();
+            }
+            Service::Apple(inst) => {
                 inst.label = draft.label.trim().to_string();
             }
             Service::Umi(inst) => {
@@ -1110,6 +1144,7 @@ mod tests {
                 Service::Google(inst) => &inst.id,
                 Service::Ai(inst) => &inst.id,
                 Service::Wechat(inst) => &inst.id,
+                Service::Apple(inst) => &inst.id,
                 Service::Umi(inst) => &inst.id,
                 Service::Bing(inst) => &inst.id,
                 Service::Deepl(inst) => &inst.id,
@@ -1248,6 +1283,27 @@ mod tests {
             panic!("expected umi service");
         };
         assert_eq!(inst.config.url, "http://127.0.0.1:2224/api/ocr");
+        assert!(!inst.enabled);
+    }
+
+    #[test]
+    fn apply_draft_apple_service() {
+        let mut list = Vec::new();
+        apply_draft(&mut list, &draft(-1, "apple", "  Apple Vision  ", ""));
+        let Service::Apple(inst) = &list[0] else {
+            panic!("expected apple service");
+        };
+        assert!(!inst.enabled, "新加的识别服务默认关闭");
+        assert!(inst.id.starts_with("apple@"));
+        assert_eq!(inst.label, "Apple Vision");
+
+        // 编辑已有实例：改 label，enabled 不动
+        let edit = draft(0, "apple", "Custom Apple OCR", "");
+        apply_draft(&mut list, &edit);
+        let Service::Apple(inst) = &list[0] else {
+            panic!("expected apple service");
+        };
+        assert_eq!(inst.label, "Custom Apple OCR");
         assert!(!inst.enabled);
     }
 

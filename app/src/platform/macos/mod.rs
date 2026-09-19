@@ -113,3 +113,7 @@ pub fn wechat_ocr(_image: &Path) -> Result<String, Error> {
 pub fn wechat_ocr_status() -> Result<String, Error> {
     Err(Error::Unsupported)
 }
+
+pub fn native_ocr_kind() -> &'static str {
+    "apple"
+}

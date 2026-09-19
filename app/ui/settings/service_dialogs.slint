@@ -382,7 +382,10 @@ export component ServiceDialogs {
     in property <brush> wechat-icon-color;
     in property <brush> umi-icon-color;
     in property <bool> recognize-has-wechat: false;
+    in property <bool> recognize-has-apple: false;
     in property <bool> recognize-has-umi: false;
+    in property <bool> recognize-supports-wechat: false;
+    in property <bool> recognize-supports-apple: false;
     in property <bool> testing: false;
     in property <bool> fetching: false;
     in property <[ModelRow]> ai-models: [];
@@ -618,14 +621,30 @@ export component ServiceDialogs {
             }
         }
 
-        // 识别服务每种只装一个：装过的这里就不再出现，两个都装了只剩一句说明（旧版行为）。
-        if root.dialog-kind == "recognize" && !root.recognize-has-wechat : BuiltinServiceItem {
+        // 识别服务每种只装一个：装过的这里就不再出现，都装了只剩一句说明（旧版行为）。
+        if root.dialog-kind == "recognize" && root.recognize-supports-wechat && !root.recognize-has-wechat : BuiltinServiceItem {
             icon: @image-url("../icons/logo/wechat.svg");
             has-colorize: true;
             colorize: root.wechat-icon-color;
             title: @tr("WeChat OCR");
             clicked => {
                 root.dialog-service = "wechat";
+                root.dialog-index = -1;
+                root.draft-label = "";
+                root.dialog = 3;
+            }
+        }
+
+        // ponytail: 和 Umi 共用通用的「文字识别」图标——苹果 logo 有商标限制，
+        // icons/logo/ 下也没有别的通用图标可用。macOS 上这两项会并排出现、图标相同，
+        // 靠标题区分。在意的话补一张 icons/logo/apple-vision.svg 换掉这一行即可。
+        if root.dialog-kind == "recognize" && root.recognize-supports-apple && !root.recognize-has-apple : BuiltinServiceItem {
+            icon: @image-url("../icons/logo/umi.svg");
+            has-colorize: true;
+            colorize: root.umi-icon-color;
+            title: @tr("Apple Vision OCR");
+            clicked => {
+                root.dialog-service = "apple";
                 root.dialog-index = -1;
                 root.draft-label = "";
                 root.dialog = 3;
@@ -646,7 +665,7 @@ export component ServiceDialogs {
             }
         }
 
-        if root.dialog-kind == "recognize" && root.recognize-has-wechat && root.recognize-has-umi : Text {
+        if root.dialog-kind == "recognize" && (!root.recognize-supports-wechat || root.recognize-has-wechat) && (!root.recognize-supports-apple || root.recognize-has-apple) && root.recognize-has-umi : Text {
             text: @tr("All available text recognition services are already installed");
             font-size: 14px;
             color: Theme.default-500;
@@ -992,6 +1011,21 @@ export component ServiceDialogs {
                             width: 100%;
                             text <=> root.draft-label;
                             placeholder: @tr("WeChat OCR");
+                        }
+                    }
+                }
+
+                if root.dialog-service == "apple" : VerticalLayout {
+                    spacing: 0px;
+
+                    SettingRow {
+                        label: @tr("Name");
+                        control-width: cfg-modal.content-width * 50%;
+
+                        TextField {
+                            width: 100%;
+                            text <=> root.draft-label;
+                            placeholder: @tr("Apple Vision OCR");
                         }
                     }
                 }

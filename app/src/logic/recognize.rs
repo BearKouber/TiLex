@@ -15,6 +15,7 @@ use crate::service::{self, umi};
 fn first_enabled(services: &[Service]) -> Option<&Service> {
     services.iter().find(|s| match s {
         Service::Wechat(i) => i.enabled,
+        Service::Apple(i) => i.enabled,
         Service::Umi(i) => i.enabled,
         _ => false,
     })
@@ -23,6 +24,7 @@ fn first_enabled(services: &[Service]) -> Option<&Service> {
 fn service_name(service: &Service) -> Option<&'static str> {
     match service {
         Service::Wechat(_) => Some("wechat"),
+        Service::Apple(_) => Some("apple"),
         Service::Umi(_) => Some("umi"),
         _ => None,
     }
@@ -46,6 +48,7 @@ pub fn run(image: &Path) -> Result<String, Error> {
     let name = service_name(service).unwrap_or("unknown");
     let result = match service {
         Service::Wechat(_) => platform::wechat_ocr(image),
+        Service::Apple(_) => platform::apple_ocr(image),
         Service::Umi(i) => service::umi::recognize(&i.config, image),
         _ => return Err(Error::NotConfigured("recognize_services")),
     };
@@ -101,11 +104,25 @@ pub fn test_wechat() -> Result<String, Error> {
     platform::wechat_ocr_status().inspect_err(|e| log::warn!("Recognize: wechat test failed: {e}"))
 }
 
+/// Apple Vision 的「测试连接」：探 sidecar 在不在，成功给引擎名。很快，但还是别在 UI 线程上调（R-5）。
+pub fn test_apple() -> Result<String, Error> {
+    platform::apple_ocr_status().inspect_err(|e| log::warn!("Recognize: apple test failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::logic::config::Instance;
     use serde_json::json;
+
+    #[test]
+    fn first_enabled_picks_apple_when_enabled() {
+        let apple = Service::Apple(Instance::new("apple"));
+        let umi = Service::Umi(Instance::new("umi"));
+        let services = vec![apple.clone(), umi];
+        assert_eq!(first_enabled(&services), Some(&apple));
+        assert_eq!(service_name(&apple), Some("apple"));
+    }
 
     #[test]
     fn first_enabled_picks_first_when_enabled() {

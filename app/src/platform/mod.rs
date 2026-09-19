@@ -283,6 +283,13 @@ pub fn apple_ocr_status() -> Result<String, Error> {
     imp::apple_ocr_status()
 }
 
+/// 本平台自带的 OCR 服务 kind：写进默认配置，也决定「添加服务」对话框里显示哪一项。
+/// Windows 是微信 OCR（`"wechat"`），macOS 是 Apple Vision（`"apple"`）。
+/// 纯常量，不做任何 I/O，启动时可以随便调。
+pub fn native_ocr_kind() -> &'static str {
+    imp::native_ocr_kind()
+}
+
 /// 系统自带的交互式区域截图：系统自己画选区 UI，裁好的 PNG 直接落到 `out`。
 /// macOS 走 `screencapture -i -s`；Windows 没有，返回 `Error::Unsupported`，
 /// 调用方退回自绘遮罩那条路（`capture_screen` + overlay + `crop_region`）。
