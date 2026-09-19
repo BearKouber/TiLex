@@ -16,8 +16,77 @@ const SOFT_BREAK: &str = "\n";
 /// （HTML，Typora / GitHub 都认），别的地方仍然走 [`SOFT_BREAK`]。
 const CELL_BREAK: &str = "<br>";
 
+struct Labels {
+    title: &'static str,
+    exported: &'static str, // 带三个占位：时间、单词数、长难句数
+    words: &'static str,
+    sentences: &'static str,
+    uncategorized: &'static str,
+    examples: &'static str,
+    notes: &'static str,
+    pos_table_header: &'static str,
+    collocations: &'static str,
+    from: &'static str,
+    difficulty: &'static str,
+    main_clause: &'static str,
+    modifiers: &'static str,
+    nuance: &'static str,
+    key_terms: &'static str,
+    vocabulary: &'static str,
+}
+
+const LABELS_ZH: Labels = Labels {
+    title: "# 我的生词本",
+    exported: "> 导出于 {} · 单词 {} · 长难句 {}",
+    words: "## 单词",
+    sentences: "## 长难句",
+    uncategorized: "### 未分类",
+    examples: "**例句**",
+    notes: "**补充说明**",
+    pos_table_header: "| 词性 | 详细释义 |",
+    collocations: "**常用搭配**：",
+    from: "出自：",
+    difficulty: "难度：",
+    main_clause: "**核心句型**：",
+    modifiers: "**修饰成分**：",
+    nuance: "**语境说明**：",
+    key_terms: "**重点术语**：",
+    vocabulary: "生词：",
+};
+
+const LABELS_EN: Labels = Labels {
+    title: "# My Wordbook",
+    exported: "> Exported {} · Words {} · Sentences {}",
+    words: "## Words",
+    sentences: "## Sentences",
+    uncategorized: "### Uncategorized",
+    examples: "**Examples**",
+    notes: "**Notes**",
+    pos_table_header: "| POS | Definition |",
+    collocations: "**Collocations**: ",
+    from: "From: ",
+    difficulty: "Difficulty: ",
+    main_clause: "**Main clause**: ",
+    modifiers: "**Clauses & modifiers**: ",
+    nuance: "**Nuance**: ",
+    key_terms: "**Key vocabulary**: ",
+    vocabulary: "Vocabulary: ",
+};
+
+impl Labels {
+    fn for_lang(lang: &str) -> &'static Self {
+        if lang == "en" { &LABELS_EN } else { &LABELS_ZH }
+    }
+}
+
 /// 生词本导出成 Markdown。`now` 注入，不读时钟、不写盘、不改入参。
 pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
+    let lang = crate::logic::config::snapshot().general.language;
+    build_markdown_for_lang(entries, now, &lang)
+}
+
+fn build_markdown_for_lang(entries: &[Entry], now: DateTime<Local>, lang: &str) -> String {
+    let labels = Labels::for_lang(lang);
     let mut words: Vec<WordItem> = entries
         .iter()
         .filter(|e| e.kind == Kind::Word)
@@ -88,19 +157,18 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
     });
 
     let mut out: Vec<String> = vec![
-        "# 我的生词本".to_owned(),
+        labels.title.to_owned(),
         String::new(),
-        format!(
-            "> 导出于 {} · 单词 {} · 长难句 {}",
-            now.format("%Y-%m-%d %H:%M"),
-            words.len(),
-            sentences.len()
-        ),
+        labels
+            .exported
+            .replacen("{}", &now.format("%Y-%m-%d %H:%M").to_string(), 1)
+            .replacen("{}", &words.len().to_string(), 1)
+            .replacen("{}", &sentences.len().to_string(), 1),
         String::new(),
     ];
 
     if !words.is_empty() {
-        out.push("## 单词".to_owned());
+        out.push(labels.words.to_owned());
         out.push(String::new());
         let mut current_letter = '\0';
         for w in &words {
@@ -120,7 +188,7 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
             ));
             out.push(String::new());
             let view = entry_display(w.entry.detail.as_ref(), &w.entry.translation);
-            for block in word_blocks(&view, w.entry, None) {
+            for block in word_blocks(&view, w.entry, None, labels) {
                 out.push(block);
                 out.push(String::new());
             }
@@ -128,10 +196,8 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
     }
 
     if !sentences.is_empty() {
-        out.push("## 长难句".to_owned());
+        out.push(labels.sentences.to_owned());
         out.push(String::new());
-        // 界面语言取一次：`Category::name()` 每次都要克隆一整份配置（含所有服务），别放在循环里。
-        let lang = crate::logic::config::snapshot().general.language;
         let mut current_cat_index: Option<usize> = None;
         for (index, s) in sentences.iter().enumerate() {
             if current_cat_index != Some(s.category_index) {
@@ -140,12 +206,12 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
                     let cat = &CATEGORIES[s.category_index];
                     format!(
                         "### {} · {} {}",
-                        cat.lang_for(&lang),
+                        cat.lang_for(lang),
                         cat.no,
-                        cat.name_for(&lang)
+                        cat.name_for(lang)
                     )
                 } else {
-                    "### 未分类".to_owned()
+                    labels.uncategorized.to_owned()
                 };
                 out.push(title);
                 out.push(String::new());
@@ -169,7 +235,7 @@ pub fn build_markdown(entries: &[Entry], now: DateTime<Local>) -> String {
             out.push(format!("#### {}. {}", index + 1, italic(&summary)));
             out.push(String::new());
 
-            for block in sentence_blocks(&s.view, s.entry, &[]) {
+            for block in sentence_blocks(&s.view, s.entry, &[], labels) {
                 out.push(block);
                 out.push(String::new());
             }
@@ -379,7 +445,7 @@ fn squash_whitespace(s: &str) -> String {
     out
 }
 
-fn example_blocks(examples: &[Example]) -> Vec<String> {
+fn example_blocks(examples: &[Example], labels: &Labels) -> Vec<String> {
     if examples.is_empty() {
         return Vec::new();
     }
@@ -399,22 +465,27 @@ fn example_blocks(examples: &[Example]) -> Vec<String> {
             format!("{prefix}{indented}")
         })
         .collect();
-    vec!["**例句**".to_owned(), items.join("\n")]
+    vec![labels.examples.to_owned(), items.join("\n")]
 }
 
-fn note_blocks(notes: &[String]) -> Vec<String> {
+fn note_blocks(notes: &[String], labels: &Labels) -> Vec<String> {
     if notes.is_empty() {
         return Vec::new();
     }
     let mut blocks = Vec::with_capacity(notes.len() + 1);
-    blocks.push("**补充说明**".to_owned());
+    blocks.push(labels.notes.to_owned());
     for note in notes {
         blocks.push(markdown_text(note));
     }
     blocks
 }
 
-fn word_blocks(view: &EntryDisplay, w: &Entry, from_text: Option<&str>) -> Vec<String> {
+fn word_blocks(
+    view: &EntryDisplay,
+    w: &Entry,
+    from_text: Option<&str>,
+    labels: &Labels,
+) -> Vec<String> {
     let mut blocks = Vec::new();
 
     let symbols: Vec<String> = view
@@ -434,7 +505,7 @@ fn word_blocks(view: &EntryDisplay, w: &Entry, from_text: Option<&str>) -> Vec<S
 
     if !view.explanations.is_empty() {
         let mut rows = vec![
-            "| 词性 | 详细释义 |".to_owned(),
+            labels.pos_table_header.to_owned(),
             "| :---: | :--- |".to_owned(),
         ];
         for exp in &view.explanations {
@@ -486,20 +557,25 @@ fn word_blocks(view: &EntryDisplay, w: &Entry, from_text: Option<&str>) -> Vec<S
             .map(|a| markdown_text(a))
             .collect::<Vec<_>>()
             .join(" · ");
-        blocks.push(quote(&format!("**常用搭配**：{joined}")));
+        blocks.push(quote(&format!("{}{joined}", labels.collocations)));
     }
 
-    blocks.extend(example_blocks(&view.examples));
-    blocks.extend(note_blocks(&view.notes));
+    blocks.extend(example_blocks(&view.examples, labels));
+    blocks.extend(note_blocks(&view.notes, labels));
 
     if let Some(from) = from_text.filter(|s| !s.trim().is_empty()) {
-        blocks.push(format!("出自：{}", markdown_text(from)));
+        blocks.push(format!("{}{}", labels.from, markdown_text(from)));
     }
 
     blocks
 }
 
-fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<String> {
+fn sentence_blocks(
+    view: &EntryDisplay,
+    s: &Entry,
+    children: &[&Entry],
+    labels: &Labels,
+) -> Vec<String> {
     let mut blocks = Vec::new();
 
     if let Some(diff) = view.difficulty.filter(|&d| d > 0) {
@@ -509,7 +585,7 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
         } else {
             String::new()
         };
-        blocks.push(format!("难度：{stars}{reason}"));
+        blocks.push(format!("{}{stars}{reason}", labels.difficulty));
     }
 
     if !s.text.trim().is_empty() {
@@ -536,11 +612,12 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
             } else {
                 format!("`{code}`")
             };
-            blocks.push(format!("**核心句型**：{trunk}"));
+            blocks.push(format!("{}{trunk}", labels.main_clause));
         }
         if !syntax.clauses_and_modifiers.trim().is_empty() {
             blocks.push(format!(
-                "**修饰成分**：{}",
+                "{}{}",
+                labels.modifiers,
                 markdown_text(&syntax.clauses_and_modifiers)
             ));
         }
@@ -548,7 +625,8 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
 
     if !view.nuance_note.trim().is_empty() {
         blocks.push(format!(
-            "**语境说明**：{}",
+            "{}{}",
+            labels.nuance,
             markdown_text(&view.nuance_note)
         ));
     }
@@ -566,11 +644,11 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
             })
             .collect::<Vec<_>>()
             .join(" · ");
-        blocks.push(format!("**重点术语**：{terms}"));
+        blocks.push(format!("{}{terms}", labels.key_terms));
     }
 
-    blocks.extend(example_blocks(&view.examples));
-    blocks.extend(note_blocks(&view.notes));
+    blocks.extend(example_blocks(&view.examples, labels));
+    blocks.extend(note_blocks(&view.notes, labels));
 
     if !children.is_empty() {
         let words = children
@@ -578,7 +656,7 @@ fn sentence_blocks(view: &EntryDisplay, s: &Entry, children: &[&Entry]) -> Vec<S
             .map(|w| markdown_text(&w.text))
             .collect::<Vec<_>>()
             .join(" · ");
-        blocks.push(format!("生词：{words}"));
+        blocks.push(format!("{}{words}", labels.vocabulary));
     }
 
     blocks
@@ -1281,5 +1359,155 @@ mod tests {
         // Rendered text contains all expected content
         assert!(text.contains("跟随；听从"));
         assert!(text.contains("低延迟至关重要。"));
+    }
+
+    #[test]
+    fn test_8_english_export() {
+        let word_detail = json!({
+            "schemaVersion": 1,
+            "kind": "word",
+            "pronunciations": [{"symbol": "/ˈfɑːloʊ/"}],
+            "explanations": [
+                {"trait": "v.", "explains": ["to follow"]}
+            ],
+            "associations": ["follow up"],
+            "examples": [
+                {"text": "Follow the instructions.", "translation": "按照说明操作。"}
+            ],
+            "notes": ["Can be used with direct object."]
+        });
+
+        let sentence_detail = json!({
+            "schemaVersion": 1,
+            "kind": "sentence",
+            "category": "EN01",
+            "difficulty": 2,
+            "difficulty_reason": "relative clause",
+            "translation": "网络延迟影响团队间的有效协作。",
+            "syntax_breakdown": {
+                "main_clause": "Network latency impacts collaboration",
+                "clauses_and_modifiers": "between teams modifies collaboration"
+            },
+            "nuance_note": "impact is transitive here.",
+            "key_vocabulary": [
+                {"word": "latency", "meaning_in_context": "delay"}
+            ],
+            "examples": [
+                {"text": "Low latency is critical.", "translation": "低延迟至关重要。"}
+            ],
+            "notes": ["Note difference between latency and delay."]
+        });
+
+        let entries = vec![
+            Entry {
+                id: 1,
+                kind: Kind::Word,
+                text: "follow".into(),
+                translation: "跟随".into(),
+                detail: Some(word_detail),
+                service: "ai".into(),
+                created_at: 100,
+            },
+            Entry {
+                id: 2,
+                kind: Kind::Sentence,
+                text: "Network latency impacts collaboration between teams.".into(),
+                translation: "网络延迟影响协作。".into(),
+                detail: Some(sentence_detail),
+                service: "ai".into(),
+                created_at: 200,
+            },
+            Entry {
+                id: 3,
+                kind: Kind::Sentence,
+                text: "Uncategorized sentence.".into(),
+                translation: "未分类。".into(),
+                detail: None,
+                service: "google".into(),
+                created_at: 50,
+            },
+        ];
+
+        let md_en = build_markdown_for_lang(&entries, fixed_now(), "en");
+
+        // Document-level headings and stats
+        assert!(
+            md_en.starts_with(
+                "# My Wordbook\n\n> Exported 2026-09-18 14:30 · Words 1 · Sentences 2\n"
+            )
+        );
+        assert!(md_en.contains("## Words"));
+        assert!(md_en.contains("## Sentences"));
+
+        // Categories (bilingual table in result.rs: EN01 -> "English · 01 Relative clauses")
+        assert!(md_en.contains("### English · 01 Relative clauses"));
+        assert!(md_en.contains("### Uncategorized"));
+
+        // Word block labels
+        assert!(md_en.contains("| POS | Definition |"));
+        assert!(md_en.contains("> **Collocations**: follow up"));
+        assert!(
+            md_en.contains("**Examples**\n\n1. Follow the instructions.  \n   *按照说明操作。*")
+        );
+        assert!(md_en.contains("**Notes**\n\nCan be used with direct object."));
+
+        // Sentence block labels
+        assert!(md_en.contains("Difficulty: ★★ relative clause"));
+        assert!(md_en.contains("**Main clause**: `Network latency impacts collaboration`"));
+        assert!(md_en.contains("**Clauses & modifiers**: between teams modifies collaboration"));
+        assert!(md_en.contains("**Nuance**: impact is transitive here."));
+        assert!(md_en.contains("**Key vocabulary**: `latency (delay)`"));
+
+        // Direct test for from and vocabulary labels
+        let labels_en = Labels::for_lang("en");
+        let word_view = entry_display(entries[0].detail.as_ref(), &entries[0].translation);
+        let word_blocks_out = word_blocks(&word_view, &entries[0], Some("Book Title"), labels_en);
+        assert!(word_blocks_out.contains(&"From: Book Title".to_string()));
+
+        let sentence_view = entry_display(entries[1].detail.as_ref(), &entries[1].translation);
+        let child_entry = Entry {
+            id: 10,
+            kind: Kind::Word,
+            text: "latency".into(),
+            translation: "延迟".into(),
+            detail: None,
+            service: "ai".into(),
+            created_at: 150,
+        };
+        let sentence_blocks_out =
+            sentence_blocks(&sentence_view, &entries[1], &[&child_entry], labels_en);
+        assert!(sentence_blocks_out.contains(&"Vocabulary: latency".to_string()));
+
+        // Verify none of the Chinese labels leak into the English output
+        for label in [
+            "# 我的生词本",
+            "> 导出于",
+            "## 单词",
+            "## 长难句",
+            "### 未分类",
+            "### 英文 · 01 定语从句类",
+            "| 词性 | 详细释义 |",
+            "**常用搭配**：",
+            "出自：",
+            "**例句**",
+            "**补充说明**",
+            "难度：",
+            "**核心句型**：",
+            "**修饰成分**：",
+            "**语境说明**：",
+            "**重点术语**：",
+            "生词：",
+        ] {
+            assert!(
+                !md_en.contains(label),
+                "unexpected Chinese label '{label}' in English export"
+            );
+        }
+
+        // Chinese export comparison
+        assert_eq!(
+            build_markdown(&entries, fixed_now()),
+            build_markdown_for_lang(&entries, fixed_now(), "zh_CN")
+        );
     }
 }

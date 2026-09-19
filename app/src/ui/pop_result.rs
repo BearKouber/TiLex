@@ -432,7 +432,8 @@ fn on_translate_update(id: u64, update: Update) {
 
     match update {
         Update::Detected(code) => {
-            let badge = lang_badge(code);
+            let lang = crate::logic::config::snapshot().general.language;
+            let badge = lang_badge(code, &lang);
             POP_RESULT.with(|r| {
                 if let Some(ui) = r.borrow().as_ref() {
                     ui.set_lang_badge(badge.into());
@@ -608,22 +609,30 @@ fn handle_save(ui: &PopResult, row: i32) {
 }
 
 /// 语种识别代码转徽标文字。
-/// `zh_cn`→中、`zh_tw`→繁、`en`→英、`ja`→日、`ko`→韩；
+/// 中文界面：`zh_cn`→中、`zh_tw`→繁、`en`→英、`ja`→日、`ko`→韩；
+/// 英文界面：`zh_cn`→ZH、`zh_tw`→TW、`en`→EN、`ja`→JA、`ko`→KO；
 /// 其他取 `_` 前的部分转大写（`fr`→FR、`pt_pt`→PT）；`None`（检测失败）→ 空，不伪造徽标。
-fn lang_badge(code: Option<&str>) -> String {
-    match code {
-        None => String::new(),
-        Some("zh_cn") => "中".into(),
-        Some("zh_tw") => "繁".into(),
-        Some("en") => "英".into(),
-        Some("ja") => "日".into(),
-        Some("ko") => "韩".into(),
-        Some(other) => other
-            .split('_')
-            .next()
-            .unwrap_or(other)
-            .to_ascii_uppercase(),
+fn lang_badge(code: Option<&str>, ui_lang: &str) -> String {
+    let Some(code) = code else {
+        return String::new();
+    };
+
+    // 英文界面只有 zh_tw 要单列：通用分支会把它和 zh_cn 一样给成 ZH，繁简就分不开了。
+    if ui_lang == "en" && code == "zh_tw" {
+        return "TW".into();
     }
+    if ui_lang != "en" {
+        match code {
+            "zh_cn" => return "中".into(),
+            "zh_tw" => return "繁".into(),
+            "en" => return "英".into(),
+            "ja" => return "日".into(),
+            "ko" => return "韩".into(),
+            _ => {}
+        }
+    }
+
+    code.split('_').next().unwrap_or(code).to_ascii_uppercase()
 }
 
 #[cfg(test)]
@@ -768,13 +777,25 @@ mod tests {
 
     #[test]
     fn lang_badge_mapping() {
-        assert_eq!(lang_badge(Some("zh_cn")), "中");
-        assert_eq!(lang_badge(Some("zh_tw")), "繁");
-        assert_eq!(lang_badge(Some("en")), "英");
-        assert_eq!(lang_badge(Some("ja")), "日");
-        assert_eq!(lang_badge(Some("ko")), "韩");
-        assert_eq!(lang_badge(Some("fr")), "FR");
-        assert_eq!(lang_badge(Some("pt_pt")), "PT");
-        assert_eq!(lang_badge(None), "");
+        assert_eq!(lang_badge(Some("zh_cn"), "zh_CN"), "中");
+        assert_eq!(lang_badge(Some("zh_tw"), "zh_CN"), "繁");
+        assert_eq!(lang_badge(Some("en"), "zh_CN"), "英");
+        assert_eq!(lang_badge(Some("ja"), "zh_CN"), "日");
+        assert_eq!(lang_badge(Some("ko"), "zh_CN"), "韩");
+        assert_eq!(lang_badge(Some("fr"), "zh_CN"), "FR");
+        assert_eq!(lang_badge(Some("pt_pt"), "zh_CN"), "PT");
+        assert_eq!(lang_badge(None, "zh_CN"), "");
+    }
+
+    #[test]
+    fn lang_badge_mapping_en() {
+        assert_eq!(lang_badge(Some("zh_cn"), "en"), "ZH");
+        assert_eq!(lang_badge(Some("zh_tw"), "en"), "TW");
+        assert_eq!(lang_badge(Some("en"), "en"), "EN");
+        assert_eq!(lang_badge(Some("ja"), "en"), "JA");
+        assert_eq!(lang_badge(Some("ko"), "en"), "KO");
+        assert_eq!(lang_badge(Some("fr"), "en"), "FR");
+        assert_eq!(lang_badge(Some("pt_pt"), "en"), "PT");
+        assert_eq!(lang_badge(None, "en"), "");
     }
 }
