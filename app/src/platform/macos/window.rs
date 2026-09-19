@@ -2,7 +2,6 @@
 //! 负责浮标、结果浮窗、截图遮罩三个窗口的 attach / 显示 / 隐藏 / 定位，
 //! 以及桌面光标与屏幕工作区查询。
 
-use core::ptr::NonNull;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
@@ -253,16 +252,10 @@ pub fn hide_result_window() {
 
 /// 查询结果浮窗当前是否拥有系统前台焦点（UI 线程或计时器调）。
 pub fn result_window_focused() -> Option<bool> {
-    if RESULT_WINDOW.load(Ordering::SeqCst).is_null() {
-        return None;
-    }
-    // 不在主线程时返回 None（「查不到」），不是 Some(false)。报成失焦会让调用方把浮窗关掉。
-    let Some(mtm) = MainThreadMarker::new() else {
-        return None;
-    };
-    let Some(w) = load_window(&RESULT_WINDOW, mtm) else {
-        return None;
-    };
+    // 拿不到（没 attach、或不在主线程）一律 None＝「查不到」，不是 Some(false)。
+    // 报成失焦会让调用方把浮窗关掉。
+    let mtm = MainThreadMarker::new()?;
+    let w = load_window(&RESULT_WINDOW, mtm)?;
     let app = NSApplication::sharedApplication(mtm);
     Some(app.isActive() && w.isKeyWindow())
 }
