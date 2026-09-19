@@ -4,8 +4,9 @@
 //! UIA 不碰剪贴板也不碰键盘。
 //!
 //! UIA 读不到时还有两次机会，按顺序：
-//! 1. 增强选中识别（`force_copy`，默认关）：两条 UIA 链上都没有 TextPattern 时（自己画文字的程序，
-//!    如微信聊天气泡）模拟一次 Ctrl+C 再恢复剪贴板。条件见 force_copy.rs。
+//! 1. 增强选中识别（`force_copy`）：两条 UIA 链上**都没有元素报出空选区**时（自己画文字的程序，
+//!    如微信聊天气泡；或者报不了选区的元素，如浏览器内置 PDF 阅读器）
+//!    模拟一次 Ctrl+C 再恢复剪贴板。条件见 force_copy.rs。
 //! 2. 有的程序（终端、开了"选中即复制"的）自己把选区放进剪贴板。我们监听剪贴板，
 //!    只认紧跟在选中手势之后的那一次更新。
 //!
@@ -603,8 +604,8 @@ impl Worker {
             return;
         }
         self.candidates.begin(gesture);
-        let (mut text, saw_text_pattern) = uia_selected_text(gesture);
-        if text.is_empty() && self.force_copy_allowed(gesture, saw_text_pattern) {
+        let (mut text, saw_empty_selection) = uia_selected_text(gesture);
+        if text.is_empty() && self.force_copy_allowed(gesture, saw_empty_selection) {
             text = force_copy::copy_selection(|| gesture.is_current(self.read_context()));
         }
         // 模拟复制的文字按 UIA 答案交付：恢复剪贴板已经改了序号，剪贴板那条路会拒掉它。
@@ -622,12 +623,12 @@ impl Worker {
     }
 
     /// 先读开关：关着时不做任何别的查询。
-    fn force_copy_allowed(&self, gesture: Gesture, saw_text_pattern: bool) -> bool {
+    fn force_copy_allowed(&self, gesture: Gesture, saw_empty_selection: bool) -> bool {
         let enabled = (self.settings)().force_copy;
         enabled
             && force_copy::eligible(&force_copy::Inputs {
                 enabled,
-                saw_text_pattern,
+                saw_empty_selection,
                 // SAFETY: 无参数。
                 clipboard_changed: unsafe { GetClipboardSequenceNumber() }
                     != gesture.clipboard_sequence,
@@ -788,7 +789,11 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
         return (String::new(), true);
     };
     // 取不到或不在前台窗口树里的链算"没有 TextPattern"。
-    let mut saw_text_pattern = false;
+    // 返回值的这一位是**「有元素报出了空选区」**，不是「见过 TextPattern」：
+    // 报不了选区的元素（PDF 文档）不置它，否则增强选中识别会被自己的准入条件挡死（P13）。
+    let mut saw_empty_selection = false;
+    // 只为日志：分得清"空选区"和"报不了选区"，PDF 那类问题才有现场证据。
+    let mut saw_unreported = false;
     // 文字叶子不一定实现 TextPattern：选区常常归外层文档。Raw view 保留了被过滤掉的包装元素。
     // 手势位置优先，免得读到一个无关的、有焦点的输入框。
     let point = POINT {
@@ -830,15 +835,17 @@ fn read_selection(auto: &IUIAutomation, gesture: Gesture) -> (String, bool) {
                     );
                     return (text, true);
                 }
-                UiaRead::EmptySelection => saw_text_pattern = true,
+                UiaRead::EmptySelection => saw_empty_selection = true,
+                UiaRead::NoSelectionReported => saw_unreported = true,
                 UiaRead::NoPattern => {}
             }
         }
     }
     log::debug!(
-        "PopButton: UIA no selected text in foreground ancestor chains (TextPattern seen: {saw_text_pattern})"
+        "PopButton: UIA no selected text in foreground ancestor chains \
+         (empty selection: {saw_empty_selection}, cannot report selection: {saw_unreported})"
     );
-    (String::new(), saw_text_pattern)
+    (String::new(), saw_empty_selection)
 }
 
 /// 读选区之前先验证整条链：只比进程号会把同一程序的其他窗口也放进来。
@@ -863,9 +870,17 @@ fn scoped_ancestors<T>(
 }
 
 /// 有 TextPattern 但什么都没选中，本身就是答案（"没选中"），和"根本报不了选区"的元素不一样。
+/// 这两者的区别决定了要不要放行模拟复制：
+///
+/// - `EmptySelection`：元素报出了选区，只是里面没有文字。在 Word / 普通网页里随手拖一下就是这种，
+///   **必须挡住**模拟复制，不然用户没选中任何东西也会被发一次 Ctrl+C。
+/// - `NoSelectionReported`：有 TextPattern，但 `GetSelection` 失败、或者一个 range 都没有。
+///   Chromium 内置 PDF 阅读器的文档元素就是这种 —— 选区活在 PDFium 那一层，UIA 这边报不出来。
+///   这时挡住模拟复制等于把增强选中识别自己锁死（P13 的根因）。
 enum UiaRead {
     Text(String),
     EmptySelection,
+    NoSelectionReported,
     NoPattern,
 }
 
@@ -876,22 +891,39 @@ fn selection_of(element: &IUIAutomationElement) -> UiaRead {
     else {
         return UiaRead::NoPattern;
     };
-    match selected_text(&pattern) {
-        Some(text) => UiaRead::Text(text),
-        None => UiaRead::EmptySelection,
-    }
+    selected_text(&pattern)
 }
 
-fn selected_text(pattern: &IUIAutomationTextPattern) -> Option<String> {
+/// 只有「一个 range 都报不出来」才算 `NoSelectionReported`。
+/// range 存在但读文字失败算 `EmptySelection` —— 读不出来时宁可保守挡住模拟复制。
+fn selected_text(pattern: &IUIAutomationTextPattern) -> UiaRead {
     // SAFETY: COM 调用，pattern 活着；下标在 Length 以内。
     unsafe {
-        let ranges = pattern.GetSelection().ok()?;
+        let Ok(ranges) = pattern.GetSelection() else {
+            return UiaRead::NoSelectionReported;
+        };
+        let Ok(count) = ranges.Length() else {
+            return UiaRead::NoSelectionReported;
+        };
+        if count == 0 {
+            return UiaRead::NoSelectionReported;
+        }
         let mut out = String::new();
-        for i in 0..ranges.Length().ok()? {
-            out.push_str(&ranges.GetElement(i).ok()?.GetText(-1).ok()?.to_string());
+        for i in 0..count {
+            let Ok(range) = ranges.GetElement(i) else {
+                return UiaRead::EmptySelection;
+            };
+            let Ok(text) = range.GetText(-1) else {
+                return UiaRead::EmptySelection;
+            };
+            out.push_str(&text.to_string());
         }
         let out = out.trim();
-        (!out.is_empty()).then(|| out.to_string())
+        if out.is_empty() {
+            UiaRead::EmptySelection
+        } else {
+            UiaRead::Text(out.to_owned())
+        }
     }
 }
 

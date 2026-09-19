@@ -1,5 +1,5 @@
-//! 增强选中识别（`selection.force_copy`，默认关）。有的程序自己画文字，UIA 读不到选区
-//! （微信 4.x 聊天气泡就是起因）。开关打开、且两条 UIA 链上都没有 TextPattern 时，
+//! 增强选中识别（`selection.force_copy`）。有的程序自己画文字，UIA 读不到选区
+//! （微信 4.x 聊天气泡就是起因）。开关打开、且两条 UIA 链上都没有元素**报出空选区**时，
 //! 模拟一次 Ctrl+C 读出文字，再把原来的剪贴板写回去。契约见 platform-windows.md。
 //!
 //! 文字当 UIA 答案交给状态机，不当剪贴板候选：恢复会改剪贴板序号，剪贴板那条路复核序号时会把浮标立刻收回。
@@ -41,7 +41,7 @@ const SETTLE: Duration = Duration::from_millis(30);
 
 pub struct Inputs {
     pub enabled: bool,
-    pub saw_text_pattern: bool,
+    pub saw_empty_selection: bool,
     pub clipboard_changed: bool,
     pub modifiers_down: bool,
     /// 前台进程在 NO_FORCE_COPY 里
@@ -49,8 +49,15 @@ pub struct Inputs {
 }
 
 pub fn eligible(i: &Inputs) -> bool {
-    // 有 TextPattern 但选区空 = 真的没选中。剪贴板变了 = 程序选中即复制，监听那边会处理。
-    i.enabled && !i.saw_text_pattern && !i.clipboard_changed && !i.modifiers_down && !i.excluded_app
+    // 报出了空选区 = 真的没选中（Word / 普通网页里随手拖一下），不许发 Ctrl+C。
+    // 注意不是「见过 TextPattern」：浏览器内置 PDF 阅读器有 TextPattern 但报不了选区，
+    // 那种要放行，否则增强选中识别在 PDF 里等于没有（P13）。
+    // 剪贴板变了 = 程序选中即复制，监听那边会处理。
+    i.enabled
+        && !i.saw_empty_selection
+        && !i.clipboard_changed
+        && !i.modifiers_down
+        && !i.excluded_app
 }
 
 /// GDI 句柄不是 HGLOBAL，不能按字节拷（CF_BITMAP 会由系统从 CF_DIB 补回）；私有格式带着程序自己的句柄；
@@ -337,7 +344,7 @@ mod tests {
     fn inputs() -> Inputs {
         Inputs {
             enabled: true,
-            saw_text_pattern: false,
+            saw_empty_selection: false,
             clipboard_changed: false,
             modifiers_down: false,
             excluded_app: false,
@@ -353,7 +360,7 @@ mod tests {
                 ..inputs()
             },
             Inputs {
-                saw_text_pattern: true,
+                saw_empty_selection: true,
                 ..inputs()
             },
             Inputs {

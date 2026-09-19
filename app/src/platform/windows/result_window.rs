@@ -367,26 +367,28 @@ pub fn hide_result_window() {
     let Some(h) = result_hwnd() else {
         return;
     };
+    // **先判断再隐藏，顺序不能换。** `SW_HIDE` 掉前台窗口时，系统会立刻另挑一个前台窗口，
+    // 而它优先挑**本进程/本线程**的其他顶层窗口 —— 也就是设置窗口。
+    // 原来的写法是先 `ShowWindow(SW_HIDE)` 再问 `GetForegroundWindow() == h`：
+    // 那时前台早就被系统换成设置窗口了，判断永远为假，于是走 else 分支把记录清掉、
+    // 焦点一次都没归还过。用户看到的就是"关掉译文，设置页自己弹出来"。
+    // SAFETY: 无指针参数。
+    let was_foreground = unsafe { GetForegroundWindow() } == h;
+    let prev = PREV_FOREGROUND.swap(0, Ordering::SeqCst);
+    // 焦点先还回去，再隐藏：系统不需要另挑前台，设置窗口也就没有机会被顶上来。
+    // 失焦隐藏时焦点已经在别处，不归还。
+    if was_foreground && prev != 0 {
+        let prev_h = HWND(prev as *mut c_void);
+        // SAFETY: 尝试把前台归还给之前记录的窗口；此刻前台还是我们自己的窗口，调用是被允许的。
+        // ignore: 目标窗口已销毁或拒绝前台不致命
+        let _ = unsafe { SetForegroundWindow(prev_h) };
+    }
     // 用 SW_HIDE 而不是 cloak：系统关闭窗口的缩放淡出动画只在 ShowWindow 上走，cloak 是瞬间消失（旧版就是 SW_HIDE，
     // 用户说重构后关得太生硬）。platform-windows.md §1 第 4 条的"再显示是透明的"只发生在内容没变时，
     // 结果浮窗每次显示都重置 rows，整窗都是脏的。
     // SAFETY: h 是活着的窗口。
-    // ignore: 隐藏失败时下面归还焦点的逻辑照常
+    // ignore: 隐藏失败不致命
     let _ = unsafe { ShowWindow(h, SW_HIDE) };
-    // 如果当前前台还是浮窗，归还焦点给记录的窗口；失焦隐藏时焦点已在别处，不归还
-    // SAFETY: 无指针参数。
-    let fg = unsafe { GetForegroundWindow() };
-    if fg == h {
-        let prev = PREV_FOREGROUND.swap(0, Ordering::SeqCst);
-        if prev != 0 {
-            let prev_h = HWND(prev as *mut c_void);
-            // SAFETY: 尝试把前台归还给之前记录的窗口
-            // ignore: 目标窗口已销毁或拒绝前台不致命
-            let _ = unsafe { SetForegroundWindow(prev_h) };
-        }
-    } else {
-        PREV_FOREGROUND.store(0, Ordering::SeqCst);
-    }
 }
 
 pub fn result_window_focused() -> Option<bool> {
