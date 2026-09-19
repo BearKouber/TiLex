@@ -3,7 +3,7 @@
 //! 永远不调 Slint 的 show()/hide()（platform-windows.md §1）。
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{BOOL, HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
@@ -11,9 +11,10 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+    CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromPoint, SetWindowRgn,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
     HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -29,7 +30,12 @@ use crate::platform::geometry::Rect;
 /// `DWMWA_BORDER_COLOR` 的特殊值：不画边框（windows crate 没导出这个常量）。
 const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
 
+/// 圆角半径，逻辑像素。与 `ui/pop_result.slint` 那圈内描边的 `border-radius` 一致。
+const CORNER_RADIUS: f32 = 8.0;
+
 static RESULT_WINDOW: AtomicIsize = AtomicIsize::new(0);
+/// `DWMWCP_ROUND` 没吃上（Win10）：圆角改由 `SetWindowRgn` 裁，见 `apply_round_region`。
+static NEEDS_ROUND_REGION: AtomicBool = AtomicBool::new(false);
 static PREV_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
 /// 截图遮罩用自己的一份：它和结果浮窗会先后显示（框选完紧接着弹浮窗），
 /// 共用一个记录位会让浮窗关闭时把焦点还给已经隐藏的遮罩。
@@ -119,7 +125,11 @@ pub fn attach_result_window(window: &slint::Window) -> Result<(), Error> {
             size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
         )
     } {
-        log::debug!("PopResult: no rounded corners: {e}");
+        // Win10：这个属性是 Win11 22000 才有的。窗口就是直角，而且系统会沿着直角边缘
+        // 画一圈 1px 强调色（用户在「颜色」里选的，颜色因机而异，不能按颜色去 hack）。
+        // 退回 SetWindowRgn 把四个角裁掉，见 `apply_round_region`。
+        log::info!("PopResult: DWM rounding unavailable, falling back to window region: {e}");
+        NEEDS_ROUND_REGION.store(true, Ordering::SeqCst);
     }
     // 关掉 DWM 那 1px 边框：它画在客户区外面，左上角的红三角盖不住，会露出一圈浅灰。
     // 边框改由 pop_result.slint 里的 1px 内描边画。
@@ -288,6 +298,37 @@ fn apply_styles(h: HWND) {
     }
 }
 
+/// Win10 上把窗口裁成圆角矩形（Win11 走 DWM，这里直接返回）。
+/// 裁掉四个角的同时，系统沿直角边缘画的那圈强调色也一起没了 —— 它画在窗口区域最外圈，
+/// 区域裁掉就不合成了。代价是边缘没有抗锯齿，比 DWM 的圆角糙一点。
+///
+/// 窗口区域不跟着 `SetWindowPos` 走，**每次尺寸变化后都要重设**（`show` / `move` 两处）。
+/// `w`/`h_px` 是窗口矩形的物理像素尺寸。
+fn apply_round_region(h: HWND, w: i32, h_px: i32) {
+    if !NEEDS_ROUND_REGION.load(Ordering::SeqCst) || w <= 0 || h_px <= 0 {
+        return;
+    }
+    // SAFETY: h 是活着的窗口，无指针参数。
+    let dpi = unsafe { GetDpiForWindow(h) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+    // CreateRoundRectRgn 收的是椭圆的**直径**，不是半径。
+    let d = (CORNER_RADIUS * scale).round() as i32 * 2;
+    // SAFETY: 纯计算，不碰指针。右下角是 exclusive，+1 才盖得满整个窗口。
+    let rgn = unsafe { CreateRoundRectRgn(0, 0, w + 1, h_px + 1, d, d) };
+    if rgn.is_invalid() {
+        log::warn!("PopResult: CreateRoundRectRgn failed");
+        return;
+    }
+    // SAFETY: rgn 刚建好且有效；h 是活着的窗口。
+    // 成功时 region 的所有权转给系统，**不能**再 DeleteObject。
+    if unsafe { SetWindowRgn(h, rgn, BOOL::from(true)) } == 0 {
+        log::warn!("PopResult: SetWindowRgn failed");
+        // SAFETY: 失败时所有权还在我们手上，不删就泄漏。
+        // ignore: 删不掉也只是漏一个 region 对象
+        let _ = unsafe { DeleteObject(rgn) };
+    }
+}
+
 fn styles_intact(h: HWND) -> bool {
     // SAFETY: 同 apply_styles。
     let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
@@ -341,6 +382,11 @@ pub fn show_result_window(rect: Rect) {
         );
         // ignore: 摆放尺寸失败不致命
         let _ = SetWindowPos(h, HWND_TOPMOST, rect.l, rect.t, w, h_px, SWP_NOACTIVATE);
+    }
+    // 尺寸定了才能裁区域，而且要赶在显示之前，否则 Win10 上会闪一帧直角。
+    apply_round_region(h, w, h_px);
+    // SAFETY: h 是活着的有效窗口。
+    unsafe {
         // 上一次是 SW_HIDE 隐藏的（见 hide_result_window），要重新显示；启动那次窗口本来就可见，是空操作。
         // 位置已经摆好才显示，不会在旧位置闪。
         // ignore: 已经可见时返回 false，不是错误
@@ -361,6 +407,8 @@ pub fn move_result_window(rect: Rect) {
     // SAFETY: 仅修改位置和尺寸，不激活。
     // ignore: 调整尺寸失败不影响后续
     let _ = unsafe { SetWindowPos(h, HWND_TOPMOST, rect.l, rect.t, w, h_px, SWP_NOACTIVATE) };
+    // 内容撑大后窗口变高了，区域不会自己跟着长，要按新尺寸重裁。
+    apply_round_region(h, w, h_px);
 }
 
 pub fn hide_result_window() {
