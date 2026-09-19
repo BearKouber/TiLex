@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained, CFString, CFType};
+use objc2_core_foundation::{CFArray, CFBoolean, CFDictionary, CFRetained, CFString, CFType};
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -14,6 +14,7 @@ unsafe extern "C" {
         attribute: *const c_void,
         value: *mut *const c_void,
     ) -> i32;
+    fn AXUIElementCopyAttributeNames(element: *mut c_void, names: *mut *const c_void) -> i32;
     fn AXIsProcessTrustedWithOptions(options: *const c_void) -> u8;
 }
 
@@ -94,4 +95,73 @@ pub fn read_selected_text() -> String {
     };
 
     text_cf.to_string()
+}
+
+/// 探测当前焦点 UI 元素是否具有 `AXSelectedText` 属性。
+///
+/// 判据与 fallback 策略（对应 Windows 的 TextPattern 契约）：
+/// - 有 `AXSelectedText` 属性：说明程序有能力报告选区；若选区文本为空则是真的没选中，禁止模拟复制（返回 `true`）。
+/// - 没有该属性，或者根本拿不到焦点元素：说明程序为自绘文本（如终端、代码编辑器），允许模拟复制（返回 `false`）。
+/// - 任何一步失败（拿不到 names、调用出错、空指针等）：一律当成「有这个属性」（拿不准一律报有），禁止模拟复制（返回 `true`）。
+pub fn has_selected_text_attribute() -> bool {
+    // SAFETY: AXUIElementCreateSystemWide 返回系统级 AXUIElementRef（CFType），失败时返回空指针。
+    let sys_ptr = unsafe { AXUIElementCreateSystemWide() };
+    let Some(sys_non_null) = NonNull::new(sys_ptr.cast::<CFType>()) else {
+        return true; // 异常：拿不准一律报有（禁止复制）
+    };
+    // SAFETY: sys_non_null 非空且拥有 +1 引用计数，由 CFRetained 接管并在 drop 时释放。
+    let sys: CFRetained<CFType> = unsafe { CFRetained::from_raw(sys_non_null) };
+
+    let attr_focused = CFString::from_str("AXFocusedUIElement");
+    let mut focused_ptr: *const c_void = core::ptr::null();
+    // SAFETY: sys 为有效的系统元素指针，attr_focused 为有效 CFString，focused_ptr 用于接收对象指针。
+    let status = unsafe {
+        AXUIElementCopyAttributeValue(
+            CFRetained::as_ptr(&sys).as_ptr().cast(),
+            CFRetained::as_ptr(&attr_focused).as_ptr().cast(),
+            &mut focused_ptr,
+        )
+    };
+    if status != 0 || focused_ptr.is_null() {
+        // 根本拿不到焦点元素：程序自绘文本，允许模拟复制
+        return false;
+    }
+    let Some(focused_non_null) = NonNull::new((focused_ptr as *mut c_void).cast::<CFType>()) else {
+        return false;
+    };
+    // SAFETY: AXUIElementCopyAttributeValue 成功时返回 +1 引用计数的 CFType，由 CFRetained 接管并在 drop 时释放。
+    let focused: CFRetained<CFType> = unsafe { CFRetained::from_raw(focused_non_null) };
+
+    let mut names_ptr: *const c_void = core::ptr::null();
+    // SAFETY: focused 为有效的焦点元素指针，names_ptr 用于接收生成的属性名数组指针。
+    let status = unsafe {
+        AXUIElementCopyAttributeNames(CFRetained::as_ptr(&focused).as_ptr().cast(), &mut names_ptr)
+    };
+    if status != 0 || names_ptr.is_null() {
+        // 拿不到属性列表或调用出错：拿不准一律报有（禁止复制）
+        return true;
+    }
+    let Some(names_non_null) = NonNull::new((names_ptr as *mut c_void).cast::<CFArray>()) else {
+        return true;
+    };
+    // SAFETY: AXUIElementCopyAttributeNames 成功时返回 +1 引用计数的 CFArrayRef，由 CFRetained 接管并在 drop 时释放。
+    let names: CFRetained<CFArray> = unsafe { CFRetained::from_raw(names_non_null) };
+
+    let count = names.count();
+    for i in 0..count {
+        // SAFETY: i 处于 0..count 有效索引范围内。
+        let val_ptr = unsafe { names.value_at_index(i) };
+        let Some(val_non_null) = NonNull::new((val_ptr as *mut c_void).cast::<CFType>()) else {
+            continue;
+        };
+        // SAFETY: val_non_null 属于 names 持有的元素指针，在 names 生命周期内有效。
+        let item_ref: &CFType = unsafe { val_non_null.as_ref() };
+        if let Some(item_str) = item_ref.downcast_ref::<CFString>()
+            && item_str.to_string() == "AXSelectedText"
+        {
+            return true;
+        }
+    }
+
+    false
 }

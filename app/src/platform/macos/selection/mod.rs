@@ -3,23 +3,31 @@
 //! - AXUIElement 跨进程读取选中文本（worker 线程）
 //! - 浮标窗口定位与展示（主线程 / Slint 事件循环）
 
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{OnceLock, RwLock};
 use std::time::Instant;
 
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSPasteboard, NSRunningApplication, NSScreen, NSWorkspace};
+use objc2_app_kit::{
+    NSPasteboard, NSRunningApplication, NSScreen, NSWorkspace,
+    NSWorkspaceDidActivateApplicationNotification,
+};
+use objc2_foundation::NSNotification;
 
 use super::window;
 use crate::error::Error;
 use crate::platform::geometry::{DISMISS_DIST, Rect, dismissal_limit_squared, place};
 use crate::platform::selection_state::{
-    Candidates, Display, Displayed, Gesture, Offer, ReadContext,
+    Candidates, ClipboardCandidate, Display, Displayed, Gesture, Offer, PendingGesture, ReadContext,
 };
 use crate::platform::{AcceptFn, BeforeShowFn, EngagedFn, EngagedSelection, SettingsFn};
 
 pub mod ax;
+pub mod clip_watch;
+pub mod force_copy;
+pub mod pasteboard;
 pub mod tap;
 
 /// 浮标的逻辑边长，和 `ui/pop_button.slint` 的 18px 一致。物理边长按目标显示器的 backingScaleFactor 换算。
@@ -28,6 +36,7 @@ const DRAG_MIN: i32 = 6;
 
 pub enum Ev {
     Select(RawSelect),
+    Clip(ClipboardCandidate),
     Cancel(u64),
     Hide(u64),
     Engage(u64),
@@ -89,14 +98,20 @@ pub fn start_selection(
     // 2. 启动 CGEventTap 监听线程（创建失败会直接返回 Err）
     tap::start_tap_thread()?;
 
-    // 3. 初始刷新屏幕几何快照：
+    // 3. 启动剪贴板宽限窗口轮询线程（创建失败会直接返回 Err）
+    clip_watch::start_clip_watch_thread()?;
+
+    // 4. 注册前台切换观察者（主线程注册，失败仅记录 warn，不影响核心功能）
+    install_foreground_observer();
+
+    // 5. 初始刷新屏幕几何快照：
     // 这里就在主线程上（调用方是 ui/pop_button.rs），同步刷一次，
     // 保证第一次划词就有真实的屏幕几何可用。
     if let Some(mtm) = MainThreadMarker::new() {
         update_screen_cache_on_main(mtm);
     }
 
-    // 4. 启动取词 worker 线程
+    // 6. 启动取词 worker 线程
     let worker = Worker {
         settings,
         accept,
@@ -110,6 +125,31 @@ pub fn start_selection(
         .spawn(move || worker.run(rx))?;
 
     Ok(())
+}
+
+fn install_foreground_observer() {
+    let center = NSWorkspace::sharedWorkspace().notificationCenter();
+    let block = block2::RcBlock::new(|_notif: NonNull<NSNotification>| {
+        if let Some(gesture) = clip_watch::current_pending_gesture() {
+            let current_id = CURRENT_GESTURE.load(Ordering::SeqCst);
+            let new_pid = foreground_pid();
+            let at_ms = current_at_ms();
+            if gesture.id == current_id && gesture.interrupted_by(new_pid, at_ms) {
+                tap::cancel_current();
+            }
+        }
+    });
+
+    // SAFETY:
+    // - NSWorkspaceDidActivateApplicationNotification 是 AppKit 导出的 extern static 常量。
+    // - block 具有 'static 生命周期，不捕获局部非 static 引用。
+    let notif_name = unsafe { NSWorkspaceDidActivateApplicationNotification };
+    let token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(notif_name), None, None, &block)
+    };
+    // 观察者注册一次就随进程活到底：drop 掉 token 会把观察者摘掉，前台作废就失效了。
+    // ObjC 对象不是 Sync，放不进 static，所以在这里故意泄漏一次引用。
+    std::mem::forget(token);
 }
 
 pub fn engage_selection() {
@@ -302,6 +342,21 @@ pub fn screen_for_point(cg_x: f64, cg_y: f64) -> Option<(Rect, f64)> {
     None
 }
 
+pub fn screen_for_desktop(x: i32, y: i32) -> Option<(Rect, f64)> {
+    if let Ok(cache) = SCREEN_CACHE.read() {
+        for s in cache.iter() {
+            if x >= s.work_area.l && x <= s.work_area.r && y >= s.work_area.t && y <= s.work_area.b
+            {
+                return Some((s.work_area, s.scale));
+            }
+        }
+        if let Some(first) = cache.first() {
+            return Some((first.work_area, first.scale));
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------- 取词 Worker
 
 struct Worker {
@@ -318,6 +373,7 @@ impl Worker {
         while let Ok(ev) = rx.recv() {
             match ev {
                 Ev::Select(raw) => self.on_select(raw),
+                Ev::Clip(clip) => self.on_clip(clip),
                 Ev::Cancel(owner) => {
                     self.candidates.cancel(owner);
                     self.hide_owned(owner);
@@ -351,14 +407,77 @@ impl Worker {
             return;
         }
         self.candidates.begin(gesture);
-        let text = ax::read_selected_text();
+        // 登记待处理手势必须赶在 AX 读之前：AX 是跨进程调用，可能比目标程序自己复制还慢
+        // （platform-windows.md §4「剪贴板兜底的两个顺序陷阱」第 1 条）。
+        // 用 worker 这一份 gesture，保证和 clipboard_ready 比较时结构完全相等。
+        clip_watch::notify_gesture(PendingGesture::new(gesture));
+        let mut text = ax::read_selected_text();
+        if text.trim().is_empty() && self.force_copy_allowed(gesture) {
+            text = force_copy::copy_selection(|| gesture.is_current(self.read_context()));
+        }
         let context = self.read_context();
         let mut offered = None;
-        let _pending = self
+        let pending = self
             .candidates
             .complete_uia(gesture, text, context, |c| offered = Some(c));
         if let Some(candidate) = offered {
             self.offer(candidate, work, scale);
+        }
+        if let Some(clip) = pending {
+            self.on_clip(clip);
+        }
+    }
+
+    /// 先读开关：关着时不做任何别的查询。
+    fn force_copy_allowed(&self, gesture: Gesture) -> bool {
+        let enabled = (self.settings)().force_copy;
+        if !enabled {
+            return false;
+        }
+        let has_selected_text_attr = ax::has_selected_text_attribute();
+        let clipboard_changed = current_clipboard_sequence() != gesture.clipboard_sequence;
+        let modifiers_down = force_copy::modifiers_down();
+        let excluded_app = {
+            let app = NSWorkspace::sharedWorkspace().frontmostApplication();
+            let app_name = app
+                .as_ref()
+                .and_then(|a| a.localizedName())
+                .map(|s| s.to_string());
+            let bundle_id = app
+                .as_ref()
+                .and_then(|a| a.bundleIdentifier())
+                .map(|s| s.to_string());
+            matches_blacklist(
+                app_name.as_deref(),
+                bundle_id.as_deref(),
+                force_copy::NO_FORCE_COPY,
+            )
+        };
+        force_copy::eligible(&force_copy::Inputs {
+            enabled,
+            has_selected_text_attr,
+            clipboard_changed,
+            modifiers_down,
+            excluded_app,
+        }) && gesture.is_current(self.read_context())
+    }
+
+    /// 程序自己复制了选区（终端、选中即复制）。没注入任何东西，也不用恢复——文字本来就在那。
+    fn on_clip(&mut self, clip: ClipboardCandidate) {
+        if !self.candidates.clipboard_ready(clip, self.read_context()) {
+            return;
+        }
+        let text = pasteboard::read_text().unwrap_or_default();
+        // 读剪贴板可能让出给源程序：读完再复核序号、前台、手势和设置。
+        let context = self.read_context();
+        let mut offered = None;
+        self.candidates
+            .complete_clipboard(clip, text, context, |c| offered = Some(c));
+        if let Some(candidate) = offered {
+            refresh_screen_cache();
+            if let Some((work, scale)) = screen_for_desktop(clip.gesture.x, clip.gesture.y) {
+                self.offer(candidate, work, scale);
+            }
         }
     }
 
