@@ -530,6 +530,11 @@ export component SettingsWindow inherits Window {
                 viewport-height: max(self.visible-height, content.preferred-height);
 
                 content := VerticalLayout {
+                    // 窗口放大后内容列不跟着变宽，居中留白（Windows 11 设置 / VS Code 设置都是这么干的）。
+                    // 上限直接用「窗口在 min-width 时内容列的宽度」= 当前宽度减去窗口超出 800px 的那部分，
+                    // 所以默认 800×600 下 self.width 就是 parent.width，逐像素不变（slint-ui.md §7 的量图对照不受影响）。
+                    width: parent.width - max(0px, root.width - 800px);
+                    x: (parent.width - self.width) / 2;
                     padding-left: root.page == 3 ? 0px : 10px;
                     padding-right: root.page == 3 ? 0px : 10px;
                     padding-top: root.page == 3 ? 0px : 10px;

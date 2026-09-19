@@ -20,7 +20,7 @@ use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
 use crate::slint_ui::{EntryView, PopResult, ResultRow};
-use crate::ui::{entry_view, pop_button};
+use crate::ui::entry_view;
 
 thread_local! {
     static POP_RESULT: RefCell<Option<PopResult>> = const { RefCell::new(None) };
@@ -235,9 +235,7 @@ pub fn show(text: &str, x: i32, y: i32) {
         start_query(ui, text);
 
         let cfg = config::snapshot();
-        let (sx, sy) =
-            pop_button::corner(&cfg.selection.result_pos).unwrap_or((Side::After, Side::After));
-        place(ui, Rect::point(x, y), sx, sy, 0);
+        place(ui, &cfg.translate.result_pos, Rect::point(x, y), 0);
     });
 }
 
@@ -261,8 +259,7 @@ pub fn show_recognizing(region: Region) {
         CURRENT_QUERY.with(|q| *q.borrow_mut() = None);
 
         let cfg = config::snapshot();
-        let (anchor, sx, sy, gap) = screenshot_anchor(&cfg.screenshot.result_pos, region.rect);
-        place(ui, anchor, sx, sy, gap);
+        place(ui, &cfg.translate.result_pos, region.rect, 4);
     });
 
     // 临时图交给 Drop 删：识别线程起不来、或者识别中途 panic，文件照样清掉
@@ -312,34 +309,37 @@ fn on_recognized(id: u64, outcome: Result<String, i32>) {
     });
 }
 
-/// 截图结果浮窗摆在哪（旧版 `pop_button.rs` 的 `show_screenshot_result`）：
-/// 返回锚点、两个轴的贴法和间距。认不出的配置值按旧版回落到 `box_bottom_left`。
-fn screenshot_anchor(pos: &str, sel: Rect) -> (Rect, Side, Side, i32) {
-    /// 选区和浮窗之间留的空（旧版 `GAP`）。
-    const GAP: i32 = 4;
+/// 按用户选的位置算出 (anchor, sx, sy, gap)。
+/// `sel` 是「相对选词」用的锚点：划词链路传浮标那个零宽点，截图链路传选区矩形。
+/// `sel_gap` 同理：划词 0，截图 4（旧版 GAP）。
+/// `bounds` 是目标显示器的工作区，只有 screen_* 用得到。
+fn anchor_for(pos: &str, sel: Rect, sel_gap: i32, bounds: Rect) -> (Rect, Side, Side, i32) {
     match pos {
-        "box_right_top" => (sel, Side::After, Side::Start, GAP),
-        // 本该是 x = 选区右边、y = 选区底 + GAP。place 两轴共用一个 gap，
-        // 所以 x 也多出 GAP 个物理像素，看不出来（旧版原注）。
-        "box_bottom_right" => (sel, Side::After, Side::After, GAP),
-        _ => match cursor_corner(pos) {
-            Some((sx, sy)) => {
-                let (x, y) = platform::cursor_pos();
-                (Rect::point(x, y), sx, sy, 0)
-            }
-            // box_bottom_left，也是缺省和不认识的值：面板左上角对准选区左下角
-            None => (sel, Side::Start, Side::After, 0),
-        },
-    }
-}
-
-fn cursor_corner(pos: &str) -> Option<(Side, Side)> {
-    match pos.strip_prefix("cursor_")? {
-        "bottom_right" => Some((Side::After, Side::After)),
-        "bottom_left" => Some((Side::Before, Side::After)),
-        "top_right" => Some((Side::After, Side::Before)),
-        "top_left" => Some((Side::Before, Side::Before)),
-        _ => None,
+        "sel_bottom" => (sel, Side::Start, Side::After, sel_gap),
+        "sel_top" => (sel, Side::Start, Side::Before, sel_gap),
+        "sel_left" => (sel, Side::Before, Side::Start, sel_gap),
+        "sel_right" => (sel, Side::After, Side::Start, sel_gap),
+        "cursor_top_left" => {
+            let (x, y) = platform::cursor_pos();
+            (Rect::point(x, y), Side::Before, Side::Before, 0)
+        }
+        "cursor_top_right" => {
+            let (x, y) = platform::cursor_pos();
+            (Rect::point(x, y), Side::After, Side::Before, 0)
+        }
+        "cursor_bottom_left" => {
+            let (x, y) = platform::cursor_pos();
+            (Rect::point(x, y), Side::Before, Side::After, 0)
+        }
+        "cursor_bottom_right" => {
+            let (x, y) = platform::cursor_pos();
+            (Rect::point(x, y), Side::After, Side::After, 0)
+        }
+        "screen_top_left" => (Rect::point(bounds.l, bounds.t), Side::Start, Side::Start, 0),
+        "screen_top_right" => (Rect::point(bounds.r, bounds.t), Side::End, Side::Start, 0),
+        "screen_bottom_left" => (Rect::point(bounds.l, bounds.b), Side::Start, Side::End, 0),
+        "screen_bottom_right" => (Rect::point(bounds.r, bounds.b), Side::End, Side::End, 0),
+        _ => (sel, Side::Start, Side::After, sel_gap),
     }
 }
 
@@ -393,20 +393,28 @@ fn start_query(ui: &PopResult, text: &str) {
 }
 
 /// 按当前内容高度算出位置并把浮窗亮出来。
-fn place(ui: &PopResult, anchor: Rect, sx: Side, sy: Side, gap: i32) {
-    let cx = anchor.l + (anchor.r - anchor.l) / 2;
-    let cy = anchor.t + (anchor.b - anchor.t) / 2;
+fn place(ui: &PopResult, pos: &str, sel: Rect, sel_gap: i32) {
+    let (cx, cy) = if pos.starts_with("cursor_") {
+        platform::cursor_pos()
+    } else {
+        (sel.l + (sel.r - sel.l) / 2, sel.t + (sel.b - sel.t) / 2)
+    };
     let Some((bounds, scale)) = platform::monitor_at(cx, cy) else {
         log::warn!("PopResult: cannot find monitor at ({cx}, {cy})");
         return;
     };
+    let (anchor, sx, sy, gap) = anchor_for(pos, sel, sel_gap, bounds);
     let content_height = ui.get_content_height();
-    let Some((rect, pin)) =
+    let Some((rect, mut pin)) =
         placement::first_placement(anchor, sx, sy, gap, content_height, scale, bounds)
     else {
         log::warn!("PopResult: first_placement calculation failed");
         return;
     };
+
+    if matches!(pos, "screen_bottom_left" | "screen_bottom_right") {
+        pin = Pin::Bottom(rect.b);
+    }
 
     PIN.with(|p| p.set(Some(pin)));
     platform::show_result_window(rect);
@@ -623,56 +631,139 @@ mod tests {
     use super::*;
 
     #[test]
-    fn corner_defaults_match_requirements() {
-        assert_eq!(
-            pop_button::corner("BottomRight"),
-            Some((Side::After, Side::After))
-        );
-        assert_eq!(
-            pop_button::corner("BottomLeft"),
-            Some((Side::Before, Side::After))
-        );
-        assert_eq!(
-            pop_button::corner("TopRight"),
-            Some((Side::After, Side::Before))
-        );
-        assert_eq!(
-            pop_button::corner("TopLeft"),
-            Some((Side::Before, Side::Before))
-        );
-        assert_eq!(pop_button::corner("unknown"), None);
-    }
-
-    #[test]
-    fn screenshot_anchor_matches_the_legacy_corners() {
+    fn anchor_for_all_positions() {
         let sel = Rect {
             l: 100,
             t: 200,
             r: 300,
             b: 400,
         };
-        // 选区右侧、顶边齐平，留 4px
-        assert_eq!(
-            screenshot_anchor("box_right_top", sel),
-            (sel, Side::After, Side::Start, 4)
-        );
-        assert_eq!(
-            screenshot_anchor("box_bottom_right", sel),
-            (sel, Side::After, Side::After, 4)
-        );
-        // 缺省、写错的值、空串都回落到「面板左上角对准选区左下角」
-        for pos in ["box_bottom_left", "", "BottomRight", "cursor_nowhere"] {
-            assert_eq!(
-                screenshot_anchor(pos, sel),
-                (sel, Side::Start, Side::After, 0),
-                "{pos}"
-            );
-        }
-        // 跟随光标：锚点不再是选区，是个点
-        let (anchor, sx, sy, gap) = screenshot_anchor("cursor_top_left", sel);
+        let bounds = Rect {
+            l: 0,
+            t: 0,
+            r: 1920,
+            b: 1080,
+        };
+
+        // 1. sel_bottom: (Start, After), gap
+        let (a, sx, sy, gap) = anchor_for("sel_bottom", sel, 0, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Start, Side::After, 0));
+        let (a, sx, sy, gap) = anchor_for("sel_bottom", sel, 4, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Start, Side::After, 4));
+
+        // 2. sel_top: (Start, Before), gap
+        let (a, sx, sy, gap) = anchor_for("sel_top", sel, 0, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Start, Side::Before, 0));
+        let (a, sx, sy, gap) = anchor_for("sel_top", sel, 4, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Start, Side::Before, 4));
+
+        // 3. sel_left: (Before, Start), gap
+        let (a, sx, sy, gap) = anchor_for("sel_left", sel, 0, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Before, Side::Start, 0));
+        let (a, sx, sy, gap) = anchor_for("sel_left", sel, 4, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Before, Side::Start, 4));
+
+        // 4. sel_right: (After, Start), gap
+        let (a, sx, sy, gap) = anchor_for("sel_right", sel, 0, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::After, Side::Start, 0));
+        let (a, sx, sy, gap) = anchor_for("sel_right", sel, 4, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::After, Side::Start, 4));
+
+        // 5. cursor_top_left: (Before, Before), 0
+        let (a, sx, sy, gap) = anchor_for("cursor_top_left", sel, 0, bounds);
         assert_eq!((sx, sy, gap), (Side::Before, Side::Before, 0));
-        assert_eq!(anchor.l, anchor.r, "光标锚点是零宽的点");
-        assert_eq!(anchor.t, anchor.b);
+        assert_eq!(a.l, a.r);
+        assert_eq!(a.t, a.b);
+
+        // 6. cursor_top_right: (After, Before), 0
+        let (a, sx, sy, gap) = anchor_for("cursor_top_right", sel, 0, bounds);
+        assert_eq!((sx, sy, gap), (Side::After, Side::Before, 0));
+        assert_eq!(a.l, a.r);
+        assert_eq!(a.t, a.b);
+
+        // 7. cursor_bottom_left: (Before, After), 0
+        let (a, sx, sy, gap) = anchor_for("cursor_bottom_left", sel, 0, bounds);
+        assert_eq!((sx, sy, gap), (Side::Before, Side::After, 0));
+        assert_eq!(a.l, a.r);
+        assert_eq!(a.t, a.b);
+
+        // 8. cursor_bottom_right: (After, After), 0
+        let (a, sx, sy, gap) = anchor_for("cursor_bottom_right", sel, 0, bounds);
+        assert_eq!((sx, sy, gap), (Side::After, Side::After, 0));
+        assert_eq!(a.l, a.r);
+        assert_eq!(a.t, a.b);
+
+        // 9. screen_top_left: (Start, Start), 0, anchor = point(bounds.l, bounds.t) -> (0, 0)
+        let (a, sx, sy, gap) = anchor_for("screen_top_left", sel, 0, bounds);
+        assert_eq!(
+            (a, sx, sy, gap),
+            (
+                Rect {
+                    l: 0,
+                    t: 0,
+                    r: 0,
+                    b: 0
+                },
+                Side::Start,
+                Side::Start,
+                0
+            )
+        );
+
+        // 10. screen_top_right: (End, Start), 0, anchor = point(bounds.r, bounds.t) -> (1920, 0)
+        let (a, sx, sy, gap) = anchor_for("screen_top_right", sel, 0, bounds);
+        assert_eq!(
+            (a, sx, sy, gap),
+            (
+                Rect {
+                    l: 1920,
+                    t: 0,
+                    r: 1920,
+                    b: 0
+                },
+                Side::End,
+                Side::Start,
+                0
+            )
+        );
+
+        // 11. screen_bottom_left: (Start, End), 0, anchor = point(bounds.l, bounds.b) -> (0, 1080)
+        let (a, sx, sy, gap) = anchor_for("screen_bottom_left", sel, 0, bounds);
+        assert_eq!(
+            (a, sx, sy, gap),
+            (
+                Rect {
+                    l: 0,
+                    t: 1080,
+                    r: 0,
+                    b: 1080
+                },
+                Side::Start,
+                Side::End,
+                0
+            )
+        );
+
+        // 12. screen_bottom_right: (End, End), 0, anchor = point(bounds.r, bounds.b) -> (1920, 1080)
+        let (a, sx, sy, gap) = anchor_for("screen_bottom_right", sel, 0, bounds);
+        assert_eq!(
+            (a, sx, sy, gap),
+            (
+                Rect {
+                    l: 1920,
+                    t: 1080,
+                    r: 1920,
+                    b: 1080
+                },
+                Side::End,
+                Side::End,
+                0
+            )
+        );
+
+        // 13. unrecognized value falls back to sel_bottom
+        let (a, sx, sy, gap) = anchor_for("unknown_pos", sel, 4, bounds);
+        assert_eq!((a, sx, sy, gap), (sel, Side::Start, Side::After, 4));
     }
 
     #[test]

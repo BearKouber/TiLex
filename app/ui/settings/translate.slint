@@ -83,13 +83,12 @@ export global TranslateSettings {
     in-out property <int> detect-engine-index: 0;
     in-out property <int> pop-button-index: 0;
     in-out property <int> pop-button-pos-index: 0;
-    in-out property <int> pop-result-pos-index: 0;
-    in-out property <int> screenshot-pos-index: 0;
+    in-out property <int> result-pos-index: 0;
     in-out property <int> force-copy-index: 1;
     in-out property <int> button-distance: 10;
     in-out property <string> blacklist: "";
 
-    // 划词浮标关闭（index 0）时禁用 6 项
+    // 划词浮标关闭（index 0）时禁用 5 项
     out property <bool> selection-enabled: self.pop-button-index != 0;
 
     callback source-lang-changed(int);
@@ -98,8 +97,7 @@ export global TranslateSettings {
     callback detect-engine-changed(int);
     callback pop-button-changed(int);
     callback pop-button-pos-changed(int);
-    callback pop-result-pos-changed(int);
-    callback screenshot-pos-changed(int);
+    callback result-pos-changed(int);
     callback force-copy-changed(int);
     callback button-distance-changed(int);
     callback blacklist-changed(string);
@@ -144,23 +142,20 @@ export component TranslatePage {
         @tr("Top Left of Cursor"),
     ];
 
-    // 对应 src/ui/settings.rs 的 POP_RESULT_POS
-    in property <[string]> pop-result-pos-options: [
-        @tr("Opens Down-Right"),
-        @tr("Opens Down-Left"),
-        @tr("Opens Up-Right"),
-        @tr("Opens Up-Left"),
-    ];
-
-    // 对应 src/ui/settings.rs 的 SCREENSHOT_POS
-    in property <[string]> screenshot-pos-options: [
+    // 对应 src/logic/config.rs 的 POS_VALUES
+    in property <[string]> result-pos-options: [
         @tr("Below Selection"),
+        @tr("Above Selection"),
+        @tr("Left of Selection"),
         @tr("Right of Selection"),
-        @tr("Outside Bottom-Right of Selection"),
-        @tr("Down-Right from Cursor"),
-        @tr("Down-Left from Cursor"),
-        @tr("Up-Right from Cursor"),
         @tr("Up-Left from Cursor"),
+        @tr("Up-Right from Cursor"),
+        @tr("Down-Left from Cursor"),
+        @tr("Down-Right from Cursor"),
+        @tr("Top-Left of Screen"),
+        @tr("Top-Right of Screen"),
+        @tr("Bottom-Left of Screen"),
+        @tr("Bottom-Right of Screen"),
     ];
 
     in property <[string]> boolean-options: [
@@ -238,29 +233,17 @@ export component TranslatePage {
                 }
             }
 
-            // 7. 划词弹窗（浮标关时禁用）
+            // 7. 翻译窗口位置（划词与截图共用，不随划词浮标禁用）
             SettingRow {
-                label: @tr("Selection Window");
-                enabled: TranslateSettings.selection-enabled;
+                label: @tr("Translate Window Position");
                 Select {
-                    options: root.pop-result-pos-options;
-                    current-index <=> TranslateSettings.pop-result-pos-index;
-                    enabled: TranslateSettings.selection-enabled;
-                    selected(idx) => { TranslateSettings.pop-result-pos-changed(idx); }
+                    options: root.result-pos-options;
+                    current-index <=> TranslateSettings.result-pos-index;
+                    selected(idx) => { TranslateSettings.result-pos-changed(idx); }
                 }
             }
 
-            // 8. 截图弹窗
-            SettingRow {
-                label: @tr("Screenshot Window");
-                Select {
-                    options: root.screenshot-pos-options;
-                    current-index <=> TranslateSettings.screenshot-pos-index;
-                    selected(idx) => { TranslateSettings.screenshot-pos-changed(idx); }
-                }
-            }
-
-            // 9. 增强选中识别 + ⓘ（浮标关时禁用）
+            // 8. 增强选中识别 + ⓘ（浮标关时禁用）
             SettingRow {
                 z: 2;
                 label: @tr("Enhanced Selection");
@@ -274,7 +257,7 @@ export component TranslatePage {
                 }
             }
 
-            // 10. 截图快捷键
+            // 9. 截图快捷键
             SettingRow {
                 label: @tr("Screenshot Translate");
                 hk := TextField {
@@ -307,7 +290,7 @@ export component TranslatePage {
                 }
             }
 
-            // 11. 浮标距离（浮标关时禁用）
+            // 10. 浮标距离（浮标关时禁用）
             SettingRow {
                 label: @tr("Icon Distance");
                 enabled: TranslateSettings.selection-enabled;
@@ -321,7 +304,7 @@ export component TranslatePage {
                 }
             }
 
-            // 12. 黑名单（浮标关时禁用）
+            // 11. 黑名单（浮标关时禁用）
             SettingRow {
                 label: @tr("App Blacklist");
                 enabled: TranslateSettings.selection-enabled;

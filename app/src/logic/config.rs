@@ -53,6 +53,7 @@ pub struct Translate {
     pub source: String,
     pub target: String,
     pub detect_engine: String,
+    pub result_pos: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -68,14 +69,12 @@ pub struct Selection {
     /// 不让整份配置因为这一项被当成损坏。
     #[serde(deserialize_with = "distance")]
     pub button_distance: i64,
-    pub result_pos: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Screenshot {
     pub hotkey: String,
-    pub result_pos: String,
 }
 
 /// 一个服务实例。`kind` 决定形状；各服务自己的字段在 `service::xxx::Config` 里。
@@ -147,6 +146,7 @@ impl Default for Translate {
             source: "auto".into(),
             target: "zh_cn".into(),
             detect_engine: "local".into(),
+            result_pos: "sel_bottom".into(),
         }
     }
 }
@@ -161,18 +161,6 @@ impl Default for Selection {
             blacklist: String::new(),
             button_pos: "BottomLeft".into(),
             button_distance: 10,
-            result_pos: "BottomRight".into(),
-        }
-    }
-}
-
-impl Default for Screenshot {
-    fn default() -> Self {
-        Self {
-            hotkey: String::new(),
-            // 截图浮窗的位置是另一套值域（`box_*` / `cursor_*`，见 `ui::settings::SCREENSHOT_POS`），
-            // 不是划词浮窗那套驼峰角名。默认同旧版：面板左上角对准选区左下角。
-            result_pos: "box_bottom_left".into(),
         }
     }
 }
@@ -220,6 +208,21 @@ fn distance<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
         }))
 }
 
+pub const POS_VALUES: [&str; 12] = [
+    "sel_bottom",
+    "sel_top",
+    "sel_left",
+    "sel_right",
+    "cursor_top_left",
+    "cursor_top_right",
+    "cursor_bottom_left",
+    "cursor_bottom_right",
+    "screen_top_left",
+    "screen_top_right",
+    "screen_bottom_left",
+    "screen_bottom_right",
+];
+
 impl Config {
     /// 反序列化和每次修改之后统一把取值拉回合法范围。
     pub fn normalize(&mut self) {
@@ -227,6 +230,60 @@ impl Config {
             self.general.language = General::default().language;
         }
         self.selection.button_distance = self.selection.button_distance.clamp(0, 50);
+        if !POS_VALUES.contains(&self.translate.result_pos.as_str()) {
+            self.translate.result_pos = "sel_bottom".into();
+        }
+    }
+}
+
+/// 0.2.x 之前的两个旧位置键合成一个。`raw` 是磁盘上那份 JSON。
+/// 新键已经在 JSON 里 → 什么都不做（已经迁移过了）。
+fn migrate_result_pos(config: &mut Config, raw: &serde_json::Value) {
+    if raw
+        .get("translate")
+        .and_then(|t| t.get("result_pos"))
+        .and_then(|v| v.as_str())
+        .is_some()
+    {
+        return;
+    }
+
+    if let Some(pos) = raw
+        .get("selection")
+        .and_then(|s| s.get("result_pos"))
+        .and_then(|v| v.as_str())
+    {
+        let mapped = match pos {
+            "BottomRight" => Some("sel_bottom"),
+            "BottomLeft" => Some("sel_bottom"),
+            "TopRight" => Some("sel_top"),
+            "TopLeft" => Some("sel_top"),
+            _ => None,
+        };
+        if let Some(new_pos) = mapped {
+            config.translate.result_pos = new_pos.into();
+            return;
+        }
+    }
+
+    if let Some(pos) = raw
+        .get("screenshot")
+        .and_then(|s| s.get("result_pos"))
+        .and_then(|v| v.as_str())
+    {
+        let mapped = match pos {
+            "box_bottom_left" => Some("sel_bottom"),
+            "box_bottom_right" => Some("sel_bottom"),
+            "box_right_top" => Some("sel_right"),
+            "cursor_bottom_right" => Some("cursor_bottom_right"),
+            "cursor_bottom_left" => Some("cursor_bottom_left"),
+            "cursor_top_right" => Some("cursor_top_right"),
+            "cursor_top_left" => Some("cursor_top_left"),
+            _ => None,
+        };
+        if let Some(new_pos) = mapped {
+            config.translate.result_pos = new_pos.into();
+        }
     }
 }
 
@@ -246,6 +303,9 @@ impl Store {
         let (config, backup) = match fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice::<Config>(&bytes) {
                 Ok(mut config) => {
+                    if let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        migrate_result_pos(&mut config, &raw);
+                    }
                     config.normalize();
                     (config, None)
                 }
@@ -809,5 +869,124 @@ mod tests {
         assert_ne!(id1, id2);
         assert!(id1.starts_with("google@"));
         assert!(id2.starts_with("google@"));
+    }
+
+    #[test]
+    fn translate_default_result_pos() {
+        assert_eq!(Translate::default().result_pos, "sel_bottom");
+    }
+
+    #[test]
+    fn normalize_result_pos() {
+        let mut config = Config::default();
+        for val in POS_VALUES {
+            config.translate.result_pos = val.into();
+            config.normalize();
+            assert_eq!(config.translate.result_pos, val);
+        }
+        config.translate.result_pos = "invalid_pos".into();
+        config.normalize();
+        assert_eq!(config.translate.result_pos, "sel_bottom");
+    }
+
+    #[test]
+    fn migrate_selection_result_pos_legacy_values() {
+        let cases = [
+            ("BottomRight", "sel_bottom"),
+            ("BottomLeft", "sel_bottom"),
+            ("TopRight", "sel_top"),
+            ("TopLeft", "sel_top"),
+        ];
+        for (legacy, expected) in cases {
+            let mut config = Config::default();
+            let raw = json!({
+                "selection": { "result_pos": legacy }
+            });
+            migrate_result_pos(&mut config, &raw);
+            assert_eq!(
+                config.translate.result_pos, expected,
+                "legacy selection {legacy}"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_screenshot_result_pos_legacy_values() {
+        let cases = [
+            ("box_bottom_left", "sel_bottom"),
+            ("box_bottom_right", "sel_bottom"),
+            ("box_right_top", "sel_right"),
+            ("cursor_bottom_right", "cursor_bottom_right"),
+            ("cursor_bottom_left", "cursor_bottom_left"),
+            ("cursor_top_right", "cursor_top_right"),
+            ("cursor_top_left", "cursor_top_left"),
+        ];
+        for (legacy, expected) in cases {
+            let mut config = Config::default();
+            let raw = json!({
+                "screenshot": { "result_pos": legacy }
+            });
+            migrate_result_pos(&mut config, &raw);
+            assert_eq!(
+                config.translate.result_pos, expected,
+                "legacy screenshot {legacy}"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_selection_takes_priority_over_screenshot() {
+        let mut config = Config::default();
+        let raw = json!({
+            "selection": { "result_pos": "TopRight" },
+            "screenshot": { "result_pos": "box_bottom_left" },
+        });
+        migrate_result_pos(&mut config, &raw);
+        assert_eq!(config.translate.result_pos, "sel_top");
+    }
+
+    #[test]
+    fn migrate_does_not_overwrite_existing_translate_result_pos() {
+        let mut config = Config {
+            translate: Translate {
+                result_pos: "screen_top_left".into(),
+                ..Translate::default()
+            },
+            ..Config::default()
+        };
+        let raw = json!({
+            "translate": { "result_pos": "screen_top_left" },
+            "selection": { "result_pos": "BottomRight" },
+            "screenshot": { "result_pos": "box_right_top" },
+        });
+        migrate_result_pos(&mut config, &raw);
+        assert_eq!(config.translate.result_pos, "screen_top_left");
+    }
+
+    #[test]
+    fn migrate_neither_present_leaves_default() {
+        let mut config = Config::default();
+        let raw = json!({});
+        migrate_result_pos(&mut config, &raw);
+        assert_eq!(config.translate.result_pos, "sel_bottom");
+    }
+
+    #[test]
+    fn migrate_unknown_values_fallback_without_panic() {
+        let mut config = Config::default();
+        let raw = json!({
+            "selection": { "result_pos": "nonsense" },
+            "screenshot": { "result_pos": "cursor_top_right" },
+        });
+        migrate_result_pos(&mut config, &raw);
+        assert_eq!(config.translate.result_pos, "cursor_top_right");
+
+        let mut config2 = Config::default();
+        let raw2 = json!({
+            "selection": { "result_pos": "garbage1" },
+            "screenshot": { "result_pos": "garbage2" },
+        });
+        migrate_result_pos(&mut config2, &raw2);
+        assert_eq!(config2.translate.result_pos, "sel_bottom");
     }
 }

@@ -299,38 +299,41 @@ msgstr "光标右上"
 msgid "Top Left of Cursor"
 msgstr "光标左上"
 
-msgid "Opens Down-Right"
-msgstr "右下展开"
-
-msgid "Opens Down-Left"
-msgstr "左下展开"
-
-msgid "Opens Up-Right"
-msgstr "右上展开"
-
-msgid "Opens Up-Left"
-msgstr "左上展开"
-
 msgid "Below Selection"
 msgstr "选区下方"
+
+msgid "Above Selection"
+msgstr "选区上方"
+
+msgid "Left of Selection"
+msgstr "选区左侧"
 
 msgid "Right of Selection"
 msgstr "选区右侧"
 
-msgid "Outside Bottom-Right of Selection"
-msgstr "选区右下"
-
-msgid "Down-Right from Cursor"
-msgstr "光标右下"
-
-msgid "Down-Left from Cursor"
-msgstr "光标左下"
+msgid "Up-Left from Cursor"
+msgstr "光标左上"
 
 msgid "Up-Right from Cursor"
 msgstr "光标右上"
 
-msgid "Up-Left from Cursor"
-msgstr "光标左上"
+msgid "Down-Left from Cursor"
+msgstr "光标左下"
+
+msgid "Down-Right from Cursor"
+msgstr "光标右下"
+
+msgid "Top-Left of Screen"
+msgstr "屏幕左上角"
+
+msgid "Top-Right of Screen"
+msgstr "屏幕右上角"
+
+msgid "Bottom-Left of Screen"
+msgstr "屏幕左下角"
+
+msgid "Bottom-Right of Screen"
+msgstr "屏幕右下角"
 
 msgid "Source Language"
 msgstr "源语言"
@@ -350,11 +353,8 @@ msgstr "划词浮标"
 msgid "Icon Position"
 msgstr "浮标位置"
 
-msgid "Selection Window"
-msgstr "划词弹窗"
-
-msgid "Screenshot Window"
-msgstr "截图弹窗"
+msgid "Translate Window Position"
+msgstr "翻译窗口位置"
 
 msgid "Enhanced Selection"
 msgstr "划词增强"

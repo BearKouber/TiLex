@@ -82,12 +82,12 @@ fn settings() -> SelectionSettings {
         enabled: s.enabled,
         blacklist: s.blacklist,
         force_copy: s.force_copy,
-        corner: corner(&s.button_pos).unwrap_or((Side::Before, Side::After)),
+        corner: button_corner(&s.button_pos).unwrap_or((Side::Before, Side::After)),
         gap: s.button_distance.clamp(0, 50) as i32,
     }
 }
 
-pub(crate) fn corner(pos: &str) -> Option<(Side, Side)> {
+fn button_corner(pos: &str) -> Option<(Side, Side)> {
     match pos {
         "BottomRight" => Some((Side::After, Side::After)),
         "BottomLeft" => Some((Side::Before, Side::After)),
@@ -136,5 +136,27 @@ fn before_show() {
         });
     }) {
         log::warn!("PopButton: invoke before_show repaint failed: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 浮标四个位置的角名是磁盘上的配置值，改错了浮标会摆反。
+    /// （原来这条测试在 `pop_result.rs` 里，`corner` 收回私有后搬过来。）
+    #[test]
+    fn button_corner_matches_config_values() {
+        assert_eq!(
+            button_corner("BottomRight"),
+            Some((Side::After, Side::After))
+        );
+        assert_eq!(
+            button_corner("BottomLeft"),
+            Some((Side::Before, Side::After))
+        );
+        assert_eq!(button_corner("TopRight"), Some((Side::After, Side::Before)));
+        assert_eq!(button_corner("TopLeft"), Some((Side::Before, Side::Before)));
+        assert_eq!(button_corner("unknown"), None);
     }
 }

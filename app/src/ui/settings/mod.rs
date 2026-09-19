@@ -84,8 +84,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     let detect_idx = find_index(&DETECT_ENGINES, &cfg.translate.detect_engine);
     let pop_btn_idx = pop_button_to_index(&cfg.selection);
     let pop_btn_pos_idx = find_index(&POP_BUTTON_POS, &cfg.selection.button_pos);
-    let pop_res_pos_idx = find_index(&POP_RESULT_POS, &cfg.selection.result_pos);
-    let screenshot_pos_idx = find_index(&SCREENSHOT_POS, &cfg.screenshot.result_pos);
+    let result_pos_idx = find_index(&config::POS_VALUES, &cfg.translate.result_pos);
     let force_copy_idx = if cfg.selection.force_copy { 0 } else { 1 };
     let distance = cfg.selection.button_distance.clamp(0, 50) as i32;
 
@@ -95,8 +94,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.set_detect_engine_index(detect_idx);
     ts.set_pop_button_index(pop_btn_idx);
     ts.set_pop_button_pos_index(pop_btn_pos_idx);
-    ts.set_pop_result_pos_index(pop_res_pos_idx);
-    ts.set_screenshot_pos_index(screenshot_pos_idx);
+    ts.set_result_pos_index(result_pos_idx);
     ts.set_force_copy_index(force_copy_idx);
     ts.set_button_distance(distance);
     ts.set_blacklist(cfg.selection.blacklist.into());
@@ -144,17 +142,10 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
         }
     });
 
-    let weak_pop_res_pos = page.as_weak();
-    ts.on_pop_result_pos_changed(move |idx| {
-        if let Some(page) = weak_pop_res_pos.upgrade() {
-            handle_pop_result_pos_change(&page, idx);
-        }
-    });
-
-    let weak_screenshot_pos = page.as_weak();
-    ts.on_screenshot_pos_changed(move |idx| {
-        if let Some(page) = weak_screenshot_pos.upgrade() {
-            handle_screenshot_pos_change(&page, idx);
+    let weak_result_pos = page.as_weak();
+    ts.on_result_pos_changed(move |idx| {
+        if let Some(page) = weak_result_pos.upgrade() {
+            handle_result_pos_change(&page, idx);
         }
     });
 
@@ -551,20 +542,6 @@ const DETECT_ENGINES: [&str; 4] = ["local", "niutrans", "baidu", "google"];
 // 对应 ui/settings/translate.slint 的 pop-button-pos-options
 const POP_BUTTON_POS: [&str; 4] = ["BottomLeft", "BottomRight", "TopRight", "TopLeft"];
 
-// 对应 ui/settings/translate.slint 的 pop-result-pos-options
-const POP_RESULT_POS: [&str; 4] = ["BottomRight", "BottomLeft", "TopRight", "TopLeft"];
-
-// 对应 ui/settings/translate.slint 的 screenshot-pos-options
-const SCREENSHOT_POS: [&str; 7] = [
-    "box_bottom_left",
-    "box_right_top",
-    "box_bottom_right",
-    "cursor_bottom_right",
-    "cursor_bottom_left",
-    "cursor_top_right",
-    "cursor_top_left",
-];
-
 fn find_index(list: &[&str], val: &str) -> i32 {
     list.iter().position(|&x| x == val).unwrap_or(0) as i32
 }
@@ -678,29 +655,16 @@ fn handle_pop_button_pos_change(page: &SettingsWindow, idx: i32) {
     }
 }
 
-fn handle_pop_result_pos_change(page: &SettingsWindow, idx: i32) {
+fn handle_result_pos_change(page: &SettingsWindow, idx: i32) {
     let old_cfg = config::snapshot();
-    let old_idx = find_index(&POP_RESULT_POS, &old_cfg.selection.result_pos);
-    if let Some(&pos) = POP_RESULT_POS.get(idx as usize)
+    let old_idx = find_index(&config::POS_VALUES, &old_cfg.translate.result_pos);
+    if let Some(&pos) = config::POS_VALUES.get(idx as usize)
         && !save(page, "result_pos", |c| {
-            c.selection.result_pos = pos.to_owned()
+            c.translate.result_pos = pos.to_owned()
         })
     {
         page.global::<TranslateSettings>()
-            .set_pop_result_pos_index(old_idx);
-    }
-}
-
-fn handle_screenshot_pos_change(page: &SettingsWindow, idx: i32) {
-    let old_cfg = config::snapshot();
-    let old_idx = find_index(&SCREENSHOT_POS, &old_cfg.screenshot.result_pos);
-    if let Some(&pos) = SCREENSHOT_POS.get(idx as usize)
-        && !save(page, "screenshot result_pos", |c| {
-            c.screenshot.result_pos = pos.to_owned()
-        })
-    {
-        page.global::<TranslateSettings>()
-            .set_screenshot_pos_index(old_idx);
+            .set_result_pos_index(old_idx);
     }
 }
 

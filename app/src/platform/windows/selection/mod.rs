@@ -148,19 +148,7 @@ pub fn attach_selection_button(window: &slint::Window) -> Result<(), Error> {
             "PopButton: subclass failed, clicking the button may activate the result window"
         );
     }
-    // 小圆角贴近旧版 5px 的圆角。Win10 不支持，直角照用。
-    let pref = DWMWCP_ROUNDSMALL;
-    // SAFETY: h 是活着的窗口；pref 在调用期间有效，长度与类型一致。
-    if let Err(e) = unsafe {
-        DwmSetWindowAttribute(
-            h,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            (&raw const pref).cast::<c_void>(),
-            size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
-        )
-    } {
-        log::debug!("PopButton: no rounded corners: {e}");
-    }
+    round_corners(h);
     cloak(h, true);
     // SAFETY: 只刷新样式，不动位置、大小、激活。
     // ignore: 刷新失败时样式照样生效，只是边框缓存晚一点更新
@@ -213,6 +201,26 @@ fn button_hwnd() -> Option<HWND> {
 
 /// 不抢焦点（UIA 读的是焦点元素，点浮标抢了焦点就读不到了）、不进任务栏和 Alt+Tab、置顶；
 /// 去掉标题栏那组样式（窗口有 WS_CAPTION 时系统会套最小尺寸）。
+/// 小圆角贴近旧版 5px 的圆角。Win10 不支持（`DWMWCP_*` 是 Win11 专有），直角照用。
+///
+/// **每次改完窗口大小都要再调一遍。** DWM 的圆角遮罩是按调用那一刻的窗口矩形算的，
+/// 窗口后来被 `SetWindowPos` 改大改小时不会自动重算：实测（用户 Win10 22H2 / 125% 的截图逐像素量）
+/// 上面两个角是完整的 4px 弧、下面两个角只剩 2px，正好等于「遮罩比当前窗口高 2px，下沿被裁掉」。
+fn round_corners(h: HWND) {
+    let pref = DWMWCP_ROUNDSMALL;
+    // SAFETY: h 是活着的窗口；pref 在调用期间有效，长度与类型一致。
+    if let Err(e) = unsafe {
+        DwmSetWindowAttribute(
+            h,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            (&raw const pref).cast::<c_void>(),
+            size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        )
+    } {
+        log::debug!("PopButton: no rounded corners: {e}");
+    }
+}
+
 fn apply_styles(h: HWND) {
     // SAFETY: 读写一个活着的窗口的样式位；h 失效时这些调用只是失败。
     unsafe {
@@ -267,8 +275,18 @@ fn show_at(x: i32, y: i32, px: i32, owner: u64, dismiss_limit: u64) {
         // ignore: 失败时下一行照样摆
         let _ = SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
         // ignore: 失败时浮标留在旧位置，移开鼠标就收起
-        let _ = SetWindowPos(h, HWND_TOPMOST, x, y, px, px, SWP_NOACTIVATE);
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            x,
+            y,
+            px,
+            px,
+            SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
     }
+    // 大小刚变过，趁还 cloak 着让 DWM 按新矩形重算圆角遮罩，不然四个角弧度不一样大。
+    round_corners(h);
     BTN_PX.store(px, Relaxed);
     BTN_X.store(x + px / 2, Relaxed);
     BTN_Y.store(y + px / 2, Relaxed);
