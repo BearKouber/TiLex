@@ -341,6 +341,15 @@ fn send_ctrl_c() -> bool {
 mod tests {
     use super::*;
 
+    /// OS 剪贴板只有一份，下面两条 live 测试都要独占它一整段（写入→读序号→恢复）。
+    /// 并发跑会互相把序号顶掉，随机失败。串起来跑，`--test-threads` 给多少都无所谓。
+    /// 中毒了照样往下走：上一条测试 panic 不该把这条也变成失败。
+    static CLIPBOARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_clipboard() -> std::sync::MutexGuard<'static, ()> {
+        CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn inputs() -> Inputs {
         Inputs {
             enabled: true,
@@ -434,6 +443,7 @@ mod tests {
     #[test]
     #[ignore]
     fn clipboard_round_trip() {
+        let _guard = lock_clipboard();
         let original = Snapshot::take().expect("take the user's clipboard");
         let custom = unsafe { RegisterClipboardFormatW(w!("TiLex Force Copy Test")) };
         put(&[
@@ -480,6 +490,7 @@ mod tests {
     #[test]
     #[ignore]
     fn write_text_round_trip() {
+        let _guard = lock_clipboard();
         let original = Snapshot::take().expect("take the user's clipboard");
         let sample = "Hello 世界 🚀 TiLex 测试";
         assert!(write_text(sample));
