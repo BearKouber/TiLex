@@ -1,12 +1,11 @@
-# 新版（app/，Slint 原生）：改动 app/** 时在 Windows 上 fmt → clippy → test → build，上传 zip。
-# 旧版的发版流程在 release.yml，两者互不影响。
+# Slint 原生版：改动源码时在 Windows 上 fmt → clippy → test → build，上传 zip。
 name: App
 
 on:
   push:
-    paths: ['app/**', '.github/workflows/app.yml']
+    paths: ['src/**', 'ui/**', 'tests/**', 'ocr-sidecar/**', 'vendor/**', 'Cargo.*', 'build.rs', 'app.rc', '.github/workflows/app.yml']
   pull_request:
-    paths: ['app/**', '.github/workflows/app.yml']
+    paths: ['src/**', 'ui/**', 'tests/**', 'ocr-sidecar/**', 'vendor/**', 'Cargo.*', 'build.rs', 'app.rc', '.github/workflows/app.yml']
 
 jobs:
   build:
@@ -15,7 +14,6 @@ jobs:
       CARGO_TERM_COLOR: always
     defaults:
       run:
-        working-directory: app
         shell: bash
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +23,6 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
 
       - run: cargo fmt --check
       - run: cargo clippy -p tilex --all-targets -- -D warnings
@@ -39,7 +35,7 @@ jobs:
       # B3 起 zip 里再加 tilex-ocr.exe 和 wcocr.dll。
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path target/release/tilex.exe, target/release/tilex-ocr.exe, vendor/wcocr.dll -DestinationPath ../tilex-windows-x64.zip
+        run: Compress-Archive -Path target/release/tilex.exe, target/release/tilex-ocr.exe, vendor/wcocr.dll -DestinationPath tilex-windows-x64.zip
 
       - uses: actions/upload-artifact@v4
         with:

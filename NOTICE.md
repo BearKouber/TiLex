@@ -36,7 +36,7 @@ TiLex 是 [pot-app/pot-desktop](https://github.com/pot-app/pot-desktop) 的衍�
 
 ## 图标资源
 
-`app/ui/icons/logo/` 下这 8 个厂商图标取自
+`ui/icons/logo/` 下这 8 个厂商图标取自
 [simple-icons](https://github.com/simple-icons/simple-icons) v16.31.0（图标集以 **CC0-1.0** 发布）：
 
 | 文件 | simple-icons slug |
@@ -54,9 +54,9 @@ TiLex 是 [pot-app/pot-desktop](https://github.com/pot-app/pot-desktop) 的衍�
 
 ## 外部动态库与驱动组件
 
-`app/vendor/wcocr.dll` 编译自
+`vendor/wcocr.dll` 编译自
 [swigger/wechat-ocr](https://github.com/swigger/wechat-ocr)，编译方式见
-`app/vendor/README.md`。该 DLL 独立存放于安装目录，
+`vendor/README.md`。该 DLL 独立存放于安装目录，
 **不通过 `include_bytes!` 编入主程序二进制**，仅由伴生进程 `tilex-ocr.exe` 加载，
 作为与用户本机已安装微信 OCR 引擎的 IPC 通信桥梁。
 该组件不含任何文本识别算法或神经网络模型，模型与引擎均来自用户本地微信。

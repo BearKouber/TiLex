@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 struct Source {
-    /// 相对 `app/` 的路径，统一用 `/`。
+    /// 相对仓库根的路径，统一用 `/`。
     rel: String,
     /// 原始行（含注释），测试模块之前的部分。
     raw: Vec<String>,

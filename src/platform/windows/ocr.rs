@@ -76,7 +76,7 @@ fn ocr_engine() -> Option<PathBuf> {
 static WCOCR: OnceLock<PathBuf> = OnceLock::new();
 
 /// wcocr.dll 作为外部文件随包分发，不编进主程序二进制。
-/// 装机后在 $INSTDIR\vendor\ 或同目录；开发和 cargo test 时回落到源码树里的 app/vendor/。
+/// 装机后在 $INSTDIR\vendor\ 或同目录；开发和 cargo test 时回落到源码树里的 vendor/。
 fn wcocr_dll() -> Result<PathBuf, Error> {
     if let Some(cached) = WCOCR.get() {
         return Ok(cached.clone());
