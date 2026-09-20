@@ -1,15 +1,47 @@
 [package]
 name = "tilex"
-version = "0.1.1"
+version = "0.2.1"
 description = "TiLex"
 authors = ["auroraascent"]
 license = "GPL-3.0-only"
 edition = "2024"
 publish = false
 
-# 独立 workspace，不和 src-tauri 共用 Cargo.lock（D10）。ocr-sidecar 在 B3 加进 members。
 [workspace]
 members = ["ocr-sidecar"]
+
+# D19：安装包走 cargo-packager 出 NSIS，不出 MSI（旧版顺带打的，没人用）。
+# 打包前要先 cargo build --release -p tilex -p tilex-ocr，packager 不负责编译。
+# 路径相对本文件所在目录。
+[package.metadata.packager]
+product-name = "TiLex"
+# 沿用旧版的 identifier：NSIS 的卸载注册表键按 product-name 走，publisher 从这里取第二段（tilex），
+# 两者都和 0.1.2 一致，装新版时才认得出旧版并先卸载它。
+identifier = "com.tilex.desktop"
+formats = ["nsis"]
+icons = ["icon.ico"]
+license-file = "../LICENSE"
+category = "Utility"
+copyright = "GPLv3"
+long-description = "TiLex - a Windows translation and OCR tool: select text or screenshot to translate, multiple built-in engines plus custom AI services."
+# tilex-ocr.exe 要和 tilex.exe 同目录（ocr.rs 的 sidecar() 只找同级和上一级）。
+binaries = [
+    { path = "tilex", main = true },
+    { path = "tilex-ocr" },
+]
+# wcocr.dll 落到 $INSTDIR\vendor\（ocr.rs 的 wcocr_dll() 第一顺位）。
+# 这两个漏了程序照样启动，但 OCR 全废。
+resources = [{ src = "vendor/wcocr.dll", target = "vendor/wcocr.dll" }]
+
+[package.metadata.packager.nsis]
+# 注意：这个键只认 `installMode` / `installer-mode`，写 `install-mode` 会被
+# deny_unknown_fields 打回（cargo-packager 0.11.8 的 alias 少写了一个）。
+installMode = "perMachine"
+installer-icon = "icon.ico"
+display-language-selector = true
+languages = ["SimpChinese", "TradChinese", "English"]
+# 不设 appdata-paths：卸载器就不会出现"删除应用数据"的勾，%APPDATA%\TiLex 里的
+# 生词本和配置永远留着（prd「卸载不许删生词本」）。
 
 [dependencies]
 # 只开软件渲染（D11），GPU 渲染器根本不编进来。
