@@ -52,8 +52,11 @@ export global Theme {
     // 雅黑的拉丁字形是按中文全角度量设计的，西文字距偏松，英文界面下换 Segoe UI（B10 P14）。
     // 不用 "Segoe UI Variable Text"：Win11 专有，而 Slint 的 font-family 是单个名字、没有回退列表。
     out property <string> font-family: english-ui ? "Segoe UI" : "Microsoft YaHei";
-    // 300 是为对齐旧版中文排版定的；Segoe UI Light 太细，也和英文界面里回退到雅黑的中文内容对不齐。
-    out property <int> font-weight: english-ui ? 400 : 300;
+    // 300 是为对齐旧版中文排版定的，两种界面语言共用。
+    // P14 当初给英文界面配的是 400（怕 Segoe UI Light 太细），用户实测反馈「比中文粗一圈、
+    // 两边看着不是一套字」，所以字重拉回和中文一致（B10 P25）。字体仍然分家 —— 换 Segoe UI
+    // 是为了西文字距，那条没问题，粗细才是问题。
+    out property <int> font-weight: 300;
 
     out property <length> radius-small: 8px;
     out property <length> radius-medium: 12px;

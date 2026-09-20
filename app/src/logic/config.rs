@@ -231,6 +231,17 @@ impl Config {
         if !POS_VALUES.contains(&self.translate.result_pos.as_str()) {
             self.translate.result_pos = "sel_bottom".into();
         }
+        // 传统蒙文 `mn_mo` 已经从界面的语言列表里下架（B10 P25：竖排文字，Slint 的软件渲染画不了）。
+        // 磁盘上还留着的话，设置页找不到它、下拉会落回第一项，而**配置本身不变** ——
+        // 界面显示「自动检测 / 简体中文」、实际仍按 mn_mo 翻。就地换成默认值，让两边对上。
+        // 只针对这一个下架的码，不做「是否在列表里」的通用校验：那两张表在 `src/ui/` 里，
+        // `logic` 不许反向依赖 ui（design §1.2）。
+        if self.translate.source == "mn_mo" {
+            self.translate.source = Translate::default().source;
+        }
+        if self.translate.target == "mn_mo" {
+            self.translate.target = Translate::default().target;
+        }
     }
 }
 
@@ -544,6 +555,23 @@ mod tests {
             config.translate_services,
             Config::default().translate_services
         );
+    }
+
+    #[test]
+    fn normalize_retires_traditional_mongolian() {
+        let mut config = Config::default();
+        config.translate.source = "mn_mo".into();
+        config.translate.target = "mn_mo".into();
+        config.normalize();
+        assert_eq!(config.translate.source, "auto");
+        assert_eq!(config.translate.target, "zh_cn");
+
+        // 西里尔蒙文还在列表里，不许被顺手清掉
+        config.translate.source = "mn_cy".into();
+        config.translate.target = "mn_cy".into();
+        config.normalize();
+        assert_eq!(config.translate.source, "mn_cy");
+        assert_eq!(config.translate.target, "mn_cy");
     }
 
     #[test]

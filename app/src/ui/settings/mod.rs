@@ -522,18 +522,23 @@ fn check_update(page: &SettingsWindow) {
     }
 }
 
-// 对应 ui/settings/window.slint 的 language-options
-const SOURCE_LANGUAGES: [&str; 31] = [
-    "auto", "zh_cn", "zh_tw", "mn_mo", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr",
-    "pt_pt", "pt_br", "vi", "id", "th", "ms", "ar", "hi", "km", "mn_cy", "nb_no", "nn_no", "fa",
-    "sv", "pl", "nl", "uk", "he",
-];
-
-// 对应 ui/settings/window.slint 的 target-language-options
-const TARGET_LANGUAGES: [&str; 30] = [
-    "zh_cn", "zh_tw", "mn_mo", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr", "pt_pt",
+// 这两张表和 ui/settings/translate.slint 的 source-/target-language-options **逐项对应**，
+// 顺序和长度都不许错开：界面传回来的是下标，对错一位就静默翻错语言。
+//
+// 传统蒙文 `mn_mo` 已经从两张表里拿掉（B10 P25）：它是竖排文字，Slint 的软件渲染画不了，
+// 而且五家内置服务里只有 Bing 认它。`bing.rs` 的 `"mn_mo" => "mn-Mong"` 和 `detect.rs`
+// 的识别映射**故意留着** —— 自动识别仍然可能认出传统蒙文当源语言，那条路没问题。
+// 西里尔蒙文 `mn_cy` 是横排的，正常显示，留着。
+const SOURCE_LANGUAGES: [&str; 30] = [
+    "auto", "zh_cn", "zh_tw", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr", "pt_pt",
     "pt_br", "vi", "id", "th", "ms", "ar", "hi", "km", "mn_cy", "nb_no", "nn_no", "fa", "sv", "pl",
     "nl", "uk", "he",
+];
+
+const TARGET_LANGUAGES: [&str; 29] = [
+    "zh_cn", "zh_tw", "en", "ja", "ko", "fr", "es", "ru", "de", "it", "tr", "pt_pt", "pt_br", "vi",
+    "id", "th", "ms", "ar", "hi", "km", "mn_cy", "nb_no", "nn_no", "fa", "sv", "pl", "nl", "uk",
+    "he",
 ];
 
 // 对应 ui/settings/translate.slint 的 detect-engine-options
