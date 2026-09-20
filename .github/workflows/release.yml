@@ -1,0 +1,90 @@
+# 推送 v* tag 时在 Windows 上构建 release 产物，打包 NSIS 安装包与绿色 zip，并发布 GitHub Release。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build -p tilex -p tilex-ocr --release
+
+      # 版本钉死：Cargo.toml 的 `[package.metadata.packager.nsis]` 用了 installMode 这个键，
+      # 靠的是 0.11.8 的 alias；packager 对配置是 deny_unknown_fields，换版本可能直接打回。
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Build NSIS installer
+        run: cargo packager --release
+
+      - name: Package portable zip
+        shell: pwsh
+        run: Compress-Archive -Path target/release/tilex.exe, target/release/tilex-ocr.exe, vendor/wcocr.dll -DestinationPath tilex-windows-x64.zip
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          installers=(target/release/*-setup.exe)
+          if [ ${#installers[@]} -eq 0 ]; then
+            installers=(target/release/*/*-setup.exe target/release/*setup*.exe)
+          fi
+          if [ ${#installers[@]} -eq 0 ]; then
+            echo "Error: NSIS installer not found in target/release" >&2
+            exit 1
+          fi
+          echo "Found NSIS installer: ${installers[*]}"
+
+          if [ ! -f tilex-windows-x64.zip ]; then
+            echo "Error: tilex-windows-x64.zip not found" >&2
+            exit 1
+          fi
+
+          NOTES_FILE=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            BASE_TAG="${GITHUB_REF_NAME%%-*}"
+            if [ -f ".github/release-notes/${BASE_TAG}.md" ]; then
+              NOTES_FILE=".github/release-notes/${BASE_TAG}.md"
+            fi
+          fi
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "Error: Release notes file not found: .github/release-notes/${GITHUB_REF_NAME}.md" >&2
+            exit 1
+          fi
+
+          # 带横杠的 tag（v0.2.1-rc1 这种测试 tag）必须标成 prerelease：
+          # 客户端检查更新走 HEAD github.com/.../releases/latest 看重定向（src/logic/update.rs:10），
+          # 而 /releases/latest 只认非 prerelease。漏了这一步，推个 rc 测 workflow
+          # 就会让所有 0.1.x 用户被推送这个 rc。
+          prerelease=()
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease=(--prerelease) ;;
+          esac
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "TiLex ${GITHUB_REF_NAME#v}" \
+            --notes-file "$NOTES_FILE" \
+            "${prerelease[@]}" \
+            "${installers[@]}" \
+            tilex-windows-x64.zip
