@@ -250,7 +250,6 @@ fn platform_cfg_only_under_platform() {
         "target_vendor",
         "windows",
         "unix",
-        "macos",
     ];
     let mut violations = Vec::new();
     for s in sources() {

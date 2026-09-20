@@ -27,7 +27,7 @@ pub fn is_loopback(host: &str) -> bool {
 }
 
 /// 例外列表的一项：大小写不敏感，只认 `*` 通配（`*.lan`、`10.*`、`192.168.1.*`）。
-/// ponytail: 不认 CIDR（macOS 默认的 `169.254/16`），要时再加。
+/// ponytail: 不认 CIDR（例如 `169.254/16`），要时再加。
 pub fn matches(host: &str, pattern: &str) -> bool {
     let pattern = pattern.trim().to_ascii_lowercase();
     if pattern.is_empty() {

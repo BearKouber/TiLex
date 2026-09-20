@@ -37,7 +37,7 @@ fn open_inner(backup: Option<&Path>) {
     let raised = SETTINGS.with_borrow(|slot| {
         slot.as_ref()
             .map(|s| match platform::bring_to_front(s.page.window()) {
-                // 平台还没实现（macOS）：至少保证窗口是显示的，和改之前一样。
+                // 平台还没实现：至少保证窗口是显示的，和改之前一样。
                 Err(Error::Unsupported) => s.page.show().map_err(Error::from),
                 other => other,
             })

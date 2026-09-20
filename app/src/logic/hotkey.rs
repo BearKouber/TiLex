@@ -135,11 +135,7 @@ pub fn modifiers_only(ctrl: bool, shift: bool, alt: bool, meta: bool) -> String 
         parts.push("Shift");
     }
     if meta {
-        if std::env::consts::OS == "macos" {
-            parts.push("Command");
-        } else {
-            parts.push("Super");
-        }
+        parts.push("Super");
     }
     if alt {
         parts.push("Alt");
@@ -233,9 +229,6 @@ mod tests {
 
     #[test]
     fn test_accelerator_roundtrip_all_categories() {
-        let is_macos = std::env::consts::OS == "macos";
-        let super_cmd = if is_macos { "Command" } else { "Super" };
-
         // 1. Letters (lowercase converted to uppercase)
         let a = accelerator("a", true, true, false, false).unwrap();
         assert_eq!(a, "Ctrl+Shift+A");
@@ -393,7 +386,7 @@ mod tests {
         assert!(HotKey::from_str(&m3).is_ok());
 
         let m4 = accelerator("A", true, true, true, true).unwrap();
-        assert_eq!(m4, format!("Ctrl+Shift+{super_cmd}+Alt+A"));
+        assert_eq!(m4, "Ctrl+Shift+Super+Alt+A");
         assert!(HotKey::from_str(&m4).is_ok());
 
         // 8. Backspace returns empty string (clear)
@@ -453,11 +446,7 @@ mod tests {
         // 带上任意一个修饰键就照常
         assert_eq!(
             accelerator("a", false, false, false, true).as_deref(),
-            Some(if std::env::consts::OS == "macos" {
-                "Command+A"
-            } else {
-                "Super+A"
-            })
+            Some("Super+A")
         );
     }
 
@@ -475,16 +464,13 @@ mod tests {
 
     #[test]
     fn test_modifiers_only() {
-        let is_macos = std::env::consts::OS == "macos";
-        let super_cmd = if is_macos { "Command" } else { "Super" };
-
         assert_eq!(modifiers_only(false, false, false, false), "");
         assert_eq!(modifiers_only(true, false, false, false), "Ctrl");
         assert_eq!(modifiers_only(true, true, false, false), "Ctrl+Shift");
         assert_eq!(modifiers_only(true, true, true, false), "Ctrl+Shift+Alt");
         assert_eq!(
             modifiers_only(true, true, true, true),
-            format!("Ctrl+Shift+{super_cmd}+Alt")
+            "Ctrl+Shift+Super+Alt"
         );
     }
 }

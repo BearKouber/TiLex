@@ -64,7 +64,7 @@ fn run() -> Result<(), Error> {
     if let Err(e) = ui::overlay::create() {
         log::error!("Main: create screenshot overlay failed: {e}");
     }
-    // 听不到第二实例的通知只是"再开 exe 不弹设置"，不值得让整个程序起不来（macOS 上 socket bind 可能失败）。
+    // 听不到第二实例的通知只是"再开 exe 不弹设置"，不值得让整个程序起不来（socket bind 可能失败）。
     if let Err(e) = platform::listen_activation(|| {
         if let Err(e) = slint::invoke_from_event_loop(ui::settings::open) {
             log::warn!("Main: open settings from second instance failed: {e}");

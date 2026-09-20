@@ -16,7 +16,7 @@ thread_local! {
     static BUTTON: RefCell<Option<slint::Weak<PopButton>>> = const { RefCell::new(None) };
 }
 
-/// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词（macOS 在 B6），或监听没起来（已记日志）。
+/// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词，或监听没起来（已记日志）。
 /// 调用方持有返回值到退出。
 pub fn create() -> Result<Option<PopButton>, Error> {
     match platform::start_selection(settings, accept, engaged, before_show) {
