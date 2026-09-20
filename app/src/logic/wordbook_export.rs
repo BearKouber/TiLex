@@ -18,6 +18,9 @@ const CELL_BREAK: &str = "<br>";
 
 struct Labels {
     title: &'static str,
+    /// 导出对话框里的建议文件名。**和 title 放同一张表**，分开写会漂：
+    /// B10 收尾审查抓到过「内容是英文、建议文件名是中文」。
+    file_name: &'static str,
     exported: &'static str, // 带三个占位：时间、单词数、长难句数
     words: &'static str,
     sentences: &'static str,
@@ -37,6 +40,7 @@ struct Labels {
 
 const LABELS_ZH: Labels = Labels {
     title: "# 我的生词本",
+    file_name: "我的生词本.md",
     exported: "> 导出于 {} · 单词 {} · 长难句 {}",
     words: "## 单词",
     sentences: "## 长难句",
@@ -56,6 +60,7 @@ const LABELS_ZH: Labels = Labels {
 
 const LABELS_EN: Labels = Labels {
     title: "# My Wordbook",
+    file_name: "My Wordbook.md",
     exported: "> Exported {} · Words {} · Sentences {}",
     words: "## Words",
     sentences: "## Sentences",
@@ -77,6 +82,11 @@ impl Labels {
     fn for_lang(lang: &str) -> &'static Self {
         if lang == "en" { &LABELS_EN } else { &LABELS_ZH }
     }
+}
+
+/// 导出对话框的建议文件名。和 `build_markdown` 读同一个语言设置、取同一张表。
+pub fn default_file_name() -> &'static str {
+    Labels::for_lang(&crate::logic::config::snapshot().general.language).file_name
 }
 
 /// 生词本导出成 Markdown。`now` 注入，不读时钟、不写盘、不改入参。
@@ -710,6 +720,20 @@ mod tests {
         }
 
         (html, text, events)
+    }
+
+    #[test]
+    fn file_name_follows_the_same_language_as_the_title() {
+        // 建议文件名和正文标题必须是同一套语言 —— 这正是 B10 收尾审查抓到的那条
+        for (lang, title, file) in [
+            ("en", "# My Wordbook", "My Wordbook.md"),
+            ("zh_CN", "# 我的生词本", "我的生词本.md"),
+            ("", "# 我的生词本", "我的生词本.md"),
+        ] {
+            let labels = Labels::for_lang(lang);
+            assert_eq!(labels.title, title, "title for {lang:?}");
+            assert_eq!(labels.file_name, file, "file_name for {lang:?}");
+        }
     }
 
     #[test]

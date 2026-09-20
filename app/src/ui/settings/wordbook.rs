@@ -436,7 +436,7 @@ fn handle_confirm_delete(page: &SettingsWindow) {
 
 fn handle_export(page: &SettingsWindow) {
     let dialog = rfd::FileDialog::new()
-        .set_file_name("我的生词本.md")
+        .set_file_name(wordbook_export::default_file_name())
         .add_filter("Markdown", &["md"]);
 
     let Some(path) = dialog.save_file() else {
