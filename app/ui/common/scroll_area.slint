@@ -7,7 +7,8 @@ import { ScrollThumb } from "scroll_thumb.slint";
 export component ScrollArea {
     // 内容高度。不设就用 Flickable 自动算的（子布局 min-height，见 settings/window.slint 的注记）
     in-out property <length> viewport-height <=> fl.viewport-height;
-    in-out property <length> viewport-y <=> fl.viewport-y;
+    // 没有对外暴露 viewport-y：一旦有人用 `<=>` 接上去，Flickable 的越界回弹就被关掉
+    //（理由见 scroll_thumb.slint）。真要对外开，得走「只读属性 + 一个设置用的函数」那条路。
     out property <length> visible-height <=> fl.height;
     out property <length> visible-width <=> fl.width;
     // 滑块颜色：菜单里的比页面上的重一点（用户要求）
@@ -37,9 +38,11 @@ export component ScrollArea {
         x: parent.width - self.width - root.track-margin;
         y: root.track-inset;
         height: parent.height - 2 * root.track-inset;
-        viewport-y <=> fl.viewport-y;
+        // 只读 + callback 写回，**不能用 `<=>`**，理由见 scroll_thumb.slint 的注释
+        viewport-y: fl.viewport-y;
         viewport-height: fl.viewport-height;
         visible-height: fl.height;
         thumb-color: root.thumb-color;
+        scrolled(y) => { fl.viewport-y = y; }
     }
 }

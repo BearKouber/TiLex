@@ -5,11 +5,22 @@
 import { Theme } from "theme.slint";
 
 export component ScrollThumb inherits Rectangle {
-    // 和 Flickable / ScrollView 一样是负值，双向绑定到宿主的 viewport-y
-    in-out property <length> viewport-y;
+    // 和 Flickable / ScrollView 一样是负值。
+    //
+    // ⚠️ **只读，绝对不能写成 `viewport-y <=> 宿主.viewport-y`。**
+    // Flickable 自己会在越界时把 viewport-y 拉回边界内，但那段兜底带条件：
+    // `i-slint-core/items/flickable.rs:117` 是 `if *y_out_of_bounds && !y.has_binding()`，
+    // 而 `properties/two_way_binding.rs:105-116` 的 link_two_way 会给**两侧都装 binding**。
+    // 一用 `<=>`，内置回弹就整个失效 —— 服务设置滚到底再切生词本（那页刚好一屏、没得滚），
+    // 页面会永久卡在上移的位置（B10 P24 第一版的真实 bug）。
+    // 写回一律走下面的 `scrolled` callback：callback 里的赋值是 set()，不装 binding。
+    in property <length> viewport-y;
     in property <length> viewport-height;
     in property <length> visible-height;
     in property <color> thumb-color: Theme.scrollbar-thumb;
+
+    // 拖动滑块产生的新 viewport-y（负值），宿主自己赋回去
+    callback scrolled(length);
 
     // 能滚多远；为 0 时整条隐藏
     out property <length> max-offset: max(0px, root.viewport-height - root.visible-height);
@@ -43,9 +54,9 @@ export component ScrollThumb inherits Rectangle {
 
         moved => {
             if self.pressed {
-                root.viewport-y = -max(0px, min(root.max-offset,
+                root.scrolled(-max(0px, min(root.max-offset,
                     self.press-offset
-                        + (self.mouse-y - self.press-y) * root.max-offset / max(1px, root.height - thumb.height)));
+                        + (self.mouse-y - self.press-y) * root.max-offset / max(1px, root.height - thumb.height))));
             }
         }
     }

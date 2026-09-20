@@ -305,9 +305,11 @@ export component WordbookPage inherits Rectangle {
                 }
 
                 ScrollThumb {
-                    viewport-y <=> list.viewport-y;
+                    // 只读 + callback 写回，**不能用 `<=>`**，理由见 scroll_thumb.slint 的注释
+                    viewport-y: list.viewport-y;
                     viewport-height: list.viewport-height;
                     visible-height: list.visible-height;
+                    scrolled(y) => { list.viewport-y = y; }
                 }
             }
 
