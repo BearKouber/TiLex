@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" width="112" height="112" alt="TiLex" />
+  <img src="ui/icons/app.png" width="112" height="112" alt="TiLex" />
 </p>
 
 <h1 align="center">TiLex</h1>
@@ -8,7 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-blue" alt="License: GPL-3.0-only" /></a>
 </p>
 
-<p align="center">Windows 上的划词翻译与截图 OCR 工具。</p>
+<p align="center">Windows 上的划词翻译与截图 OCR 工具。Rust + Slint 原生界面，不带浏览器内核。</p>
 
 <p align="center">简体中文 | <a href="README_EN.md">English</a></p>
 
@@ -71,16 +71,23 @@
 
 ## 从源码构建
 
-需要 Node 21、pnpm、Rust 工具链、MSVC 生成工具。
+需要 Rust 工具链（stable）和 MSVC 生成工具。没有 Node，也没有前端构建步骤。
 
 ```bash
-pnpm install
-npx tauri build                  # 完整打包
-npx tauri build --bundles none   # 只编译不打包，验证能过就够
+cargo build --release -p tilex -p tilex-ocr
 ```
 
-`beforeBuildCommand` 会先编 OCR sidecar（`pnpm build:sidecar`），
-它是 `src-tauri/ocr-sidecar/` 下的独立 crate。
+产物在 `target/release/`：`tilex.exe` 和伴生的 `tilex-ocr.exe`。
+它们加上源码树里的 `vendor/wcocr.dll` 就能直接跑，不用装。
+
+要出安装包，先 `cargo install cargo-packager`，然后：
+
+```bash
+cargo packager --release
+```
+
+它只打包、不编译，上面那条 `cargo build` 必须先跑过。
+产物是 `target/release/tilex_<版本>_x64-setup.exe`。
 
 ## 社区
 

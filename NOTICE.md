@@ -8,13 +8,14 @@ TiLex 是 [pot-app/pot-desktop](https://github.com/pot-app/pot-desktop) 的衍�
 分叉自上游 commit `594d32e`（2026-07-04）。自 **2026 年 9 月** 起，
 本项目在其基础上做了实质性修改，包括但不限于：
 
-- **移除**：插件系统（`.potext`）、TTS 朗读、生词收藏、二十余家云 OCR 与云翻译服务、
-  macOS / Linux 支持
+- **移除**：插件系统（`.potext`）、二十余家云 OCR 与云翻译服务、macOS / Linux 支持
 - **新增**：划词 PopButton（低级鼠标钩子）、代码感知的文本预处理、翻译缓存、
-  AI 服务预设库与厂商图标体系、模型测速与优选、生词本
-- **重构**：OCR 改为独立 sidecar 进程（微信 OCR / Umi-OCR）；
+  AI 服务预设库与厂商图标体系、模型测速与优选、生词本（本地 SQLite）
+- **重写**：整个前端从 Tauri 1.x + React 换成 Rust + Slint 原生界面，不再内嵌 WebView2；
+  朗读改用 Windows SAPI（原为浏览器 `speechSynthesis`）；
+  OCR 改为独立 sidecar 进程（微信 OCR / Umi-OCR）；
   AI 服务从 `openai` 泛化为 `ai`，支持 OpenAI / Anthropic / Gemini 多种协议
-- **更名**：项目更名为 TiLex，bundle identifier 改为 `com.tilex.desktop`
+- **更名**：项目更名为 TiLex，安装包 identifier 为 `com.tilex.desktop`
 
 本发布仓库为单提交快照。本项目同样以 **GPL-3.0-only** 发布。
 

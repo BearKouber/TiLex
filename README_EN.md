@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" width="112" height="112" alt="TiLex" />
+  <img src="ui/icons/app.png" width="112" height="112" alt="TiLex" />
 </p>
 
 <h1 align="center">TiLex</h1>
@@ -8,7 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-blue" alt="License: GPL-3.0-only" /></a>
 </p>
 
-<p align="center">A Windows translation and screenshot OCR tool with selection popups.</p>
+<p align="center">A Windows translation and screenshot OCR tool with selection popups. Native UI built with Rust + Slint, no browser engine bundled.</p>
 
 <p align="center"><a href="README.md">简体中文</a> | English</p>
 
@@ -65,15 +65,23 @@ Runs in the system tray by default.
 
 ## Build from Source
 
-Requires Node 21, pnpm, Rust toolchain, and MSVC build tools.
+Requires a stable Rust toolchain and MSVC build tools. No Node, no frontend build step.
 
 ```bash
-pnpm install
-npx tauri build                  # Full installer bundle
-npx tauri build --bundles none   # Compile exe only, for testing
+cargo build --release -p tilex -p tilex-ocr
 ```
 
-`beforeBuildCommand` builds the OCR sidecar first (`pnpm build:sidecar`), which is an independent crate in `src-tauri/ocr-sidecar/`.
+Output lands in `target/release/`: `tilex.exe` and its companion `tilex-ocr.exe`.
+Together with `vendor/wcocr.dll` from the source tree they run as-is, no install needed.
+
+To produce an installer, run `cargo install cargo-packager` once, then:
+
+```bash
+cargo packager --release
+```
+
+It only packages, it does not compile, so the `cargo build` above must have run first.
+The output is `target/release/tilex_<version>_x64-setup.exe`.
 
 ## Community
 
