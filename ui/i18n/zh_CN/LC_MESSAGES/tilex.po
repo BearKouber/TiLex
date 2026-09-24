@@ -688,3 +688,13 @@ msgstr "密钥 (Secret)"
 
 msgid "Accurately, naturally, and concisely convey the original meaning in the selected target language. Use context to understand polysemous words, and prioritize standard terminology for specialized content. For words and phrases, highlight common definitions and collocations; for sentences, preserve the original meaning and tone, and break down complex sentences into core structures, modifiers, and key terms. Provide brief examples or explanations when necessary, and avoid irrelevant elaborations."
 msgstr "使用所选目标语言，准确、自然、简洁地表达原意。结合上下文理解多义词，专业内容优先使用通行术语。单词和短语突出常用释义与搭配；句子保留原意和语气，长难句提供核心句型主干、修饰成分与重点术语拆解。必要时提供简短例句或解释，避免无关扩展。"
+
+msgid "Toggle Settings Window"
+msgstr "开关设置窗口"
+
+msgid "This shortcut is already used by Screenshot Translate"
+msgstr "该快捷键已被截图翻译占用"
+
+msgid "This shortcut is already used by Toggle Settings Window"
+msgstr "该快捷键已被开关设置窗口占用"
+

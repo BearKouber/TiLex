@@ -1,10 +1,8 @@
-//! 全局快捷键管理：截图翻译。
-//!
-//! 全项目只有这一个全局快捷键，所以换键时直接注销上一个再注册新的，
-//! 不需要按名称管理多个快捷键。
+//! 全局快捷键管理：截图翻译与设置窗口开关。
 
 use std::cell::RefCell;
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use global_hotkey::hotkey::HotKey;
@@ -12,11 +10,52 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 
 use crate::error::Error;
 
-static CURRENT_ID: AtomicU32 = AtomicU32::new(0);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    Screenshot,
+    Settings,
+}
+
+static SCREENSHOT_ID: AtomicU32 = AtomicU32::new(0);
+static SETTINGS_ID: AtomicU32 = AtomicU32::new(0);
+
+type Action = Arc<dyn Fn() + Send + Sync + 'static>;
+static SCREENSHOT_ACTION: RwLock<Option<Action>> = RwLock::new(None);
+static SETTINGS_ACTION: RwLock<Option<Action>> = RwLock::new(None);
+static HANDLER_INSTALLED: std::sync::Once = std::sync::Once::new();
 
 thread_local! {
     static MANAGER: RefCell<Option<GlobalHotKeyManager>> = const { RefCell::new(None) };
-    static CURRENT_HOTKEY: RefCell<Option<HotKey>> = const { RefCell::new(None) };
+    static SCREENSHOT_HOTKEY: RefCell<Option<HotKey>> = const { RefCell::new(None) };
+    static SETTINGS_HOTKEY: RefCell<Option<HotKey>> = const { RefCell::new(None) };
+}
+
+fn slot_hotkey(slot: Slot) -> &'static std::thread::LocalKey<RefCell<Option<HotKey>>> {
+    match slot {
+        Slot::Screenshot => &SCREENSHOT_HOTKEY,
+        Slot::Settings => &SETTINGS_HOTKEY,
+    }
+}
+
+fn other_slot(slot: Slot) -> Slot {
+    match slot {
+        Slot::Screenshot => Slot::Settings,
+        Slot::Settings => Slot::Screenshot,
+    }
+}
+
+fn slot_id(slot: Slot) -> &'static AtomicU32 {
+    match slot {
+        Slot::Screenshot => &SCREENSHOT_ID,
+        Slot::Settings => &SETTINGS_ID,
+    }
+}
+
+fn slot_action_lock(slot: Slot) -> &'static RwLock<Option<Action>> {
+    match slot {
+        Slot::Screenshot => &SCREENSHOT_ACTION,
+        Slot::Settings => &SETTINGS_ACTION,
+    }
 }
 
 /// Slint 的一次按键翻译成 "Ctrl+Shift+A" 这种写法。旧版 `readHotkey`。
@@ -143,34 +182,73 @@ pub fn modifiers_only(ctrl: bool, shift: bool, alt: bool, meta: bool) -> String 
     parts.join("+")
 }
 
-/// 启动时调一次：装上事件处理器和「按下之后做什么」。
-/// `action` 在快捷键线程上被调用，不许阻塞、不许碰界面
-/// （要碰界面自己 `slint::invoke_from_event_loop`）。
-pub fn init(action: impl Fn() + Send + Sync + 'static) {
-    let action = Arc::new(action);
-    GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-        let cur_id = CURRENT_ID.load(Ordering::SeqCst);
-        if cur_id != 0 && event.state == HotKeyState::Pressed && event.id == cur_id {
-            action();
-        }
-    }));
+fn taken_by_other(slot: Slot, hotkey: HotKey) -> bool {
+    slot_hotkey(other_slot(slot)).with(|cur| *cur.borrow() == Some(hotkey))
 }
 
-/// 换键。空串 = 只注销，不再注册。注册不上（多半是被别的软件占了）返回 Err。
-pub fn apply(accelerator: &str) -> Result<(), Error> {
+/// `accelerator` 是否已被另一个槽位占用（界面据此给出冲突提示）。解析不了的键返回 false，交给 `apply` 报错。
+pub fn conflicts(slot: Slot, accelerator: &str) -> bool {
+    accelerator
+        .trim()
+        .parse::<HotKey>()
+        .is_ok_and(|hk| taken_by_other(slot, hk))
+}
+
+/// 启动时针对每个槽位调一次：装上回调。「按下之后做什么」在快捷键线程上被调用，
+/// 不许阻塞、不许碰界面（要碰界面自己 `slint::invoke_from_event_loop`）。
+pub fn init(slot: Slot, action: impl Fn() + Send + Sync + 'static) {
+    let action_lock = slot_action_lock(slot);
+    *action_lock
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(action));
+
+    HANDLER_INSTALLED.call_once(|| {
+        GlobalHotKeyEvent::set_event_handler(Some(|event: GlobalHotKeyEvent| {
+            if event.state != HotKeyState::Pressed {
+                return;
+            }
+            let s_id = SCREENSHOT_ID.load(Ordering::SeqCst);
+            let st_id = SETTINGS_ID.load(Ordering::SeqCst);
+            if s_id != 0 && event.id == s_id {
+                let action = SCREENSHOT_ACTION
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if let Some(act) = action {
+                    act();
+                }
+            } else if st_id != 0 && event.id == st_id {
+                let action = SETTINGS_ACTION
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if let Some(act) = action {
+                    act();
+                }
+            }
+        }));
+    });
+}
+
+/// 换键。空串 = 只注销该槽位，不再注册。注册不上（多半是被别的软件占了）返回 Err。
+pub fn apply(slot: Slot, accelerator: &str) -> Result<(), Error> {
     let trimmed = accelerator.trim();
     if trimmed.is_empty() {
         MANAGER.with(|cell| {
             let mut mgr_opt = cell.borrow_mut();
             if let Some(mgr) = mgr_opt.as_mut() {
-                CURRENT_HOTKEY.with(|cur_cell| {
+                slot_hotkey(slot).with(|cur_cell| {
                     if let Some(old) = cur_cell.borrow_mut().take() {
                         let _ = mgr.unregister(old); // ignore: 清空快捷键时注销已注册的旧热键
                     }
                 });
+            } else {
+                slot_hotkey(slot).with(|cur_cell| {
+                    cur_cell.borrow_mut().take();
+                });
             }
         });
-        CURRENT_ID.store(0, Ordering::SeqCst);
+        slot_id(slot).store(0, Ordering::SeqCst);
         return Ok(());
     }
 
@@ -187,8 +265,16 @@ pub fn apply(accelerator: &str) -> Result<(), Error> {
         .parse()
         .map_err(|e| Error::Platform(format!("{e}")))?;
 
-    // 检查是否与当前已注册的热键相同
-    let same = CURRENT_HOTKEY.with(|cur_cell| *cur_cell.borrow() == Some(hotkey));
+    // 两个槽位不能是同一个键
+    // 界面先调 `conflicts` 给出专门的提示，这里兜底。
+    if taken_by_other(slot, hotkey) {
+        return Err(Error::Platform(format!(
+            "{trimmed} is already used by another shortcut"
+        )));
+    }
+
+    // 检查是否与当前槽位已注册的热键相同
+    let same = slot_hotkey(slot).with(|cur_cell| *cur_cell.borrow() == Some(hotkey));
     if same {
         return Ok(());
     }
@@ -207,17 +293,17 @@ pub fn apply(accelerator: &str) -> Result<(), Error> {
         // 先注册新键，成功后再注销旧键（RegisterHotKey 允许同时存在两个不同的键）。
         // 这样如果新键注册失败（被占），旧键仍然保持注册状态，不破坏原有快捷键。
         mgr.register(hotkey).map_err(|e| {
-            log::warn!("Hotkey: register {trimmed} failed: {e}");
+            log::warn!("Hotkey: register {trimmed} for {slot:?} failed: {e}");
             Error::Platform(e.to_string())
         })?;
 
-        CURRENT_HOTKEY.with(|cur_cell| {
+        slot_hotkey(slot).with(|cur_cell| {
             if let Some(old) = cur_cell.borrow_mut().replace(hotkey) {
                 let _ = mgr.unregister(old); // ignore: 新键注册成功后注销旧键
             }
         });
-        CURRENT_ID.store(hotkey.id(), Ordering::SeqCst);
-        log::info!("Hotkey: registered {trimmed}");
+        slot_id(slot).store(hotkey.id(), Ordering::SeqCst);
+        log::info!("Hotkey: registered {trimmed} for {slot:?}");
         Ok(())
     })
 }
@@ -455,11 +541,52 @@ mod tests {
     #[test]
     fn apply_refuses_a_bare_key_from_config() {
         for bare in ["A", "7", "/", "Space", "Delete"] {
-            let err = apply(bare).unwrap_err().to_string();
+            let err = apply(Slot::Screenshot, bare).unwrap_err().to_string();
             assert!(err.contains("needs a modifier"), "{bare}: {err}");
         }
-        assert!(apply("").is_ok());
-        assert!(apply("   ").is_ok());
+        assert!(apply(Slot::Screenshot, "").is_ok());
+        assert!(apply(Slot::Screenshot, "   ").is_ok());
+    }
+
+    #[test]
+    fn test_slot_conflict_rejected() {
+        let hotkey: HotKey = "Ctrl+Shift+A".parse().unwrap();
+        SCREENSHOT_HOTKEY.with(|c| *c.borrow_mut() = Some(hotkey));
+
+        assert!(conflicts(Slot::Settings, "Ctrl+Shift+A"));
+        assert!(!conflicts(Slot::Settings, "Ctrl+Shift+Z"));
+        assert!(!conflicts(Slot::Screenshot, "Ctrl+Shift+A"));
+        assert!(apply(Slot::Settings, "Ctrl+Shift+A").is_err());
+
+        // 反向检查
+        SETTINGS_HOTKEY.with(|c| *c.borrow_mut() = Some(hotkey));
+        SCREENSHOT_HOTKEY.with(|c| *c.borrow_mut() = None);
+
+        assert!(conflicts(Slot::Screenshot, "Ctrl+Shift+A"));
+        assert!(apply(Slot::Screenshot, "Ctrl+Shift+A").is_err());
+
+        // 清理
+        SETTINGS_HOTKEY.with(|c| *c.borrow_mut() = None);
+    }
+
+    #[test]
+    fn test_clearing_one_slot_does_not_affect_other() {
+        let hotkey: HotKey = "Ctrl+Shift+B".parse().unwrap();
+        SCREENSHOT_HOTKEY.with(|c| *c.borrow_mut() = Some(hotkey));
+        SCREENSHOT_ID.store(hotkey.id(), Ordering::SeqCst);
+
+        // 清空 Settings 槽位
+        let res = apply(Slot::Settings, "");
+        assert!(res.is_ok());
+
+        // Screenshot 槽位仍然完好
+        let intact = SCREENSHOT_HOTKEY.with(|c| *c.borrow() == Some(hotkey));
+        assert!(intact);
+        assert_eq!(SCREENSHOT_ID.load(Ordering::SeqCst), hotkey.id());
+
+        // 清理
+        SCREENSHOT_HOTKEY.with(|c| *c.borrow_mut() = None);
+        SCREENSHOT_ID.store(0, Ordering::SeqCst);
     }
 
     #[test]

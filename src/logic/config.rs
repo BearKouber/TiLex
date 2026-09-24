@@ -44,6 +44,7 @@ pub struct Config {
 pub struct General {
     pub language: String,
     pub theme: String,
+    pub settings_hotkey: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -134,6 +135,7 @@ impl Default for General {
         Self {
             language: LANGUAGES[0].into(),
             theme: "system".into(),
+            settings_hotkey: String::new(),
         }
     }
 }
@@ -1014,5 +1016,12 @@ mod tests {
         });
         migrate_result_pos(&mut config2, &raw2);
         assert_eq!(config2.translate.result_pos, "sel_bottom");
+    }
+
+    #[test]
+    fn old_config_without_settings_hotkey_deserializes_to_empty() {
+        let json = r#"{"general": {"language": "zh_cn", "theme": "system"}}"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.general.settings_hotkey, "");
     }
 }

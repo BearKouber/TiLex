@@ -112,8 +112,17 @@ export global TranslateSettings {
     // 返回 true = 这一轮录完了，界面把焦点收掉。
     callback hotkey-key(string, bool, bool, bool, bool) -> bool;
 
+    in-out property <string> settings-hotkey: "";
+    in-out property <string> settings-hotkey-draft: "";
+    in-out property <bool> settings-hotkey-recording: false;
+
+    callback settings-hotkey-focus-changed(bool);
+    callback settings-hotkey-key(string, bool, bool, bool, bool) -> bool;
+
     public function show-hotkey-ok() -> string { @tr("Shortcut registered") }
     public function show-hotkey-error(err: string) -> string { @tr("Could not register shortcut: {}", err) }
+    public function show-hotkey-conflict() -> string { @tr("This shortcut is already used by Screenshot Translate") }
+    public function show-screenshot-hotkey-conflict() -> string { @tr("This shortcut is already used by Toggle Settings Window") }
 }
 
 export component TranslatePage {
@@ -280,6 +289,39 @@ export component TranslatePage {
                             return EventResult.accept;
                         }
                         if TranslateSettings.hotkey-key(event.text, event.modifiers.control,
+                                event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
+                            self.clear-focus();
+                        }
+                        return EventResult.accept;
+                    }
+                }
+            }
+
+            // 9b. 开关设置窗口快捷键
+            SettingRow {
+                label: @tr("Toggle Settings Window");
+                shk := TextField {
+                    width: 130px;
+                    auto-shrink: true;
+                    variant: "bordered";
+                    center: true;
+                    read-only: true;
+                    text: TranslateSettings.settings-hotkey-recording
+                        ? TranslateSettings.settings-hotkey-draft
+                        : TranslateSettings.settings-hotkey;
+                    placeholder: TranslateSettings.settings-hotkey-recording
+                        ? @tr("Press a key combination")
+                        : @tr("None");
+                    changed has-focus => {
+                        TranslateSettings.settings-hotkey-focus-changed(self.has-focus);
+                    }
+                    key-pressed(event) => {
+                        if event.text == Key.Escape && !event.modifiers.control
+                            && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
+                            self.clear-focus();
+                            return EventResult.accept;
+                        }
+                        if TranslateSettings.settings-hotkey-key(event.text, event.modifiers.control,
                                 event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
                             self.clear-focus();
                         }

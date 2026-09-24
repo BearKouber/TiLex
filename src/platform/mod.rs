@@ -46,6 +46,11 @@ pub fn listen_activation(on_activate: impl Fn() + Send + 'static) -> Result<(), 
     imp::listen_activation(on_activate)
 }
 
+/// 第二实例通知激活后，老实例窗口唤起到最前完成后调用，通知第二实例可以退出。
+pub fn ack_activation() {
+    imp::ack_activation();
+}
+
 /// 用系统默认方式打开文件或文件夹（资源管理器）。
 pub fn open_path(path: &Path) -> Result<(), Error> {
     imp::open_path(path)
@@ -88,6 +93,11 @@ pub fn style_frameless_window(window: &slint::Window) -> Result<(), Error> {
 /// 而 Windows 的前台锁会静默拒绝后台进程的 `SetForegroundWindow`，所以要走平台层。
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
     imp::bring_to_front(window)
+}
+
+/// 窗口当前是否是系统前台窗口。拿不到原生句柄返回 false。
+pub fn is_foreground(window: &slint::Window) -> bool {
+    imp::is_foreground(window)
 }
 
 /// 划词监听要用的设置。取词 worker 每次手势都现取（改了配置不用重启）。

@@ -14,14 +14,15 @@ use windows::Win32::Graphics::Dwm::{
 };
 use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
 use windows::Win32::System::Threading::{
-    AttachThreadInput, CreateEventW, CreateMutexW, GetCurrentThreadId, INFINITE, SetEvent,
-    WaitForSingleObject,
+    AttachThreadInput, CreateEventW, CreateMutexW, GetCurrentThreadId, INFINITE, ResetEvent,
+    SetEvent, WaitForSingleObject,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    ASFW_ANY, AllowSetForegroundWindow, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
-    SW_RESTORE, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
+    ASFW_ANY, AllowSetForegroundWindow, GetForegroundWindow, GetWindowThreadProcessId,
+    HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, SW_RESTORE, SW_SHOWNORMAL, SWP_NOMOVE, SWP_NOSIZE,
+    SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 use windows::core::{PCWSTR, w};
 
@@ -63,9 +64,11 @@ pub use ocr::{wechat_ocr, wechat_ocr_status};
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");
+const ACTIVATE_ACK_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettingsAck");
 
 /// 激活事件的句柄（`HANDLE` 不是 Send，按整数存）。进程内从不关闭。
 static EVENT: AtomicIsize = AtomicIsize::new(0);
+static ACK_EVENT: AtomicIsize = AtomicIsize::new(0);
 
 pub fn data_dir() -> Result<PathBuf, Error> {
     let appdata =
@@ -83,6 +86,8 @@ pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
     // 先建事件再抢锁：第二个实例紧接着启动时事件对象已经存在，它的 SetEvent 不会丢。
     // SAFETY: 常量名字符串；返回的句柄归本进程，不关闭（随进程结束释放）。
     let event = unsafe { CreateEventW(None, false, false, ACTIVATE_EVENT) }.map_err(win)?;
+    // SAFETY: ACK 事件同上。
+    let ack_event = unsafe { CreateEventW(None, false, false, ACTIVATE_ACK_EVENT) }.map_err(win)?;
     // SAFETY: 同上。
     let mutex = unsafe { CreateMutexW(None, false, INSTANCE_MUTEX) }.map_err(win)?;
     let ms = u32::try_from(wait.as_millis()).unwrap_or(INFINITE - 1);
@@ -90,6 +95,7 @@ pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
     let waited = unsafe { WaitForSingleObject(mutex, ms) };
     if waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED {
         EVENT.store(event.0 as isize, Ordering::Relaxed);
+        ACK_EVENT.store(ack_event.0 as isize, Ordering::Relaxed);
         return Ok(true);
     }
     if waited != WAIT_TIMEOUT {
@@ -101,9 +107,23 @@ pub fn claim_single_instance(wait: Duration) -> Result<bool, Error> {
     // 已有实例：本进程是用户刚启动的，有前台权；让出去，老实例的设置窗口才能到前台（前台锁）。
     // SAFETY: 无指针参数。
     let _ = unsafe { AllowSetForegroundWindow(ASFW_ANY) }; // ignore: 失败只是窗口可能出现在后面
+    // SAFETY: ack_event 是有效句柄。第二实例在 SetEvent(activate) 之前先 ResetEvent(ack)。
+    let _ = unsafe { ResetEvent(ack_event) }; // ignore: 清理旧信号失败不致命
     // SAFETY: event 是有效句柄。
     unsafe { SetEvent(event) }.map_err(win)?;
+    // SAFETY: ack_event 是有效句柄。等待老实例唤起设置窗完成，最长 2000ms；超时照常退出。
+    let _ = unsafe { WaitForSingleObject(ack_event, 2000) }; // ignore: 等待超时或失败照常退出
     Ok(false)
+}
+
+pub fn ack_activation() {
+    let raw = ACK_EVENT.load(Ordering::Relaxed);
+    if raw != 0 {
+        let event = HANDLE(raw as *mut c_void);
+        // SAFETY: event 在 claim_single_instance 中创建，句柄有效。
+        // ignore: 无第二实例等待时信号保留，由下一次第二实例在激活前重置
+        let _ = unsafe { SetEvent(event) };
+    }
 }
 
 pub fn listen_activation(on_activate: impl Fn() + Send + 'static) -> Result<(), Error> {
@@ -238,6 +258,16 @@ pub fn style_frameless_window(window: &slint::Window) -> Result<(), Error> {
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
     let hwnd = hwnd(window)?;
     if force_foreground(hwnd) {
+        return Ok(());
+    }
+    // 抢不到前台时先置顶再取消置顶，至少把窗口提到其它窗口上面，再试一次。
+    // 只给普通窗口（设置窗）用：结果窗、遮罩本来就是 TOPMOST，走这一步会被取消置顶。
+    // SAFETY: hwnd 来自活着的 Slint 窗口；无指针参数。
+    unsafe {
+        let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE); // ignore: 提层失败就只剩下面的重试
+        let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE); // ignore: 同上
+    }
+    if force_foreground(hwnd) {
         Ok(())
     } else {
         Err(Error::Platform("SetForegroundWindow refused".into()))
@@ -266,6 +296,15 @@ pub(super) fn force_foreground(hwnd: HWND) -> bool {
         }
         ok
     }
+}
+
+pub fn is_foreground(window: &slint::Window) -> bool {
+    let Ok(h) = hwnd(window) else {
+        return false;
+    };
+    // SAFETY: 无指针参数。
+    let fg = unsafe { GetForegroundWindow() };
+    fg == h
 }
 
 pub(super) fn hwnd(window: &slint::Window) -> Result<HWND, Error> {

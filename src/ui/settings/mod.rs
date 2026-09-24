@@ -23,6 +23,28 @@ thread_local! {
     static SETTINGS: RefCell<Option<Settings>> = const { RefCell::new(None) };
 }
 
+/// 开关设置窗口：
+/// - 窗口不存在 → open()
+/// - 存在且是前台 → schedule_close(&page)
+/// - 存在但不是前台 → open()
+pub fn toggle() {
+    let is_foreground = SETTINGS.with_borrow(|slot| {
+        slot.as_ref()
+            .map(|s| platform::is_foreground(s.page.window()))
+    });
+    match is_foreground {
+        None => open(),
+        Some(true) => {
+            SETTINGS.with_borrow(|slot| {
+                if let Some(s) = slot.as_ref() {
+                    schedule_close(&s.page);
+                }
+            });
+        }
+        Some(false) => open(),
+    }
+}
+
 /// 打开设置窗口；已经开着就拉到最前面。
 pub fn open() {
     open_inner(None);
@@ -43,9 +65,13 @@ fn open_inner(backup: Option<&Path>) {
             })
     });
     match raised {
-        Some(Ok(())) => return,
+        Some(Ok(())) => {
+            platform::ack_activation();
+            return;
+        }
         Some(Err(e)) => {
             log::warn!("Settings: bring to front failed: {e}");
+            platform::ack_activation();
             return;
         }
         None => {}
@@ -55,7 +81,10 @@ fn open_inner(backup: Option<&Path>) {
             SETTINGS.set(Some(settings));
             log::info!("Settings: opened");
         }
-        Err(e) => log::error!("Settings: create window failed: {e}"),
+        Err(e) => {
+            log::error!("Settings: create window failed: {e}");
+            platform::ack_activation();
+        }
     }
 }
 
@@ -99,6 +128,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.set_button_distance(distance);
     ts.set_blacklist(cfg.selection.blacklist.into());
     ts.set_hotkey(cfg.screenshot.hotkey.as_str().into());
+    ts.set_settings_hotkey(cfg.general.settings_hotkey.as_str().into());
 
     let weak_source_lang = page.as_weak();
     ts.on_source_lang_changed(move |idx| {
@@ -173,14 +203,46 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     let weak_hk_focus = page.as_weak();
     ts.on_hotkey_focus_changed(move |focused| {
         if let Some(page) = weak_hk_focus.upgrade() {
-            handle_hotkey_focus(&page, focused);
+            handle_hotkey_focus(&page, crate::logic::hotkey::Slot::Screenshot, focused);
         }
     });
 
     let weak_hk_key = page.as_weak();
     ts.on_hotkey_key(move |text, ctrl, shift, alt, meta| {
         if let Some(page) = weak_hk_key.upgrade() {
-            handle_hotkey_key(&page, text.as_str(), ctrl, shift, alt, meta)
+            handle_hotkey_key(
+                &page,
+                crate::logic::hotkey::Slot::Screenshot,
+                text.as_str(),
+                ctrl,
+                shift,
+                alt,
+                meta,
+            )
+        } else {
+            false
+        }
+    });
+
+    let weak_shk_focus = page.as_weak();
+    ts.on_settings_hotkey_focus_changed(move |focused| {
+        if let Some(page) = weak_shk_focus.upgrade() {
+            handle_hotkey_focus(&page, crate::logic::hotkey::Slot::Settings, focused);
+        }
+    });
+
+    let weak_shk_key = page.as_weak();
+    ts.on_settings_hotkey_key(move |text, ctrl, shift, alt, meta| {
+        if let Some(page) = weak_shk_key.upgrade() {
+            handle_hotkey_key(
+                &page,
+                crate::logic::hotkey::Slot::Settings,
+                text.as_str(),
+                ctrl,
+                shift,
+                alt,
+                meta,
+            )
         } else {
             false
         }
@@ -344,7 +406,10 @@ fn center_on_screen(window: &slint::Window) {
 fn style_when_ready(weak: slint::Weak<SettingsWindow>, attempt: u32) {
     const MAX_ATTEMPTS: u32 = 50;
     slint::Timer::single_shot(Duration::from_millis(10), move || {
-        let Some(page) = weak.upgrade() else { return };
+        let Some(page) = weak.upgrade() else {
+            platform::ack_activation();
+            return;
+        };
         match platform::style_frameless_window(page.window()) {
             Ok(()) => {
                 log::info!("Settings: styled frameless window (attempt {attempt})");
@@ -358,9 +423,11 @@ fn style_when_ready(weak: slint::Weak<SettingsWindow>, attempt: u32) {
                     Ok(()) | Err(Error::Unsupported) => {}
                     Err(e) => log::warn!("Settings: bring to front after create failed: {e}"),
                 }
+                platform::ack_activation();
             }
             Err(e) if attempt >= MAX_ATTEMPTS => {
                 log::warn!("Settings: style frameless window failed after {attempt} tries: {e}");
+                platform::ack_activation();
             }
             Err(_) => style_when_ready(weak, attempt + 1),
         }
@@ -386,11 +453,19 @@ fn close() {
     // 关窗时如果还在录制快捷键，当前键已经被注销了，而失焦回调不保证还会触发
     // （Alt+F4、任务栏关闭都是直接销毁）。所有关闭路径都汇到这里，在这儿把配置里的键装回去。
     // 没在录制时这一步是空操作：`apply` 发现要装的就是当前这个键会直接返回。
-    let cur = config::snapshot().screenshot.hotkey;
-    if !cur.is_empty()
-        && let Err(e) = crate::logic::hotkey::apply(&cur)
+    let cur_screenshot = config::snapshot().screenshot.hotkey;
+    if !cur_screenshot.is_empty()
+        && let Err(e) =
+            crate::logic::hotkey::apply(crate::logic::hotkey::Slot::Screenshot, &cur_screenshot)
     {
-        log::warn!("Settings: restore hotkey on close failed: {e}");
+        log::warn!("Settings: restore screenshot hotkey on close failed: {e}");
+    }
+    let cur_settings = config::snapshot().general.settings_hotkey;
+    if !cur_settings.is_empty()
+        && let Err(e) =
+            crate::logic::hotkey::apply(crate::logic::hotkey::Slot::Settings, &cur_settings)
+    {
+        log::warn!("Settings: restore settings hotkey on close failed: {e}");
     }
 
     log::info!("Settings: closed");
@@ -703,30 +778,80 @@ fn handle_blacklist_change(page: &SettingsWindow, val: slint::SharedString) {
     }
 }
 
-fn handle_hotkey_focus(page: &SettingsWindow, focused: bool) {
+fn is_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot) -> bool {
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => ts.get_hotkey_recording(),
+        crate::logic::hotkey::Slot::Settings => ts.get_settings_hotkey_recording(),
+    }
+}
+
+fn set_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, recording: bool) {
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey_recording(recording),
+        crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey_recording(recording),
+    }
+}
+
+fn set_draft(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, draft: slint::SharedString) {
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey_draft(draft),
+        crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey_draft(draft),
+    }
+}
+
+fn set_display(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, key: &str) {
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey(key.into()),
+        crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey(key.into()),
+    }
+}
+
+fn current_config_hotkey(slot: crate::logic::hotkey::Slot) -> String {
+    let cfg = config::snapshot();
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => cfg.screenshot.hotkey,
+        crate::logic::hotkey::Slot::Settings => cfg.general.settings_hotkey,
+    }
+}
+
+fn save_config_hotkey(
+    page: &SettingsWindow,
+    slot: crate::logic::hotkey::Slot,
+    accel: &str,
+) -> bool {
+    let accel = accel.to_string();
+    match slot {
+        crate::logic::hotkey::Slot::Screenshot => {
+            save(page, "hotkey", move |c| c.screenshot.hotkey = accel)
+        }
+        crate::logic::hotkey::Slot::Settings => save(page, "settings_hotkey", move |c| {
+            c.general.settings_hotkey = accel
+        }),
+    }
+}
+
+fn handle_hotkey_focus(page: &SettingsWindow, slot: crate::logic::hotkey::Slot, focused: bool) {
     let ts = page.global::<TranslateSettings>();
     if focused {
-        ts.set_hotkey_recording(true);
-        ts.set_hotkey_draft("".into());
-        // 先把当前的键注销掉，否则录的时候按到它会直接触发截图
-        if let Err(e) = crate::logic::hotkey::apply("") {
-            log::warn!("Settings: unregister hotkey on focus failed: {e}");
+        set_recording(&ts, slot, true);
+        set_draft(&ts, slot, "".into());
+        // 先把当前的键注销掉，否则录的时候按到它会直接触发
+        if let Err(e) = crate::logic::hotkey::apply(slot, "") {
+            log::warn!("Settings: unregister {slot:?} hotkey on focus failed: {e}");
         }
-    } else {
-        if !ts.get_hotkey_recording() {
-            return;
-        }
-        ts.set_hotkey_recording(false);
-        ts.set_hotkey_draft("".into());
-        let cur = config::snapshot().screenshot.hotkey;
-        if let Err(e) = crate::logic::hotkey::apply(&cur) {
-            log::warn!("Settings: restore hotkey on blur failed: {e}");
+    } else if is_recording(&ts, slot) {
+        set_recording(&ts, slot, false);
+        set_draft(&ts, slot, "".into());
+        let cur = current_config_hotkey(slot);
+        if let Err(e) = crate::logic::hotkey::apply(slot, &cur) {
+            log::warn!("Settings: restore {slot:?} hotkey on blur failed: {e}");
         }
     }
 }
 
 fn handle_hotkey_key(
     page: &SettingsWindow,
+    slot: crate::logic::hotkey::Slot,
     text: &str,
     ctrl: bool,
     shift: bool,
@@ -735,32 +860,46 @@ fn handle_hotkey_key(
 ) -> bool {
     let ts = page.global::<TranslateSettings>();
     let Some(accel) = crate::logic::hotkey::accelerator(text, ctrl, shift, alt, meta) else {
-        ts.set_hotkey_draft(crate::logic::hotkey::modifiers_only(ctrl, shift, alt, meta).into());
+        set_draft(
+            &ts,
+            slot,
+            crate::logic::hotkey::modifiers_only(ctrl, shift, alt, meta).into(),
+        );
         return false;
     };
 
-    ts.set_hotkey_recording(false);
-    ts.set_hotkey_draft("".into());
+    set_recording(&ts, slot, false);
+    set_draft(&ts, slot, "".into());
 
-    let old_hotkey = config::snapshot().screenshot.hotkey;
-    match crate::logic::hotkey::apply(&accel) {
+    let old_hotkey = current_config_hotkey(slot);
+    if crate::logic::hotkey::conflicts(slot, &accel) {
+        let msg = match slot {
+            crate::logic::hotkey::Slot::Screenshot => ts.invoke_show_screenshot_hotkey_conflict(),
+            crate::logic::hotkey::Slot::Settings => ts.invoke_show_hotkey_conflict(),
+        };
+        page.invoke_show_toast(msg, 2);
+        let _ = crate::logic::hotkey::apply(slot, &old_hotkey); // ignore: 冲突时恢复旧热键
+        set_display(&ts, slot, &old_hotkey);
+        return true;
+    }
+    match crate::logic::hotkey::apply(slot, &accel) {
         Ok(()) => {
-            if save(page, "hotkey", |c| c.screenshot.hotkey = accel.clone()) {
-                ts.set_hotkey(accel.as_str().into());
+            if save_config_hotkey(page, slot, &accel) {
+                set_display(&ts, slot, &accel);
                 if !accel.is_empty() {
                     let msg = ts.invoke_show_hotkey_ok();
                     page.invoke_show_toast(msg, 1);
                 }
             } else {
-                let _ = crate::logic::hotkey::apply(&old_hotkey); // ignore: 保存配置失败时恢复旧热键
-                ts.set_hotkey(old_hotkey.as_str().into());
+                let _ = crate::logic::hotkey::apply(slot, &old_hotkey); // ignore: 保存配置失败时恢复旧热键
+                set_display(&ts, slot, &old_hotkey);
             }
         }
         Err(e) => {
             let msg = ts.invoke_show_hotkey_error(e.to_string().into());
             page.invoke_show_toast(msg, 2);
-            let _ = crate::logic::hotkey::apply(&old_hotkey); // ignore: 注册热键失败时恢复旧热键
-            ts.set_hotkey(old_hotkey.as_str().into());
+            let _ = crate::logic::hotkey::apply(slot, &old_hotkey); // ignore: 注册热键失败时恢复旧热键
+            set_display(&ts, slot, &old_hotkey);
         }
     }
 

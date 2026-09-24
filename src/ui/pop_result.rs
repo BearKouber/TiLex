@@ -31,6 +31,7 @@ thread_local! {
     static SPEAK_TOKEN: Cell<u64> = const { Cell::new(0) };
     /// 这次显示后第一个光标位置（物理像素），红三角的起算点；`None` = 还没动过。
     static ARM_ORIGIN: Cell<Option<(f64, f64)>> = const { Cell::new(None) };
+    static VISIBLE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// 鼠标离起算点超过这么远（逻辑像素）红三角才生效，防止浮窗刚出现在光标下就被碰掉（旧版 `ARM_PX`）。
@@ -214,7 +215,17 @@ fn on_focus_changed(focused: bool) {
 
 /// 隐藏结果浮窗并作废在途结果；朗读也停，否则看不见的窗口还在出声、没按钮可停。
 pub fn hide() {
-    GUARD.with(|g| g.borrow_mut().invalidate());
+    GUARD.with(|g| {
+        let mut guard = g.borrow_mut();
+        guard.invalidate();
+        guard.set_pinned(false);
+    });
+    POP_RESULT.with_borrow(|r| {
+        if let Some(ui) = r.as_ref() {
+            ui.set_is_pinned(false);
+        }
+    });
+    VISIBLE.set(false);
     translate::invalidate();
     platform::stop_speaking();
     platform::hide_result_window();
@@ -229,13 +240,20 @@ pub fn show(text: &str, x: i32, y: i32) {
             return;
         };
 
-        reset_panel(ui);
+        let in_place = GUARD.with(|g| g.borrow().pinned()) && VISIBLE.get();
+        if in_place {
+            PIN.with(|p| p.set(Some(Pin::Top)));
+        }
+        reset_panel(ui, in_place);
         ui.set_recognizing(false);
         ui.set_recognize_error(0);
         start_query(ui, text);
 
-        let cfg = config::snapshot();
-        place(ui, &cfg.translate.result_pos, Rect::point(x, y), 0);
+        if !in_place {
+            let cfg = config::snapshot();
+            place(ui, &cfg.translate.result_pos, Rect::point(x, y), 0);
+            VISIBLE.set(true);
+        }
     });
 }
 
@@ -250,7 +268,11 @@ pub fn show_recognizing(region: Region) {
             return;
         };
 
-        reset_panel(ui);
+        let in_place = GUARD.with(|g| g.borrow().pinned()) && VISIBLE.get();
+        if in_place {
+            PIN.with(|p| p.set(Some(Pin::Top)));
+        }
+        reset_panel(ui, in_place);
         ui.set_recognizing(true);
         ui.set_recognize_error(0);
         ui.set_source_text("".into());
@@ -258,8 +280,11 @@ pub fn show_recognizing(region: Region) {
         MODEL.with(|m| *m.borrow_mut() = None);
         CURRENT_QUERY.with(|q| *q.borrow_mut() = None);
 
-        let cfg = config::snapshot();
-        place(ui, &cfg.translate.result_pos, region.rect, 4);
+        if !in_place {
+            let cfg = config::snapshot();
+            place(ui, &cfg.translate.result_pos, region.rect, 4);
+            VISIBLE.set(true);
+        }
     });
 
     // 临时图交给 Drop 删：识别线程起不来、或者识别中途 panic，文件照样清掉
@@ -344,10 +369,15 @@ fn anchor_for(pos: &str, sel: Rect, sel_gap: i32, bounds: Rect) -> (Rect, Side, 
 }
 
 /// 每次显示前的复位：焦点看护、朗读、各按钮状态、红三角起算点。
-fn reset_panel(ui: &PopResult) {
-    GUARD.with(|g| g.borrow_mut().begin(Instant::now()));
+/// 置顶原地刷新时不重置置顶状态。
+fn reset_panel(ui: &PopResult, in_place: bool) {
+    if in_place {
+        GUARD.with(|g| g.borrow_mut().invalidate());
+    } else {
+        GUARD.with(|g| g.borrow_mut().begin(Instant::now()));
+        ui.set_is_pinned(false);
+    }
     ui.set_color_scheme(super::resolve_color_scheme(ui.window()));
-    ui.set_is_pinned(false);
     platform::stop_speaking();
     SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
     ui.set_speaking_key(-2);
