@@ -153,4 +153,26 @@ mod tests {
         assert_eq!(resolved_chat_url("", "model", "openai_chat"), "");
         assert_eq!(resolved_chat_url("   ", "model", "openai_chat"), "");
     }
+
+    /// 新加 openai_chat 预设时要想一下它怎么关思考：除 OpenAI 自己外，都应该落在厂商表里，
+    /// 而不是走通用的 `reasoning_effort` 档（那一档是给 OpenAI 和自建网关的）。
+    #[test]
+    fn every_openai_chat_preset_has_a_vendor_thinking_rung() {
+        use crate::service::ai::protocol::thinking_rungs;
+        let generic = thinking_rungs(Protocol::OpenaiChat, "https://gateway.example");
+        let presets: Vec<&Preset> = AI_PRESETS
+            .iter()
+            .filter(|p| p.protocol == "openai_chat" && p.id != "openai")
+            .collect();
+        assert!(!presets.is_empty());
+        for p in presets {
+            assert_ne!(
+                thinking_rungs(Protocol::OpenaiChat, p.base_url)[0],
+                generic[0],
+                "preset {} ({}) falls back to the generic thinking rung",
+                p.id,
+                p.base_url
+            );
+        }
+    }
 }

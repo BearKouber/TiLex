@@ -311,6 +311,115 @@ impl Protocol {
     }
 }
 
+/// 主机匹配：`host == target` 或是它的子域名。`host` 由 `platform::url_target` 取出，已是小写。
+fn host_matches(host: &str, target: &str) -> bool {
+    host == target
+        || host
+            .strip_suffix(target)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+/// openai_chat 协议下，第 1 档为 `thinking: {"type": "disabled"}` 的厂商主机。
+const OPENAI_CHAT_DISABLED_THINKING_HOSTS: &[&str] = &[
+    "api.deepseek.com",
+    "api.moonshot.cn",
+    "open.bigmodel.cn",
+    "api.xiaomimimo.com",
+];
+
+/// openai_chat 协议下，第 1 档为 `enable_thinking: false` 的厂商主机。
+const OPENAI_CHAT_ENABLE_THINKING_HOSTS: &[&str] =
+    &["dashscope.aliyuncs.com", "api.siliconflow.cn"];
+
+fn map_entry(key: &str, value: Value) -> Map<String, Value> {
+    let mut map = Map::new();
+    map.insert(key.to_owned(), value);
+    map
+}
+
+/// 按协议与 base_url 提取对应的降档参数列表。
+/// 最后一档固定是空（不加任何思考参数）。
+pub fn thinking_rungs(protocol: Protocol, base_url: &str) -> Vec<Map<String, Value>> {
+    match protocol {
+        Protocol::OpenaiChat => {
+            let host = crate::platform::url_target(base_url)
+                .map(|(_, h)| h)
+                .unwrap_or_default();
+            let host = host.as_str();
+            if OPENAI_CHAT_DISABLED_THINKING_HOSTS
+                .iter()
+                .any(|&target| host_matches(host, target))
+            {
+                vec![
+                    map_entry("thinking", json!({ "type": "disabled" })),
+                    map_entry("reasoning_effort", json!("low")),
+                    Map::new(),
+                ]
+            } else if OPENAI_CHAT_ENABLE_THINKING_HOSTS
+                .iter()
+                .any(|&target| host_matches(host, target))
+            {
+                vec![map_entry("enable_thinking", json!(false)), Map::new()]
+            } else {
+                vec![
+                    map_entry("reasoning_effort", json!("none")),
+                    map_entry("reasoning_effort", json!("low")),
+                    Map::new(),
+                ]
+            }
+        }
+        Protocol::OpenaiResponses => vec![
+            map_entry("reasoning", json!({ "effort": "none" })),
+            map_entry("reasoning", json!({ "effort": "low" })),
+            Map::new(),
+        ],
+        Protocol::Anthropic => vec![
+            map_entry("thinking", json!({ "type": "disabled" })),
+            Map::new(),
+        ],
+        Protocol::Google => vec![
+            map_entry("thinkingBudget", json!(0)),
+            map_entry("thinkingLevel", json!("minimal")),
+            map_entry("thinkingLevel", json!("low")),
+            Map::new(),
+        ],
+    }
+}
+
+/// 合并当前档位的思考参数。
+/// - 键已存在就跳过，不覆盖用户在 request_arguments 里写的值。
+/// - 对 Google：如果 body 里已有 generationConfig，往里加 thinkingConfig；已有 thinkingConfig 就不动。
+/// - 最后一档（空 map）不作任何修改。
+pub fn apply_thinking_rung(
+    protocol: Protocol,
+    mut body: Value,
+    rung: &Map<String, Value>,
+) -> Value {
+    if rung.is_empty() {
+        return body;
+    }
+    let Value::Object(ref mut map) = body else {
+        return body;
+    };
+    if protocol == Protocol::Google {
+        let gen_config = map
+            .entry("generationConfig")
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Value::Object(gen_map) = gen_config
+            && !gen_map.contains_key("thinkingConfig")
+        {
+            gen_map.insert("thinkingConfig".into(), Value::Object(rung.clone()));
+        }
+    } else {
+        for (k, v) in rung {
+            if !map.contains_key(k) {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    body
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -693,5 +802,216 @@ mod tests {
             None
         );
         assert_eq!(Protocol::Google.models(&json!({ "models": null })), None);
+    }
+
+    #[test]
+    fn host_matching() {
+        // 主机匹配规则：精准或以 .{target} 结尾，包含但非子域名则不匹配
+        assert!(host_matches("api.deepseek.com", "api.deepseek.com"));
+        assert!(host_matches("x.api.deepseek.com", "api.deepseek.com"));
+        assert!(!host_matches("evil-deepseek.com", "api.deepseek.com"));
+        assert!(!host_matches("evil-api.deepseek.com", "api.deepseek.com"));
+        assert!(!host_matches("deepseek.com", "api.deepseek.com"));
+    }
+
+    #[test]
+    fn rungs_per_protocol_and_host() {
+        // 1. openai_chat + Group A (deepseek/moonshot/bigmodel/xiaomimimo)
+        let rungs_ds = thinking_rungs(Protocol::OpenaiChat, "https://api.deepseek.com");
+        assert_eq!(rungs_ds.len(), 3);
+        assert_eq!(rungs_ds[0]["thinking"], json!({ "type": "disabled" }));
+        assert_eq!(rungs_ds[1]["reasoning_effort"], "low");
+        assert!(rungs_ds[2].is_empty());
+
+        let rungs_kimi = thinking_rungs(Protocol::OpenaiChat, "https://api.moonshot.cn/v1");
+        assert_eq!(rungs_kimi.len(), 3);
+        assert_eq!(rungs_kimi[0]["thinking"], json!({ "type": "disabled" }));
+
+        // 2. openai_chat + Group B (dashscope/siliconflow)
+        let rungs_qwen = thinking_rungs(
+            Protocol::OpenaiChat,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        );
+        assert_eq!(rungs_qwen.len(), 2);
+        assert_eq!(rungs_qwen[0]["enable_thinking"], false);
+        assert!(rungs_qwen[1].is_empty());
+
+        let rungs_sf = thinking_rungs(Protocol::OpenaiChat, "https://api.siliconflow.cn/v1");
+        assert_eq!(rungs_sf.len(), 2);
+        assert_eq!(rungs_sf[0]["enable_thinking"], false);
+
+        // 3. openai_chat + Other (OpenAI / 自建网关)
+        let rungs_openai = thinking_rungs(Protocol::OpenaiChat, "https://api.openai.com/v1");
+        assert_eq!(rungs_openai.len(), 3);
+        assert_eq!(rungs_openai[0]["reasoning_effort"], "none");
+        assert_eq!(rungs_openai[1]["reasoning_effort"], "low");
+        assert!(rungs_openai[2].is_empty());
+
+        // 4. openai_responses
+        let rungs_resp = thinking_rungs(Protocol::OpenaiResponses, "https://api.openai.com");
+        assert_eq!(rungs_resp.len(), 3);
+        assert_eq!(rungs_resp[0]["reasoning"], json!({ "effort": "none" }));
+        assert_eq!(rungs_resp[1]["reasoning"], json!({ "effort": "low" }));
+        assert!(rungs_resp[2].is_empty());
+
+        // 5. anthropic
+        let rungs_anthropic = thinking_rungs(Protocol::Anthropic, "https://api.anthropic.com");
+        assert_eq!(rungs_anthropic.len(), 2);
+        assert_eq!(
+            rungs_anthropic[0]["thinking"],
+            json!({ "type": "disabled" })
+        );
+        assert!(rungs_anthropic[1].is_empty());
+
+        // 6. google
+        let rungs_google = thinking_rungs(
+            Protocol::Google,
+            "https://generativelanguage.googleapis.com",
+        );
+        assert_eq!(rungs_google.len(), 4);
+        assert_eq!(rungs_google[0]["thinkingBudget"], 0);
+        assert_eq!(rungs_google[1]["thinkingLevel"], "minimal");
+        assert_eq!(rungs_google[2]["thinkingLevel"], "low");
+        assert!(rungs_google[3].is_empty());
+    }
+
+    #[test]
+    fn apply_thinking_rungs_body_shapes() {
+        let p = prompt();
+        let empty_args = Map::new();
+
+        // 1. Google: 字段注入进 generationConfig.thinkingConfig
+        let base_google = Protocol::Google.body("gemini-2.0", &p, &empty_args);
+        let rungs_google = thinking_rungs(
+            Protocol::Google,
+            "https://generativelanguage.googleapis.com",
+        );
+
+        let b0 = apply_thinking_rung(Protocol::Google, base_google.clone(), &rungs_google[0]);
+        assert_eq!(
+            b0["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            0
+        );
+
+        let b1 = apply_thinking_rung(Protocol::Google, base_google.clone(), &rungs_google[1]);
+        assert_eq!(
+            b1["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "minimal"
+        );
+
+        let b2 = apply_thinking_rung(Protocol::Google, base_google.clone(), &rungs_google[2]);
+        assert_eq!(
+            b2["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+
+        let b3 = apply_thinking_rung(Protocol::Google, base_google.clone(), &rungs_google[3]);
+        assert!(b3["generationConfig"].get("thinkingConfig").is_none());
+
+        // 2. OpenAI Chat (DeepSeek): top-level
+        let base_chat = Protocol::OpenaiChat.body("m", &p, &empty_args);
+        let rungs_ds = thinking_rungs(Protocol::OpenaiChat, "https://api.deepseek.com");
+        let b_ds0 = apply_thinking_rung(Protocol::OpenaiChat, base_chat.clone(), &rungs_ds[0]);
+        assert_eq!(b_ds0["thinking"], json!({ "type": "disabled" }));
+
+        let b_ds1 = apply_thinking_rung(Protocol::OpenaiChat, base_chat.clone(), &rungs_ds[1]);
+        assert_eq!(b_ds1["reasoning_effort"], "low");
+
+        let b_ds2 = apply_thinking_rung(Protocol::OpenaiChat, base_chat.clone(), &rungs_ds[2]);
+        assert!(b_ds2.get("thinking").is_none());
+        assert!(b_ds2.get("reasoning_effort").is_none());
+
+        // 3. OpenAI Responses: top-level
+        let base_resp = Protocol::OpenaiResponses.body("m", &p, &empty_args);
+        let rungs_resp = thinking_rungs(Protocol::OpenaiResponses, "https://api.openai.com");
+        let b_resp0 =
+            apply_thinking_rung(Protocol::OpenaiResponses, base_resp.clone(), &rungs_resp[0]);
+        assert_eq!(b_resp0["reasoning"], json!({ "effort": "none" }));
+        let b_resp1 =
+            apply_thinking_rung(Protocol::OpenaiResponses, base_resp.clone(), &rungs_resp[1]);
+        assert_eq!(b_resp1["reasoning"], json!({ "effort": "low" }));
+        let b_resp2 =
+            apply_thinking_rung(Protocol::OpenaiResponses, base_resp.clone(), &rungs_resp[2]);
+        assert!(b_resp2.get("reasoning").is_none());
+
+        // 4. Anthropic: top-level
+        let base_anthropic = Protocol::Anthropic.body("m", &p, &empty_args);
+        let rungs_anthropic = thinking_rungs(Protocol::Anthropic, "https://api.anthropic.com");
+        let b_ant0 = apply_thinking_rung(
+            Protocol::Anthropic,
+            base_anthropic.clone(),
+            &rungs_anthropic[0],
+        );
+        assert_eq!(b_ant0["thinking"], json!({ "type": "disabled" }));
+        let b_ant1 = apply_thinking_rung(
+            Protocol::Anthropic,
+            base_anthropic.clone(),
+            &rungs_anthropic[1],
+        );
+        assert!(b_ant1.get("thinking").is_none());
+    }
+
+    #[test]
+    fn user_request_arguments_win_over_thinking_injection() {
+        let p = prompt();
+
+        // 1. 用户自定义了 reasoning_effort
+        let user_args_re = args(json!({ "reasoning_effort": "high" }));
+        let base_openai = Protocol::OpenaiChat.body("m", &p, &user_args_re);
+        let rungs_openai = thinking_rungs(Protocol::OpenaiChat, "https://api.openai.com");
+        let merged_openai =
+            apply_thinking_rung(Protocol::OpenaiChat, base_openai, &rungs_openai[0]);
+        assert_eq!(merged_openai["reasoning_effort"], "high");
+
+        // 2. 用户自定义了 thinking
+        let user_args_th = args(json!({ "thinking": { "type": "enabled" } }));
+        let base_ds = Protocol::OpenaiChat.body("m", &p, &user_args_th);
+        let rungs_ds = thinking_rungs(Protocol::OpenaiChat, "https://api.deepseek.com");
+        let merged_ds = apply_thinking_rung(Protocol::OpenaiChat, base_ds, &rungs_ds[0]);
+        assert_eq!(merged_ds["thinking"], json!({ "type": "enabled" }));
+
+        // 3. 用户在 Google 自定义了 thinkingConfig
+        let mut base_google = Protocol::Google.body("m", &p, &Map::new());
+        if let Value::Object(map) = &mut base_google
+            && let Some(Value::Object(gcfg)) = map.get_mut("generationConfig")
+        {
+            gcfg.insert("thinkingConfig".into(), json!({ "thinkingBudget": 999 }));
+        }
+        let rungs_google = thinking_rungs(
+            Protocol::Google,
+            "https://generativelanguage.googleapis.com",
+        );
+        let merged_google = apply_thinking_rung(Protocol::Google, base_google, &rungs_google[0]);
+        assert_eq!(
+            merged_google["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            999
+        );
+    }
+
+    #[test]
+    fn arguments_for_unaffected_by_thinking() {
+        let args_map = args(json!({
+            "temperature": 0.7,
+            "thinking": { "type": "disabled" },
+            "reasoning_effort": "low",
+            "enable_thinking": false,
+            "thinkingBudget": 0,
+        }));
+        // Anthropic: 只留 temperature, top_p, max_tokens
+        let af_anthropic = arguments_for(Protocol::Anthropic, &args_map);
+        assert_eq!(af_anthropic.get("temperature"), Some(&json!(0.7)));
+        assert_eq!(af_anthropic.get("max_tokens"), Some(&json!(4096)));
+        assert!(af_anthropic.get("thinking").is_none());
+        assert!(af_anthropic.get("reasoning_effort").is_none());
+
+        // Google: 只留 temperature, topP, maxOutputTokens
+        let af_google = arguments_for(Protocol::Google, &args_map);
+        assert_eq!(af_google.get("temperature"), Some(&json!(0.7)));
+        assert!(af_google.get("thinkingBudget").is_none());
+
+        // OpenaiChat: 透传非 fixed 字段（包括用户填的 thinking 字段，不受影响）
+        let af_chat = arguments_for(Protocol::OpenaiChat, &args_map);
+        assert_eq!(af_chat.get("temperature"), Some(&json!(0.7)));
+        assert_eq!(af_chat.get("reasoning_effort"), Some(&json!("low")));
     }
 }

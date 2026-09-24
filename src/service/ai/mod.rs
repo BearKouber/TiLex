@@ -4,6 +4,9 @@
 
 pub mod protocol;
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex, PoisonError};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -198,6 +201,78 @@ pub fn build_request(
     })
 }
 
+// ponytail: 只在内存里记，重启后首次请求可能多 1–3 次往返；真嫌慢再落盘。
+static THINKING_RUNG: LazyLock<Mutex<HashMap<(String, String), usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) type ThinkingMemory = Mutex<HashMap<(String, String), usize>>;
+
+pub(crate) fn get_remembered_rung(
+    cache: &ThinkingMemory,
+    base_url: &str,
+    model: &str,
+) -> Option<usize> {
+    let map = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    map.get(&(base_url.to_owned(), model.to_owned())).copied()
+}
+
+pub(crate) fn remember_rung(cache: &ThinkingMemory, base_url: &str, model: &str, rung: usize) {
+    let mut map = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    map.insert((base_url.to_owned(), model.to_owned()), rung);
+}
+
+/// 执行带降档的请求循环。
+/// - 只对 HTTP 400 降档；其他错误立即返回。
+/// - 从 `start_rung` 开始依次尝试，直至最后一档。
+/// - 全部 400 时返回最后一次的错误。
+/// - 成功时返回结果和成功档位。
+pub(crate) fn run_with_downgrade<T, B, S>(
+    rungs: &[Map<String, Value>],
+    start_rung: usize,
+    mut build_body: B,
+    mut send: S,
+) -> Result<(T, usize), Error>
+where
+    B: FnMut(&Map<String, Value>) -> Value,
+    S: FnMut(&Value) -> Result<T, Error>,
+{
+    // thinking_rungs 至少有「不加」这一档。
+    let last = rungs.len().saturating_sub(1);
+    let mut i = start_rung.min(last);
+    loop {
+        let empty = Map::new();
+        let body = build_body(rungs.get(i).unwrap_or(&empty));
+        match send(&body) {
+            Ok(val) => return Ok((val, i)),
+            Err(Error::Http {
+                status: Some(400), ..
+            }) if i < last => {
+                log::info!("AI: thinking rung {i} rejected (400), trying {}", i + 1);
+                i += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+pub(crate) fn execute_with_thinking<T, B, S>(
+    memory: &ThinkingMemory,
+    base_url: &str,
+    model: &str,
+    rungs: &[Map<String, Value>],
+    build_body: B,
+    send: S,
+) -> Result<T, Error>
+where
+    B: FnMut(&Map<String, Value>) -> Value,
+    S: FnMut(&Value) -> Result<T, Error>,
+{
+    let start_rung = get_remembered_rung(memory, base_url, model).unwrap_or(0);
+    let (res, successful_rung) = run_with_downgrade(rungs, start_rung, build_body, send)?;
+    remember_rung(memory, base_url, model, successful_rung);
+    Ok(res)
+}
+
 /// 发一次请求，返回模型输出的原文（非空）。`from` / `to` / `detected` 是 TiLex 语言码，
 /// `detected` 不在语言表里时原样给模型。
 pub fn translate(
@@ -224,7 +299,15 @@ pub fn translate(
         .iter()
         .map(|(k, v)| (*k, v.as_str()))
         .collect();
-    let data = http::post_json(&request.url, &headers, &request.body, http::TIMEOUT_AI)?;
+    let rungs = protocol::thinking_rungs(config.protocol, &config.base_url);
+    let data = execute_with_thinking(
+        &THINKING_RUNG,
+        &config.base_url,
+        &config.model,
+        &rungs,
+        |rung| protocol::apply_thinking_rung(config.protocol, request.body.clone(), rung),
+        |body| http::post_json(&request.url, &headers, body, http::TIMEOUT_AI),
+    )?;
     config
         .protocol
         .text(&data)
@@ -284,16 +367,27 @@ pub(crate) fn is_transient(e: &Error) -> bool {
 
 fn probe_once(
     protocol: Protocol,
+    base_url: &str,
     url: &str,
     headers: &[(&str, &str)],
     model: &str,
     bare: bool,
 ) -> Result<u32, Error> {
-    let body = probe_body(protocol, model, bare);
-    let start = std::time::Instant::now();
-    http::post_json(url, headers, &body, http::TIMEOUT_TRANSLATE)?;
-    let elapsed = start.elapsed().as_millis();
-    Ok(u32::try_from(elapsed).unwrap_or(u32::MAX))
+    let base_body = probe_body(protocol, model, bare);
+    let rungs = protocol::thinking_rungs(protocol, base_url);
+    execute_with_thinking(
+        &THINKING_RUNG,
+        base_url,
+        model,
+        &rungs,
+        |rung| protocol::apply_thinking_rung(protocol, base_body.clone(), rung),
+        |body| {
+            let start = std::time::Instant::now();
+            http::post_json(url, headers, body, http::TIMEOUT_TRANSLATE)?;
+            let elapsed = start.elapsed().as_millis();
+            Ok(u32::try_from(elapsed).unwrap_or(u32::MAX))
+        },
+    )
 }
 
 /// 对一个模型发一次极短请求，返回往返毫秒数。旧版 `latency.js:112-145`。
@@ -308,13 +402,13 @@ pub fn probe_latency(config: &Config, model: &str) -> Result<u32, Error> {
     let raw_headers = protocol.headers(&eff.api_key);
     let headers: Vec<(&str, &str)> = raw_headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-    match probe_once(protocol, &url, &headers, model, false) {
+    match probe_once(protocol, &eff.base_url, &url, &headers, model, false) {
         Ok(ms) => Ok(ms),
         Err(e) if is_transient(&e) => {
             std::thread::sleep(std::time::Duration::from_millis(2000));
-            probe_once(protocol, &url, &headers, model, false)
+            probe_once(protocol, &eff.base_url, &url, &headers, model, false)
         }
-        Err(_) => probe_once(protocol, &url, &headers, model, true),
+        Err(_) => probe_once(protocol, &eff.base_url, &url, &headers, model, true),
     }
 }
 
@@ -566,5 +660,218 @@ mod tests {
                 .get("maxOutputTokens")
                 .is_none()
         );
+    }
+
+    fn json_map(entries: &[(&str, Value)]) -> Map<String, Value> {
+        let mut map = Map::new();
+        for (k, v) in entries {
+            map.insert((*k).to_owned(), v.clone());
+        }
+        map
+    }
+
+    #[test]
+    fn downgrade_loop_simulates_400_and_remembers() {
+        let mem = Mutex::new(HashMap::new());
+        let rungs = vec![
+            json_map(&[("reasoning_effort", json!("none"))]),
+            json_map(&[("reasoning_effort", json!("low"))]),
+            Map::new(),
+        ];
+        let base_url = "https://mock-service.test";
+        let model = "test-model";
+
+        let mut sent_bodies = Vec::new();
+        // 第一次调用：第 0 档回 400，第 1 档成功
+        let res1 = execute_with_thinking(
+            &mem,
+            base_url,
+            model,
+            &rungs,
+            |rung| {
+                let mut b = json!({ "model": model });
+                for (k, v) in rung {
+                    b[k] = v.clone();
+                }
+                b
+            },
+            |body| {
+                sent_bodies.push(body.clone());
+                if sent_bodies.len() == 1 {
+                    Err(Error::Http {
+                        status: Some(400),
+                        kind: HttpKind::Client,
+                    })
+                } else {
+                    Ok("success_at_rung_1".to_string())
+                }
+            },
+        );
+        assert_eq!(res1.unwrap(), "success_at_rung_1");
+        assert_eq!(sent_bodies.len(), 2);
+        assert_eq!(sent_bodies[0]["reasoning_effort"], "none");
+        assert_eq!(sent_bodies[1]["reasoning_effort"], "low");
+
+        // 断言已记住第 1 档
+        assert_eq!(get_remembered_rung(&mem, base_url, model), Some(1));
+
+        // 第二次调用：应当直接从记住的第 1 档发出
+        sent_bodies.clear();
+        let res2 = execute_with_thinking(
+            &mem,
+            base_url,
+            model,
+            &rungs,
+            |rung| {
+                let mut b = json!({ "model": model });
+                for (k, v) in rung {
+                    b[k] = v.clone();
+                }
+                b
+            },
+            |body| {
+                sent_bodies.push(body.clone());
+                Ok("success_at_rung_1_direct".to_string())
+            },
+        );
+        assert_eq!(res2.unwrap(), "success_at_rung_1_direct");
+        assert_eq!(sent_bodies.len(), 1);
+        assert_eq!(sent_bodies[0]["reasoning_effort"], "low");
+    }
+
+    #[test]
+    fn downgrade_loop_non_400_errors_do_not_retry() {
+        let rungs = vec![
+            json_map(&[("thinking", json!({ "type": "disabled" }))]),
+            Map::new(),
+        ];
+
+        // 401 错误不降档
+        let mut count_401 = 0;
+        let res_401: Result<((), usize), Error> = run_with_downgrade(
+            &rungs,
+            0,
+            |_| json!({}),
+            |_| {
+                count_401 += 1;
+                Err(Error::Http {
+                    status: Some(401),
+                    kind: HttpKind::Client,
+                })
+            },
+        );
+        assert_eq!(count_401, 1);
+        assert!(matches!(
+            res_401,
+            Err(Error::Http {
+                status: Some(401),
+                ..
+            })
+        ));
+
+        // 500 错误不降档
+        let mut count_500 = 0;
+        let res_500: Result<((), usize), Error> = run_with_downgrade(
+            &rungs,
+            0,
+            |_| json!({}),
+            |_| {
+                count_500 += 1;
+                Err(Error::Http {
+                    status: Some(500),
+                    kind: HttpKind::Server,
+                })
+            },
+        );
+        assert_eq!(count_500, 1);
+        assert!(matches!(
+            res_500,
+            Err(Error::Http {
+                status: Some(500),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn downgrade_loop_all_400_returns_last_error() {
+        let rungs = vec![
+            json_map(&[("rung", json!(0))]),
+            json_map(&[("rung", json!(1))]),
+            Map::new(),
+        ];
+        let mut sent = Vec::new();
+        let res: Result<((), usize), Error> = run_with_downgrade(
+            &rungs,
+            0,
+            |r| json!({ "rung": r.get("rung").cloned().unwrap_or(json!("none")) }),
+            |body| {
+                sent.push(body.clone());
+                Err(Error::Http {
+                    status: Some(400),
+                    kind: HttpKind::Client,
+                })
+            },
+        );
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[0]["rung"], 0);
+        assert_eq!(sent[1]["rung"], 1);
+        assert_eq!(sent[2]["rung"], "none");
+        assert!(matches!(
+            res,
+            Err(Error::Http {
+                status: Some(400),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    #[ignore = "requires real AI credentials in environment"]
+    #[allow(
+        clippy::print_stdout,
+        reason = "live test reports elapsed time and rung"
+    )]
+    fn live_ai_translation_if_configured() {
+        let Ok(base_url) = std::env::var("TILEX_LIVE_AI_BASE_URL") else {
+            return;
+        };
+        let Ok(api_key) = std::env::var("TILEX_LIVE_AI_KEY") else {
+            return;
+        };
+        let Ok(model) = std::env::var("TILEX_LIVE_AI_MODEL") else {
+            return;
+        };
+        let Ok(proto_str) = std::env::var("TILEX_LIVE_AI_PROTOCOL") else {
+            return;
+        };
+        if base_url.trim().is_empty()
+            || api_key.trim().is_empty()
+            || model.trim().is_empty()
+            || proto_str.trim().is_empty()
+        {
+            return;
+        }
+
+        let cfg = Config {
+            base_url,
+            api_key,
+            model,
+            protocol: proto_str,
+            custom_instructions: DEFAULT_CUSTOM_INSTRUCTIONS.into(),
+            request_arguments: Map::new(),
+            legacy_reference_instructions: String::new(),
+        };
+        let eff = cfg.effective();
+        let start = std::time::Instant::now();
+        let result = translate("hello", "en", "zh_cn", "en", "word", &eff);
+        let elapsed = start.elapsed().as_millis();
+        let text = result.expect("live translation failed");
+        assert!(
+            !text.trim().is_empty(),
+            "translation output must not be empty"
+        );
+        let rung = get_remembered_rung(&THINKING_RUNG, &eff.base_url, &eff.model);
+        println!("Live AI success: rung={rung:?}, elapsed={elapsed}ms, output={text}");
     }
 }

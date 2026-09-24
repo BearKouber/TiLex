@@ -12,6 +12,9 @@ mod windows;
 use windows as imp;
 
 mod bypass;
+
+/// `https://user@host:443/path` → `("https", "host")`，都转成小写。取不出返回 `None`。
+pub use bypass::target as url_target;
 pub mod geometry;
 pub mod process;
 
