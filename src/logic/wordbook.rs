@@ -160,13 +160,12 @@ pub fn find_keyword_ranges(text: &str, keyword: &str) -> Vec<std::ops::Range<usi
 pub fn escape_markdown(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        match c {
-            '\\' | '*' | '_' | '[' | ']' | '<' | '>' | '`' | '~' => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ => out.push(c),
+        // CommonMark 允许转义任何 ASCII 标点。只转几个的话，行首的 `#`、`1.`、`-` 会变成标题和列表，
+        // `&amp;` 会被当成实体。
+        if c.is_ascii_punctuation() {
+            out.push('\\');
         }
+        out.push(c);
     }
     out
 }
@@ -712,6 +711,10 @@ mod tests {
             escape_markdown("a*b_c[d]<e>`f~g\\h"),
             "a\\*b\\_c\\[d\\]\\<e\\>\\`f\\~g\\\\h"
         );
+        assert_eq!(
+            escape_markdown("1. # a - b &amp; 中"),
+            "1\\. \\# a \\- b \\&amp\\; 中"
+        );
 
         // 高亮包裹
         let hl = highlight_markdown("Hello World", "world", "#3b82f6");
@@ -721,7 +724,7 @@ mod tests {
         let hl_spec = highlight_markdown("Notice: [tag] *bold*", "tag", "#3b82f6");
         assert_eq!(
             hl_spec,
-            "Notice: \\[<font color=\"#3b82f6\">**tag**</font>\\] \\*bold\\*"
+            "Notice\\: \\[<font color=\"#3b82f6\">**tag**</font>\\] \\*bold\\*"
         );
     }
 }

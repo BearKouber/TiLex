@@ -377,6 +377,8 @@ export component WordbookPage inherits Rectangle {
         Card {
             horizontal-stretch: 1;
             content-padding: 20px;
+            // 滑块贴近卡片右边，内容跟着往右铺（用户实测：右侧空白太多）
+            content-padding-right: 6px;
             spacing: 0px;
             border-color: Theme.default-100;
 

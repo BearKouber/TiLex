@@ -6,6 +6,8 @@ import { Tooltip } from "tooltip.slint";
 export component Card {
     // 内边距（默认 12px，服务页可传 20px）。不叫 padding：Slint 1.17 每个组件都有内置的 padding，不能重新声明
     in property <length> content-padding: 12px;
+    // 右内边距单独可调：内容里有自绘滚动条时，让滑块贴近卡片右边（生词本详情）
+    in property <length> content-padding-right: root.content-padding;
     // 边框颜色（默认 Theme.default-200，生词本卡片传 Theme.default-100）
     in property <color> border-color: Theme.default-200;
     // 子项间距
@@ -19,6 +21,7 @@ export component Card {
 
         VerticalLayout {
             padding: root.content-padding;
+            padding-right: root.content-padding-right;
             spacing: root.spacing;
             @children
         }
