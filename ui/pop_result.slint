@@ -1,6 +1,7 @@
 import { EntryBody, EntryView } from "common/entry_view.slint";
 import { IconButton } from "common/icon_button.slint";
 import { LoadingDots } from "common/loading_dots.slint";
+import { ScrollThumb } from "common/scroll_thumb.slint";
 import { ServiceName } from "common/service_name.slint";
 import { Theme } from "common/theme.slint";
 import { Palette, ScrollView } from "std-widgets.slint";
@@ -34,7 +35,7 @@ component ServiceHeader inherits Rectangle {
 
         HorizontalLayout {
             padding-left: 8px;
-            padding-right: 20px;
+            padding-right: 6px;
             spacing: 2px;
             cross-axis-alignment: center;
 
@@ -181,10 +182,10 @@ export component PopResult inherits Window {
                     }
 
                     // 布局默认 stretch 会把定高的按钮顶到上沿，要显式居中。
-                    // 右边距 20：14px 滑块宽 + 6px 离滑块间隙，与服务行按钮列右边缘对齐（R1）
+                    // 右边距 6 + 按钮热区内 2 = 图标离右边 8（旧版 px-[8px]），服务行同理
                     HorizontalLayout {
                         padding-left: 8px;
-                        padding-right: 20px;
+                        padding-right: 6px;
                         spacing: 4px;
                         cross-axis-alignment: center;
 
@@ -286,28 +287,87 @@ export component PopResult inherits Window {
             }
 
             // Scrollable content
-            scroll-view := ScrollView {
-                rows-layout := VerticalLayout {
-                    padding-bottom: 4px;
-                    spacing: 4px;
+            Rectangle {
+                vertical-stretch: 1;
 
-                    for row[idx] in root.rows : row-item := Rectangle {
-                        width: 100%;
-                        height: row-content.preferred-height;
+                scroll-view := ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    // fluent 的竖滚动条悬停时展开成 14px 宽的轨道，盖住右边的收藏按钮、容易误触，换成自绘细滑块
+                    vertical-scrollbar-policy: always-off;
+                    rows-layout := VerticalLayout {
+                        padding-bottom: 4px;
+                        spacing: 4px;
 
-                        property <length> next-row-spacing: (idx + 1 < root.rows.length) ? 4px : 0px;
-                        property <length> bottom-y: self.y + self.height + self.next-row-spacing + scroll-view.viewport-y;
-                        property <bool> is-sticky: self.y + scroll-view.viewport-y < 0px && self.bottom-y > 0px;
-                        property <length> push-y: min(0px, self.bottom-y - 20px);
-                        property <length> sticky-y: -self.y - scroll-view.viewport-y + self.push-y;
-
-                        row-content := VerticalLayout {
+                        for row[idx] in root.rows : row-item := Rectangle {
                             width: 100%;
-                            height: 100%;
-                            spacing: 2px;
+                            height: row-content.preferred-height;
 
-                            // Service header
-                            row-header := ServiceHeader {
+                            property <length> next-row-spacing: (idx + 1 < root.rows.length) ? 4px : 0px;
+                            property <length> bottom-y: self.y + self.height + self.next-row-spacing + scroll-view.viewport-y;
+                            property <bool> is-sticky: self.y + scroll-view.viewport-y < 0px && self.bottom-y > 0px;
+                            property <length> push-y: min(0px, self.bottom-y - 20px);
+                            property <length> sticky-y: -self.y - scroll-view.viewport-y + self.push-y;
+
+                            row-content := VerticalLayout {
+                                width: 100%;
+                                height: 100%;
+                                spacing: 2px;
+
+                                // Service header
+                                row-header := ServiceHeader {
+                                    item: row;
+                                    speaking: root.speaking-key == idx;
+                                    copied: root.copied-key == idx;
+                                    saved: root.saved-row == idx;
+                                    toggle => {
+                                        root.toggle-collapse(idx);
+                                    }
+                                    speak => {
+                                        root.speak-clicked(idx);
+                                    }
+                                    copy => {
+                                        root.copy-clicked(idx);
+                                    }
+                                    save => {
+                                        root.save-clicked(idx);
+                                    }
+                                }
+
+                                // Service result / status
+                                if !row.collapsed : Rectangle {
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        padding-top: 2px;
+                                        padding-bottom: 6px;
+
+                                        if row.loading : LoadingDots { }
+
+                                        if !row.loading && row.error != "" : Text {
+                                            text: row.error;
+                                            color: Theme.danger;
+                                            font-size: 12px;
+                                            wrap: word-wrap;
+                                        }
+
+                                        if !row.loading && row.error == "" : EntryBody {
+                                            entry: row.display;
+                                            // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
+                                            compact: true;
+                                            // 左右各 8px 内边距。宽度取窗口的固定宽（布局之外的来源，§3.45）
+                                            content-width: root.width - 16px;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Sticky header overlay when scrolled past top (R2)
+                            if row-item.is-sticky : ServiceHeader {
+                                x: 0;
+                                y: row-item.sticky-y;
+                                width: 100%;
+                                background: Theme.content1;
                                 item: row;
                                 speaking: root.speaking-key == idx;
                                 copied: root.copied-key == idx;
@@ -325,58 +385,20 @@ export component PopResult inherits Window {
                                     root.save-clicked(idx);
                                 }
                             }
-
-                            // Service result / status
-                            if !row.collapsed : Rectangle {
-                                HorizontalLayout {
-                                    padding-left: 8px;
-                                    padding-right: 20px;
-                                    padding-top: 2px;
-                                    padding-bottom: 6px;
-
-                                    if row.loading : LoadingDots { }
-
-                                    if !row.loading && row.error != "" : Text {
-                                        text: row.error;
-                                        color: Theme.danger;
-                                        font-size: 12px;
-                                        wrap: word-wrap;
-                                    }
-
-                                    if !row.loading && row.error == "" : EntryBody {
-                                        entry: row.display;
-                                        // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
-                                        compact: true;
-                                        // 左右各 8px/20px 内边距。宽度取窗口的固定宽（布局之外的来源，§3.45）
-                                        content-width: root.width - 28px;
-                                    }
-                                }
-                            }
                         }
+                    }
+                }
 
-                        // Sticky header overlay when scrolled past top (R2)
-                        if row-item.is-sticky : ServiceHeader {
-                            x: 0;
-                            y: row-item.sticky-y;
-                            width: 100%;
-                            background: Theme.content1;
-                            item: row;
-                            speaking: root.speaking-key == idx;
-                            copied: root.copied-key == idx;
-                            saved: root.saved-row == idx;
-                            toggle => {
-                                root.toggle-collapse(idx);
-                            }
-                            speak => {
-                                root.speak-clicked(idx);
-                            }
-                            copy => {
-                                root.copy-clicked(idx);
-                            }
-                            save => {
-                                root.save-clicked(idx);
-                            }
-                        }
+                // 只读 + callback 写回，不能用 `<=>`（理由见 scroll_thumb.slint）
+                ScrollThumb {
+                    x: parent.width - self.width - 1px;
+                    y: 0;
+                    height: parent.height;
+                    viewport-y: scroll-view.viewport-y;
+                    viewport-height: scroll-view.viewport-height;
+                    visible-height: scroll-view.visible-height;
+                    scrolled(y) => {
+                        scroll-view.viewport-y = y;
                     }
                 }
             }
