@@ -1,0 +1,14 @@
+// 服务默认显示名表（R3）。
+// msgid 原样照抄 services.slint，共用一套 .po 译文。
+export global ServiceName {
+    pure public function display(kind: string) -> string {
+        kind == "google" ? @tr("Google Translate") :
+        kind == "bing" ? @tr("Bing Translate") :
+        kind == "deepl" ? @tr("DeepL") :
+        kind == "baidu" ? @tr("Baidu Translate") :
+        kind == "transmart" ? @tr("Tencent TranSmart") :
+        kind == "ai" ? @tr("AI Translation") :
+        kind == "wechat" ? @tr("WeChat OCR") :
+        kind == "umi" ? @tr("Umi-OCR") : ""
+    }
+}

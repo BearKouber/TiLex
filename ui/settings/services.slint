@@ -6,6 +6,7 @@ import { IconButton } from "../common/icon_button.slint";
 import { PillTabs } from "../common/pill_tabs.slint";
 import { Switch } from "../common/switch.slint";
 import { ServiceIcon } from "service_icon.slint";
+import { ServiceName } from "../common/service_name.slint";
 
 export struct ServiceRow {
     index: int,
@@ -155,18 +156,9 @@ export component ServicesPage inherits VerticalLayout {
                         }
 
                         Text {
-                            // 不填名称就显示服务的默认名。加内置服务时这张表也要跟着加，
+                            // 不填名称就显示服务的默认名。加内置服务时 service_name.slint 也要跟着加，
                             // 漏了的表现是列表里那一行只有图标、没有文字（B5 实机测出来的）。
-                            text: item.label != "" ? item.label : (
-                                item.kind == "google" ? @tr("Google Translate") :
-                                item.kind == "bing" ? @tr("Bing Translate") :
-                                item.kind == "deepl" ? @tr("DeepL") :
-                                item.kind == "baidu" ? @tr("Baidu Translate") :
-                                item.kind == "transmart" ? @tr("Tencent TranSmart") :
-                                item.kind == "ai" ? @tr("AI Translation") :
-                                item.kind == "wechat" ? @tr("WeChat OCR") :
-                                item.kind == "umi" ? @tr("Umi-OCR") : ""
-                            );
+                            text: item.label != "" ? item.label : ServiceName.display(item.kind);
                             font-size: 16px;
                             color: Theme.foreground;
                             vertical-alignment: center;

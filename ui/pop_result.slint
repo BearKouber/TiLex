@@ -1,6 +1,7 @@
 import { EntryBody, EntryView } from "common/entry_view.slint";
 import { IconButton } from "common/icon_button.slint";
 import { LoadingDots } from "common/loading_dots.slint";
+import { ServiceName } from "common/service_name.slint";
 import { Theme } from "common/theme.slint";
 import { Palette, ScrollView } from "std-widgets.slint";
 
@@ -13,6 +14,94 @@ export struct ResultRow {
     text: string,
     error: string,
     display: EntryView,
+}
+
+component ServiceHeader inherits Rectangle {
+    height: 20px;
+    in property <ResultRow> item;
+    in property <bool> speaking;
+    in property <bool> copied;
+    in property <bool> saved;
+
+    callback toggle();
+    callback speak();
+    callback copy();
+    callback save();
+
+    header-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(); }
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 20px;
+            spacing: 2px;
+            cross-axis-alignment: center;
+
+            // 折叠箭头（左）
+            Image {
+                source: root.item.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
+                colorize: Theme.icon-muted;
+                width: 12px;
+                height: 12px;
+            }
+
+            // 服务名
+            Text {
+                text: root.item.label != "" ? root.item.label : ServiceName.display(root.item.kind);
+                color: Theme.default-400;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
+
+            // 弹性空白
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            // 朗读、复制、收藏（右）
+            if !root.item.loading && root.item.error == "" && root.item.text != "" : HorizontalLayout {
+                IconButton {
+                    size: "tiny";
+                    icon: @image-url("icons/volume-2.svg");
+                    checked-icon: @image-url("icons/square.svg");
+                    checked: root.speaking;
+                    checked-color: Theme.icon-active;
+                    label: self.checked ? @tr("Stop") : @tr("Speak");
+                    revealed: header-touch.has-hover;
+                    clicked => {
+                        root.speak();
+                    }
+                }
+
+                IconButton {
+                    size: "tiny";
+                    icon: @image-url("icons/copy.svg");
+                    checked-icon: @image-url("icons/check.svg");
+                    checked: root.copied;
+                    checked-color: Theme.icon-done;
+                    label: @tr("Copy");
+                    revealed: header-touch.has-hover;
+                    clicked => {
+                        root.copy();
+                    }
+                }
+
+                IconButton {
+                    size: "tiny";
+                    icon: @image-url("icons/star.svg");
+                    checked-icon: @image-url("icons/check.svg");
+                    checked: root.saved;
+                    checked-color: Theme.icon-done;
+                    label: self.checked ? @tr("Saved to wordbook") : @tr("Add to wordbook");
+                    revealed: header-touch.has-hover;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
 }
 
 export component PopResult inherits Window {
@@ -92,10 +181,10 @@ export component PopResult inherits Window {
                     }
 
                     // 布局默认 stretch 会把定高的按钮顶到上沿，要显式居中。
-                    // 右边距 6 + 按钮热区内 2 = 图标离右边 8（旧版 px-[8px]），服务行同理
+                    // 右边距 20：14px 滑块宽 + 6px 离滑块间隙，与服务行按钮列右边缘对齐（R1）
                     HorizontalLayout {
                         padding-left: 8px;
-                        padding-right: 6px;
+                        padding-right: 20px;
                         spacing: 4px;
                         cross-axis-alignment: center;
 
@@ -197,120 +286,95 @@ export component PopResult inherits Window {
             }
 
             // Scrollable content
-            ScrollView {
+            scroll-view := ScrollView {
                 rows-layout := VerticalLayout {
                     padding-bottom: 4px;
                     spacing: 4px;
 
-                    for row[idx] in root.rows : VerticalLayout {
-                        spacing: 2px;
+                    for row[idx] in root.rows : row-item := Rectangle {
+                        width: 100%;
+                        height: row-content.preferred-height;
 
-                        // Service header
-                        row-header := Rectangle {
-                            height: 20px;
+                        property <length> next-row-spacing: (idx + 1 < root.rows.length) ? 4px : 0px;
+                        property <length> bottom-y: self.y + self.height + self.next-row-spacing + scroll-view.viewport-y;
+                        property <bool> is-sticky: self.y + scroll-view.viewport-y < 0px && self.bottom-y > 0px;
+                        property <length> push-y: min(0px, self.bottom-y - 20px);
+                        property <length> sticky-y: -self.y - scroll-view.viewport-y + self.push-y;
 
-                            row-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
+                        row-content := VerticalLayout {
+                            width: 100%;
+                            height: 100%;
+                            spacing: 2px;
+
+                            // Service header
+                            row-header := ServiceHeader {
+                                item: row;
+                                speaking: root.speaking-key == idx;
+                                copied: root.copied-key == idx;
+                                saved: root.saved-row == idx;
+                                toggle => {
                                     root.toggle-collapse(idx);
                                 }
+                                speak => {
+                                    root.speak-clicked(idx);
+                                }
+                                copy => {
+                                    root.copy-clicked(idx);
+                                }
+                                save => {
+                                    root.save-clicked(idx);
+                                }
+                            }
 
+                            // Service result / status
+                            if !row.collapsed : Rectangle {
                                 HorizontalLayout {
                                     padding-left: 8px;
-                                    padding-right: 6px;
-                                    spacing: 2px;
-                                    cross-axis-alignment: center;
+                                    padding-right: 20px;
+                                    padding-top: 2px;
+                                    padding-bottom: 6px;
 
-                                    // 折叠箭头（左）
-                                    Image {
-                                        source: row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                                        colorize: Theme.icon-muted;
-                                        width: 12px;
-                                        height: 12px;
+                                    if row.loading : LoadingDots { }
+
+                                    if !row.loading && row.error != "" : Text {
+                                        text: row.error;
+                                        color: Theme.danger;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
                                     }
 
-                                    // 服务名
-                                    Text {
-                                        text: row.label != "" ? row.label : (row.kind == "google" ? @tr("Google") : (row.kind == "ai" ? @tr("AI") : row.service-id));
-                                        color: Theme.default-400;
-                                        font-size: 10px;
-                                        vertical-alignment: center;
-                                    }
-
-                                    // 弹性空白
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                    }
-
-                                    // 朗读、复制、收藏（右）
-                                    if !row.loading && row.error == "" && row.text != "" : HorizontalLayout {
-                                        IconButton {
-                                            size: "tiny";
-                                            icon: @image-url("icons/volume-2.svg");
-                                            checked-icon: @image-url("icons/square.svg");
-                                            checked: root.speaking-key == idx;
-                                            checked-color: Theme.icon-active;
-                                            label: self.checked ? @tr("Stop") : @tr("Speak");
-                                            revealed: row-touch.has-hover;
-                                            clicked => {
-                                                root.speak-clicked(idx);
-                                            }
-                                        }
-
-                                        IconButton {
-                                            size: "tiny";
-                                            icon: @image-url("icons/copy.svg");
-                                            checked-icon: @image-url("icons/check.svg");
-                                            checked: root.copied-key == idx;
-                                            checked-color: Theme.icon-done;
-                                            label: @tr("Copy");
-                                            revealed: row-touch.has-hover;
-                                            clicked => {
-                                                root.copy-clicked(idx);
-                                            }
-                                        }
-
-                                        IconButton {
-                                            size: "tiny";
-                                            icon: @image-url("icons/star.svg");
-                                            checked-icon: @image-url("icons/check.svg");
-                                            checked: root.saved-row == idx;
-                                            checked-color: Theme.icon-done;
-                                            label: self.checked ? @tr("Saved to wordbook") : @tr("Add to wordbook");
-                                            revealed: row-touch.has-hover;
-                                            clicked => {
-                                                root.save-clicked(idx);
-                                            }
-                                        }
+                                    if !row.loading && row.error == "" : EntryBody {
+                                        entry: row.display;
+                                        // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
+                                        compact: true;
+                                        // 左右各 8px/20px 内边距。宽度取窗口的固定宽（布局之外的来源，§3.45）
+                                        content-width: root.width - 28px;
                                     }
                                 }
                             }
                         }
 
-                        // Service result / status
-                        if !row.collapsed : Rectangle {
-                            HorizontalLayout {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                padding-top: 2px;
-                                padding-bottom: 6px;
-
-                                if row.loading : LoadingDots { }
-
-                                if !row.loading && row.error != "" : Text {
-                                    text: row.error;
-                                    color: Theme.danger;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
-
-                                if !row.loading && row.error == "" : EntryBody {
-                                    entry: row.display;
-                                    // 窗口只有 320px 宽，用旧版 TranslationResult 的 compact 版式
-                                    compact: true;
-                                    // 左右各 8px 内边距。宽度取窗口的固定宽（布局之外的来源，§3.45）
-                                    content-width: root.width - 16px;
-                                }
+                        // Sticky header overlay when scrolled past top (R2)
+                        if row-item.is-sticky : ServiceHeader {
+                            x: 0;
+                            y: row-item.sticky-y;
+                            width: 100%;
+                            background: Theme.content1;
+                            item: row;
+                            speaking: root.speaking-key == idx;
+                            copied: root.copied-key == idx;
+                            saved: root.saved-row == idx;
+                            toggle => {
+                                root.toggle-collapse(idx);
+                            }
+                            speak => {
+                                root.speak-clicked(idx);
+                            }
+                            copy => {
+                                root.copy-clicked(idx);
+                            }
+                            save => {
+                                root.save-clicked(idx);
                             }
                         }
                     }
