@@ -103,6 +103,102 @@ pub fn visible<'a>(entries: &'a [Summary], keyword: &str, kind: Option<Kind>) ->
         .collect()
 }
 
+/// 在 `text` 中查找所有大小写不敏感匹配 `keyword` 的字节范围 `Range<usize>`。
+/// 保证返回的每个 Range 都在 UTF-8 字符边界上，支持多语言（包括德语、土耳其语、中日韩等）。
+pub fn find_keyword_ranges(text: &str, keyword: &str) -> Vec<std::ops::Range<usize>> {
+    let trimmed_kw = keyword.trim();
+    if trimmed_kw.is_empty() || text.is_empty() {
+        return Vec::new();
+    }
+    let kw_chars: Vec<char> = trimmed_kw.chars().flat_map(|c| c.to_lowercase()).collect();
+    if kw_chars.is_empty() {
+        return Vec::new();
+    }
+
+    let text_chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = text_chars.len();
+    let mut ranges = Vec::new();
+    let mut i = 0;
+
+    while i < n {
+        let mut buf: Vec<char> = Vec::new();
+        let mut matched = false;
+        let mut match_end_char_idx = i;
+
+        for (j, &(_, ch)) in text_chars.iter().enumerate().skip(i) {
+            for lc in ch.to_lowercase() {
+                buf.push(lc);
+            }
+            if buf.len() > kw_chars.len() || !kw_chars.starts_with(&buf) {
+                break;
+            }
+            if buf == kw_chars {
+                matched = true;
+                match_end_char_idx = j;
+                break;
+            }
+        }
+
+        if matched {
+            let start_byte = text_chars[i].0;
+            let end_byte = if match_end_char_idx + 1 < n {
+                text_chars[match_end_char_idx + 1].0
+            } else {
+                text.len()
+            };
+            ranges.push(start_byte..end_byte);
+            i = match_end_char_idx + 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    ranges
+}
+
+/// 转义 Markdown / CommonMark 特殊符号，避免高亮时被 Slint 解析为排版标记。
+pub fn escape_markdown(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' | '*' | '_' | '[' | ']' | '<' | '>' | '`' | '~' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// 根据关键词对 `text` 进行 Markdown 格式高亮：
+/// 匹配部分用 `<font color="{accent_color}">**{escaped_matched}**</font>` 包裹。
+/// 未匹配部分及特殊字符均进行 Markdown 转义。
+pub fn highlight_markdown(text: &str, keyword: &str, accent_color: &str) -> String {
+    let ranges = find_keyword_ranges(text, keyword);
+    if ranges.is_empty() {
+        return escape_markdown(text);
+    }
+    let mut out = String::with_capacity(text.len() + ranges.len() * 40);
+    let mut last = 0;
+    for r in ranges {
+        if r.start > last {
+            out.push_str(&escape_markdown(&text[last..r.start]));
+        }
+        let matched = escape_markdown(&text[r.start..r.end]);
+        out.push_str("<font color=\"");
+        out.push_str(accent_color);
+        out.push_str("\">**");
+        out.push_str(&matched);
+        out.push_str("**</font>");
+        last = r.end;
+    }
+    if last < text.len() {
+        out.push_str(&escape_markdown(&text[last..]));
+    }
+    out
+}
+
 /// 删除之后预览停在哪条：还在就不动；被删了就往下找第一条没被删的，没有再往上找，都没有就空。
 /// `visible` 是**删除前**的可见顺序；选中项不在里面（或没选）时从首项算起，和旧版 `?? list[0]` 一致。
 pub fn next_selected(visible: &[i64], removed: &[i64], selected: Option<i64>) -> Option<i64> {
@@ -587,5 +683,45 @@ mod tests {
         assert_eq!(v, 1);
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_find_keyword_ranges_and_highlight() {
+        // 大小写不敏感匹配
+        let ranges = find_keyword_ranges("KB kb Kb kB", "kb");
+        assert_eq!(ranges, vec![0..2, 3..5, 6..8, 9..11]);
+
+        // 空关键词或空文本
+        assert!(find_keyword_ranges("hello", "").is_empty());
+        assert!(find_keyword_ranges("hello", "   ").is_empty());
+        assert!(find_keyword_ranges("", "hello").is_empty());
+
+        // 中文字符
+        let cn = "长难句核心句型与主干解析";
+        let ranges_cn = find_keyword_ranges(cn, "核心句型");
+        assert_eq!(ranges_cn, vec![9..21]);
+        assert_eq!(&cn[9..21], "核心句型");
+
+        // 土耳其语特殊字符 İ
+        let tr_text = "İstanbul";
+        let ranges_tr = find_keyword_ranges(tr_text, "İSTANBUL");
+        assert_eq!(ranges_tr, vec![0..9]);
+
+        // Markdown 字符转义
+        assert_eq!(
+            escape_markdown("a*b_c[d]<e>`f~g\\h"),
+            "a\\*b\\_c\\[d\\]\\<e\\>\\`f\\~g\\\\h"
+        );
+
+        // 高亮包裹
+        let hl = highlight_markdown("Hello World", "world", "#3b82f6");
+        assert_eq!(hl, "Hello <font color=\"#3b82f6\">**World**</font>");
+
+        // 包含特殊符号的高亮文本
+        let hl_spec = highlight_markdown("Notice: [tag] *bold*", "tag", "#3b82f6");
+        assert_eq!(
+            hl_spec,
+            "Notice: \\[<font color=\"#3b82f6\">**tag**</font>\\] \\*bold\\*"
+        );
     }
 }

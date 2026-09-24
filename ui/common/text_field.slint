@@ -74,11 +74,11 @@ export component TextField {
         border-radius: root.is-bordered ? Theme.radius-medium : Theme.radius-small;
         border-width: 1px;
         border-color: root.is-bordered
-            ? (text-input.has-focus ? Theme.foreground : (touch-area.has-hover ? Theme.default-400 : Theme.default-200))
-            : (text-input.has-focus ? Theme.foreground : transparent);
+            ? (text-input.has-focus ? Theme.default-400 : (touch-area.has-hover ? Theme.default-400 : Theme.default-200))
+            : (text-input.has-focus ? Theme.default-400 : transparent);
         background: root.is-bordered
             ? Theme.content1
-            : (touch-area.has-hover ? Theme.default-200 : Theme.default-100);
+            : (text-input.has-focus ? Theme.default-200 : (touch-area.has-hover ? Theme.default-200 : Theme.default-100));
 
         animate border-color, background { duration: 150ms; }
 
@@ -285,7 +285,7 @@ export component TextArea {
         border-radius: Theme.radius-medium;
         border-width: 1px;
         border-color: text-input.has-focus
-            ? Theme.foreground
+            ? Theme.default-400
             : (touch-area.has-hover ? Theme.default-400 : Theme.default-200);
         background: Theme.content1;
 

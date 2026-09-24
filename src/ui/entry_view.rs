@@ -5,52 +5,149 @@ use slint::{ModelRc, SharedString, VecModel};
 use crate::logic::result::EntryDisplay;
 use crate::slint_ui::{EntryExample, EntryExplain, EntryView, EntryVocab};
 
-/// 将展示投影转换为 Slint 视图结构体。
+/// 将展示投影转换为 Slint 视图结构体（无高亮模式，用于浮窗划词结果展示）。
 ///
 /// 当 `display` 全空而 `fallback_text` 不空时，使用 `fallback_text` 填充 `translation`，
 /// 保证纯文本结果有内容展示。
 pub fn to_view(display: &EntryDisplay, fallback_text: &str) -> EntryView {
+    to_view_highlighted(display, fallback_text, "", "")
+}
+
+/// 将展示投影转换为带关键词高亮的 Slint 视图结构体（用于生词本详情展示）。
+pub fn to_view_highlighted(
+    display: &EntryDisplay,
+    fallback_text: &str,
+    keyword: &str,
+    accent_color: &str,
+) -> EntryView {
     let all_empty = is_all_empty(display);
-    let translation: SharedString = if all_empty && !fallback_text.is_empty() {
-        fallback_text.into()
+    let has_highlight = !keyword.trim().is_empty();
+
+    let raw_translation = if all_empty && !fallback_text.is_empty() {
+        fallback_text
     } else {
-        display.translation.as_str().into()
+        display.translation.as_str()
+    };
+    let translation: SharedString = raw_translation.into();
+    let styled_translation = if has_highlight {
+        to_styled_text(raw_translation, keyword, accent_color)
+    } else {
+        slint::StyledText::default()
     };
 
     let explanations: Vec<EntryExplain> = display
         .explanations
         .iter()
-        .map(|e| EntryExplain {
-            part: e.part.as_str().into(),
-            text: e.explains.join(", ").into(),
+        .map(|e| {
+            let joined = e.explains.join(", ");
+            let styled_text = if has_highlight {
+                to_styled_text(&joined, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            EntryExplain {
+                part: e.part.as_str().into(),
+                text: joined.into(),
+                styled_text,
+            }
         })
         .collect();
+
+    let styled_associations = if has_highlight && !display.associations.is_empty() {
+        let joined = display.associations.join(", ");
+        to_styled_text(&joined, keyword, accent_color)
+    } else {
+        slint::StyledText::default()
+    };
 
     let examples: Vec<EntryExample> = display
         .examples
         .iter()
-        .map(|e| EntryExample {
-            text: e.text.as_str().into(),
-            translation: e.translation.as_str().into(),
+        .map(|e| {
+            let styled_text = if has_highlight {
+                to_styled_text(&e.text, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            let styled_translation = if has_highlight {
+                to_styled_text(&e.translation, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            EntryExample {
+                text: e.text.as_str().into(),
+                translation: e.translation.as_str().into(),
+                styled_text,
+                styled_translation,
+            }
         })
         .collect();
 
     let notes: Vec<SharedString> = display.notes.iter().map(|n| n.as_str().into()).collect();
+    let styled_notes: Vec<slint::StyledText> = if has_highlight {
+        display
+            .notes
+            .iter()
+            .map(|n| to_styled_text(n, keyword, accent_color))
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-    let (main_clause, clauses) = match &display.syntax_breakdown {
-        Some(s) => (
-            s.main_clause.as_str().into(),
-            s.clauses_and_modifiers.as_str().into(),
+    let (main_clause, clauses, styled_main_clause, styled_clauses) = match &display.syntax_breakdown
+    {
+        Some(s) => {
+            let sm = if has_highlight {
+                to_styled_text(&s.main_clause, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            let sc = if has_highlight {
+                to_styled_text(&s.clauses_and_modifiers, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            (
+                s.main_clause.as_str().into(),
+                s.clauses_and_modifiers.as_str().into(),
+                sm,
+                sc,
+            )
+        }
+        None => (
+            SharedString::default(),
+            SharedString::default(),
+            slint::StyledText::default(),
+            slint::StyledText::default(),
         ),
-        None => (SharedString::default(), SharedString::default()),
+    };
+
+    let styled_nuance = if has_highlight && !display.nuance_note.is_empty() {
+        to_styled_text(&display.nuance_note, keyword, accent_color)
+    } else {
+        slint::StyledText::default()
     };
 
     let vocabulary: Vec<EntryVocab> = display
         .key_vocabulary
         .iter()
-        .map(|v| EntryVocab {
-            word: v.word.as_str().into(),
-            meaning: v.meaning_in_context.as_str().into(),
+        .map(|v| {
+            let styled_word = if has_highlight {
+                to_styled_text(&v.word, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            let styled_meaning = if has_highlight {
+                to_styled_text(&v.meaning_in_context, keyword, accent_color)
+            } else {
+                slint::StyledText::default()
+            };
+            EntryVocab {
+                word: v.word.as_str().into(),
+                meaning: v.meaning_in_context.as_str().into(),
+                styled_word,
+                styled_meaning,
+            }
         })
         .collect();
 
@@ -65,7 +162,25 @@ pub fn to_view(display: &EntryDisplay, fallback_text: &str) -> EntryView {
         clauses,
         nuance: display.nuance_note.as_str().into(),
         vocabulary: ModelRc::new(VecModel::from(vocabulary)),
+        has_highlight,
+        styled_translation,
+        styled_associations,
+        styled_notes: ModelRc::new(VecModel::from(styled_notes)),
+        styled_main_clause,
+        styled_clauses,
+        styled_nuance,
     }
+}
+
+/// 辅助函数：将纯文本或高亮 Markdown 转换为 Slint 的 StyledText。
+/// 当 Markdown 解析失败时优雅降级为纯文本 StyledText。
+pub fn to_styled_text(text: &str, keyword: &str, accent_color: &str) -> slint::StyledText {
+    if keyword.trim().is_empty() || text.is_empty() {
+        return slint::StyledText::from_plain_text(text);
+    }
+    let md = crate::logic::wordbook::highlight_markdown(text, keyword, accent_color);
+    slint::StyledText::from_markdown(&md)
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(text))
 }
 
 fn is_all_empty(display: &EntryDisplay) -> bool {
@@ -217,5 +332,22 @@ mod tests {
         assert_eq!(view.clauses, "");
         assert_eq!(view.nuance, "");
         assert_eq!(view.vocabulary.row_count(), 0);
+    }
+
+    #[test]
+    fn test_to_view_highlighted() {
+        let mut display = empty_display(DisplayKind::Sentence);
+        display.translation = "这是测试译文".into();
+        display.notes = vec!["测试用法与语法".into()];
+        let view = to_view_highlighted(&display, "", "测试", "#3b82f6");
+
+        assert!(view.has_highlight);
+        assert_eq!(view.translation, "这是测试译文");
+        assert_eq!(view.notes.row_count(), 1);
+        assert_eq!(view.styled_notes.row_count(), 1);
+
+        // 无关键词时 fallback 到非高亮
+        let view_plain = to_view_highlighted(&display, "", "", "");
+        assert!(!view_plain.has_highlight);
     }
 }

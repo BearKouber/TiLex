@@ -16,12 +16,15 @@ export struct WordbookRow {
     text: string,
     preview: string,
     checked: bool,
+    styled-text: styled-text,
+    styled-preview: styled-text,
 }
 
 export global WordbookState {
     in property <[WordbookRow]> rows;
     in property <int> selected-id;           // 0 = 没选中
     in property <string> detail-text;        // 右卡标题：原文
+    in property <styled-text> detail-styled-text;
     in property <bool> detail-is-word;       // 决定右卡用哪套版式
     in property <string> detail-category;    // 已经是「英文 · 01 定语从句类」这种成品字符串，空 = 不出
     in property <int> detail-difficulty;     // 0 = 不出
@@ -66,6 +69,8 @@ export global WordbookState {
 component DetailBullet inherits HorizontalLayout {
     in property <string> label;
     in property <string> text;
+    in property <styled-text> styled-text;
+    in property <bool> has-highlight: false;
     // 核心句型用正文色，修饰成分和语境说明用次要色（旧版 `text-default-600 dark:text-default-400`）
     in property <bool> strong: false;
     // 可视区宽度，必须来自本布局之外（见 `EntryBody.content-width` 上的注释、§3.45）
@@ -79,7 +84,7 @@ component DetailBullet inherits HorizontalLayout {
         color: Theme.default-500;
     }
 
-    Text {
+    if !root.has-highlight : Text {
         width: root.content-width - label-text.preferred-width - 6px;
         text: root.text;
         font-size: 14px;
@@ -87,6 +92,15 @@ component DetailBullet inherits HorizontalLayout {
             ? Theme.foreground
             : (Theme.dark ? Theme.default-500 : Theme.default-600);
         wrap: word-wrap;
+    }
+
+    if root.has-highlight : StyledText {
+        width: root.content-width - label-text.preferred-width - 6px;
+        text: root.styled-text;
+        default-font-size: 14px;
+        default-color: root.strong
+            ? Theme.foreground
+            : (Theme.dark ? Theme.default-500 : Theme.default-600);
     }
 }
 
@@ -236,7 +250,7 @@ export component WordbookPage inherits Rectangle {
             // （偏深），正好压在生词块右沿。关掉它，旁边单列一条和设置页同款的自绘滑块（B10 P24）。
             if WordbookState.rows.length > 0 : HorizontalLayout {
                 vertical-stretch: 1;
-                spacing: 2px;
+                spacing: 6px;
 
                 list := ListView {
                     horizontal-stretch: 1;
@@ -251,6 +265,7 @@ export component WordbookPage inherits Rectangle {
                             y: 2px;
                             width: 100%;
                             height: 46px;
+                            clip: true;
                             border-radius: Theme.radius-small;
                             background: is-selected
                                 ? Theme.primary.with-alpha(0.1)
@@ -284,18 +299,28 @@ export component WordbookPage inherits Rectangle {
                                         spacing: 2px;
                                         alignment: center;
 
-                                        Text {
+                                        if WordbookState.keyword == "" : Text {
                                             text: row.text;
                                             font-size: 13px;
                                             color: Theme.foreground;
                                             overflow: elide;
                                         }
+                                        if WordbookState.keyword != "" : StyledText {
+                                            text: row.styled-text;
+                                            default-font-size: 13px;
+                                            default-color: Theme.foreground;
+                                        }
 
-                                        Text {
+                                        if WordbookState.keyword == "" : Text {
                                             text: row.preview;
                                             font-size: 11px;
                                             color: Theme.default-400;
                                             overflow: elide;
+                                        }
+                                        if WordbookState.keyword != "" : StyledText {
+                                            text: row.styled-preview;
+                                            default-font-size: 11px;
+                                            default-color: Theme.default-400;
                                         }
                                     }
                                 }
@@ -364,6 +389,7 @@ export component WordbookPage inherits Rectangle {
                     // 宽度不对，里面每段文字的「这么宽要占几行」就算错，
                     // `preferred-height` 跟着算少，上面一段的后几行被下一段压住（B4 用户实拍）。
                     width: detail-scroll.visible-width;
+                    padding-right: 12px;
                     spacing: 0px;
                     alignment: start;
 
@@ -376,8 +402,16 @@ export component WordbookPage inherits Rectangle {
                         spacing: 12px;
                         cross-axis-alignment: start;
 
-                        Text {
-                            width: detail-scroll.visible-width - btns.preferred-width - 12px;
+                        if WordbookState.keyword != "" : StyledText {
+                            width: detail-scroll.visible-width - btns.preferred-width - 24px;
+                            text: WordbookState.detail-styled-text;
+                            default-font-size: WordbookState.detail-is-word ? 18px : 16px;
+                            default-color: Theme.foreground;
+                            horizontal-stretch: 1;
+                        }
+
+                        if WordbookState.keyword == "" : Text {
+                            width: detail-scroll.visible-width - btns.preferred-width - 24px;
                             text: WordbookState.detail-text;
                             font-size: WordbookState.detail-is-word ? 18px : 16px;
                             // 旧版 `Wordbook/index.jsx:348/461` 的 h2 没有 font-weight（Tailwind preflight 把标题重置成
@@ -424,8 +458,15 @@ export component WordbookPage inherits Rectangle {
                         if WordbookState.detail-entry.translation != "" : VerticalLayout {
                             padding-top: 12px;
 
-                            Text {
-                                width: detail-scroll.visible-width;
+                            if WordbookState.detail-entry.has-highlight : StyledText {
+                                width: detail-scroll.visible-width - 12px;
+                                text: WordbookState.detail-entry.styled-translation;
+                                default-font-size: 14px;
+                                default-color: Theme.foreground;
+                            }
+
+                            if !WordbookState.detail-entry.has-highlight : Text {
+                                width: detail-scroll.visible-width - 12px;
                                 text: WordbookState.detail-entry.translation;
                                 font-size: 14px;
                                 color: Theme.foreground;
@@ -445,7 +486,7 @@ export component WordbookPage inherits Rectangle {
                             }
 
                             Text {
-                                width: detail-scroll.visible-width;
+                                width: detail-scroll.visible-width - 12px;
                                 text: root.format-sentence-tag(
                                     WordbookState.detail-category,
                                     WordbookState.detail-difficulty,
@@ -472,22 +513,28 @@ export component WordbookPage inherits Rectangle {
                             }
 
                             if WordbookState.detail-entry.main-clause != "" : DetailBullet {
-                                content-width: detail-scroll.visible-width;
+                                content-width: detail-scroll.visible-width - 12px;
                                 label: @tr("Core pattern");
                                 text: WordbookState.detail-entry.main-clause;
+                                styled-text: WordbookState.detail-entry.styled-main-clause;
+                                has-highlight: WordbookState.detail-entry.has-highlight;
                                 strong: true;
                             }
 
                             if WordbookState.detail-entry.clauses != "" : DetailBullet {
-                                content-width: detail-scroll.visible-width;
+                                content-width: detail-scroll.visible-width - 12px;
                                 label: @tr("Modifiers");
                                 text: WordbookState.detail-entry.clauses;
+                                styled-text: WordbookState.detail-entry.styled-clauses;
+                                has-highlight: WordbookState.detail-entry.has-highlight;
                             }
 
                             if WordbookState.detail-entry.nuance != "" : DetailBullet {
-                                content-width: detail-scroll.visible-width;
+                                content-width: detail-scroll.visible-width - 12px;
                                 label: @tr("Context note");
                                 text: WordbookState.detail-entry.nuance;
+                                styled-text: WordbookState.detail-entry.styled-nuance;
+                                has-highlight: WordbookState.detail-entry.has-highlight;
                             }
                         }
 
@@ -519,16 +566,28 @@ export component WordbookPage inherits Rectangle {
                                         padding-bottom: 2px;
                                         spacing: 6px;
 
-                                        Text {
+                                        if !WordbookState.detail-entry.has-highlight : Text {
                                             text: item.word;
                                             font-size: 12px;
                                             color: Theme.foreground;
                                         }
 
-                                        if item.meaning != "" : Text {
+                                        if WordbookState.detail-entry.has-highlight : StyledText {
+                                            text: item.styled-word;
+                                            default-font-size: 12px;
+                                            default-color: Theme.foreground;
+                                        }
+
+                                        if item.meaning != "" && !WordbookState.detail-entry.has-highlight : Text {
                                             text: item.meaning;
                                             font-size: 12px;
                                             color: Theme.default-500;
+                                        }
+
+                                        if item.meaning != "" && WordbookState.detail-entry.has-highlight : StyledText {
+                                            text: item.styled-meaning;
+                                            default-font-size: 12px;
+                                            default-color: Theme.default-500;
                                         }
                                     }
                                 }
@@ -542,10 +601,12 @@ export component WordbookPage inherits Rectangle {
                             padding-top: 8px;
 
                             EntryBody {
-                                content-width: detail-scroll.visible-width;
+                                content-width: detail-scroll.visible-width - 12px;
                                 entry: {
                                     examples: WordbookState.detail-entry.examples,
                                     notes: WordbookState.detail-entry.notes,
+                                    has-highlight: WordbookState.detail-entry.has-highlight,
+                                    styled-notes: WordbookState.detail-entry.styled-notes,
                                 };
                             }
                         }
@@ -556,7 +617,7 @@ export component WordbookPage inherits Rectangle {
                         padding-top: 12px;
 
                         EntryBody {
-                            content-width: detail-scroll.visible-width;
+                            content-width: detail-scroll.visible-width - 12px;
                             entry: WordbookState.detail-entry;
                         }
                     }

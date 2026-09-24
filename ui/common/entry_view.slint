@@ -3,16 +3,21 @@ import { Theme } from "theme.slint";
 export struct EntryExplain {
     part: string,
     text: string,
+    styled-text: styled-text,
 }
 
 export struct EntryExample {
     text: string,
     translation: string,
+    styled-text: styled-text,
+    styled-translation: styled-text,
 }
 
 export struct EntryVocab {
     word: string,
     meaning: string,
+    styled-word: styled-text,
+    styled-meaning: styled-text,
 }
 
 export struct EntryView {
@@ -26,6 +31,13 @@ export struct EntryView {
     clauses: string,
     nuance: string,
     vocabulary: [EntryVocab],
+    has-highlight: bool,
+    styled-translation: styled-text,
+    styled-associations: styled-text,
+    styled-notes: [styled-text],
+    styled-main-clause: styled-text,
+    styled-clauses: styled-text,
+    styled-nuance: styled-text,
 }
 
 export component EntryBody {
@@ -61,12 +73,20 @@ export component EntryBody {
         }
 
         // 2. 主译文：主文字色
-        if root.entry.translation != "" : Text {
-            width: root.content-width;
-            text: root.entry.translation;
-            font-size: root.body-size;
-            color: Theme.foreground;
-            wrap: word-wrap;
+        if root.entry.translation != "" : VerticalLayout {
+            if !root.entry.has-highlight : Text {
+                width: root.content-width;
+                text: root.entry.translation;
+                font-size: root.body-size;
+                color: Theme.foreground;
+                wrap: word-wrap;
+            }
+            if root.entry.has-highlight : StyledText {
+                width: root.content-width;
+                text: root.entry.styled-translation;
+                default-font-size: root.body-size;
+                default-color: Theme.foreground;
+            }
         }
 
         // 3. 释义：每条一行，词性（淡色，有才显示）+ 释义文字
@@ -76,12 +96,19 @@ export component EntryBody {
                 // 间距并进词性盒子：盒子要常驻（`if` 里的 id 外面引用不到，释义就没法按它定宽），
                 // 空词性时宽度归零，跟原来「整块 if 掉」看起来一样
                 spacing: 0px;
+                baseline-probe := Text {
+                    width: 0px;
+                    height: 0px;
+                    visible: false;
+                    font-size: root.body-size;
+                    text: "M";
+                }
                 // 词性和释义字号不同，布局只能顶对齐；按字体 ascent 下移，让两者基线对齐
                 part-box := Rectangle {
                     width: item.part == "" ? 0px : part.preferred-width + 6px;
                     part := Text {
                         x: 0;
-                        y: meaning.font-metrics.ascent - self.font-metrics.ascent;
+                        y: baseline-probe.font-metrics.ascent - self.font-metrics.ascent;
                         width: self.preferred-width;
                         height: self.preferred-height;
                         text: item.part;
@@ -89,23 +116,37 @@ export component EntryBody {
                         color: Theme.default-400;
                     }
                 }
-                meaning := Text {
+                if !root.entry.has-highlight : Text {
                     width: root.content-width - part-box.width;
                     text: item.text;
                     font-size: root.body-size;
                     color: Theme.foreground;
                     wrap: word-wrap;
                 }
+                if root.entry.has-highlight : StyledText {
+                    width: root.content-width - part-box.width;
+                    text: item.styled-text;
+                    default-font-size: root.body-size;
+                    default-color: Theme.foreground;
+                }
             }
         }
 
         // 4. 联想词：次要色
-        if root.entry.associations != "" : Text {
-            width: root.content-width;
-            text: root.entry.associations;
-            font-size: root.muted-size;
-            color: Theme.default-500;
-            wrap: word-wrap;
+        if root.entry.associations != "" : VerticalLayout {
+            if !root.entry.has-highlight : Text {
+                width: root.content-width;
+                text: root.entry.associations;
+                font-size: root.muted-size;
+                color: Theme.default-500;
+                wrap: word-wrap;
+            }
+            if root.entry.has-highlight : StyledText {
+                width: root.content-width;
+                text: root.entry.styled-associations;
+                default-font-size: root.muted-size;
+                default-color: Theme.default-500;
+            }
         }
 
         // 5. 例句：标题 @tr("Examples")；每条原句 + 译句（次要色）
@@ -121,19 +162,35 @@ export component EntryBody {
             }
             for example in root.entry.examples : VerticalLayout {
                 spacing: 2px;
-                if example.text != "" : Text {
-                    width: root.content-width;
-                    text: example.text;
-                    font-size: root.body-size;
-                    color: Theme.foreground;
-                    wrap: word-wrap;
+                if example.text != "" : VerticalLayout {
+                    if !root.entry.has-highlight : Text {
+                        width: root.content-width;
+                        text: example.text;
+                        font-size: root.body-size;
+                        color: Theme.foreground;
+                        wrap: word-wrap;
+                    }
+                    if root.entry.has-highlight : StyledText {
+                        width: root.content-width;
+                        text: example.styled-text;
+                        default-font-size: root.body-size;
+                        default-color: Theme.foreground;
+                    }
                 }
-                if example.translation != "" : Text {
-                    width: root.content-width;
-                    text: example.translation;
-                    font-size: root.body-size;
-                    color: Theme.default-500;
-                    wrap: word-wrap;
+                if example.translation != "" : VerticalLayout {
+                    if !root.entry.has-highlight : Text {
+                        width: root.content-width;
+                        text: example.translation;
+                        font-size: root.body-size;
+                        color: Theme.default-500;
+                        wrap: word-wrap;
+                    }
+                    if root.entry.has-highlight : StyledText {
+                        width: root.content-width;
+                        text: example.styled-translation;
+                        default-font-size: root.body-size;
+                        default-color: Theme.default-500;
+                    }
                 }
             }
         }
@@ -149,12 +206,20 @@ export component EntryBody {
                 font-weight: 500;
                 color: Theme.default-500;
             }
-            for note in root.entry.notes : Text {
-                width: root.content-width;
-                text: note;
-                font-size: root.body-size;
-                color: Theme.foreground;
-                wrap: word-wrap;
+            for note[idx] in root.entry.notes : VerticalLayout {
+                if !root.entry.has-highlight : Text {
+                    width: root.content-width;
+                    text: note;
+                    font-size: root.body-size;
+                    color: Theme.foreground;
+                    wrap: word-wrap;
+                }
+                if root.entry.has-highlight : StyledText {
+                    width: root.content-width;
+                    text: root.entry.styled-notes[idx];
+                    default-font-size: root.body-size;
+                    default-color: Theme.foreground;
+                }
             }
         }
 
@@ -162,29 +227,53 @@ export component EntryBody {
         if root.entry.main-clause != "" || root.entry.clauses != "" : VerticalLayout {
             padding-top: root.section-gap;
             spacing: root.gap;
-            if root.entry.main-clause != "" : Text {
-                width: root.content-width;
-                text: root.entry.main-clause;
-                font-size: root.body-size;
-                color: Theme.foreground;
-                wrap: word-wrap;
+            if root.entry.main-clause != "" : VerticalLayout {
+                if !root.entry.has-highlight : Text {
+                    width: root.content-width;
+                    text: root.entry.main-clause;
+                    font-size: root.body-size;
+                    color: Theme.foreground;
+                    wrap: word-wrap;
+                }
+                if root.entry.has-highlight : StyledText {
+                    width: root.content-width;
+                    text: root.entry.styled-main-clause;
+                    default-font-size: root.body-size;
+                    default-color: Theme.foreground;
+                }
             }
-            if root.entry.clauses != "" : Text {
-                width: root.content-width;
-                text: root.entry.clauses;
-                font-size: root.body-size;
-                color: Theme.default-500;
-                wrap: word-wrap;
+            if root.entry.clauses != "" : VerticalLayout {
+                if !root.entry.has-highlight : Text {
+                    width: root.content-width;
+                    text: root.entry.clauses;
+                    font-size: root.body-size;
+                    color: Theme.default-500;
+                    wrap: word-wrap;
+                }
+                if root.entry.has-highlight : StyledText {
+                    width: root.content-width;
+                    text: root.entry.styled-clauses;
+                    default-font-size: root.body-size;
+                    default-color: Theme.default-500;
+                }
             }
         }
 
         // 8. 语气说明
-        if root.entry.nuance != "" : Text {
-            width: root.content-width;
-            text: root.entry.nuance;
-            font-size: root.body-size;
-            color: Theme.foreground;
-            wrap: word-wrap;
+        if root.entry.nuance != "" : VerticalLayout {
+            if !root.entry.has-highlight : Text {
+                width: root.content-width;
+                text: root.entry.nuance;
+                font-size: root.body-size;
+                color: Theme.foreground;
+                wrap: word-wrap;
+            }
+            if root.entry.has-highlight : StyledText {
+                width: root.content-width;
+                text: root.entry.styled-nuance;
+                default-font-size: root.body-size;
+                default-color: Theme.foreground;
+            }
         }
 
         // 9. 关键词：每条一行，词 + 空格 + 含义（次要色）。旧版这里是 `font-normal`，不加粗
@@ -193,9 +282,16 @@ export component EntryBody {
             spacing: root.gap;
             for item in root.entry.vocabulary : HorizontalLayout {
                 spacing: 0px;
+                probe-text := Text {
+                    width: 0px;
+                    height: 0px;
+                    visible: false;
+                    font-size: root.body-size;
+                    text: item.word;
+                }
                 word-box := Rectangle {
-                    width: word-text.preferred-width + 4px;
-                    word-text := Text {
+                    width: probe-text.preferred-width + 4px;
+                    if !root.entry.has-highlight : Text {
                         x: 0;
                         y: 0;
                         width: self.preferred-width;
@@ -204,13 +300,28 @@ export component EntryBody {
                         font-size: root.body-size;
                         color: Theme.foreground;
                     }
+                    if root.entry.has-highlight : StyledText {
+                        x: 0;
+                        y: 0;
+                        text: item.styled-word;
+                        default-font-size: root.body-size;
+                        default-color: Theme.foreground;
+                    }
                 }
-                if item.meaning != "" : Text {
-                    width: root.content-width - word-box.width;
-                    text: item.meaning;
-                    font-size: root.body-size;
-                    color: Theme.default-500;
-                    wrap: word-wrap;
+                if item.meaning != "" : VerticalLayout {
+                    if !root.entry.has-highlight : Text {
+                        width: root.content-width - word-box.width;
+                        text: item.meaning;
+                        font-size: root.body-size;
+                        color: Theme.default-500;
+                        wrap: word-wrap;
+                    }
+                    if root.entry.has-highlight : StyledText {
+                        width: root.content-width - word-box.width;
+                        text: item.styled-meaning;
+                        default-font-size: root.body-size;
+                        default-color: Theme.default-500;
+                    }
                 }
             }
         }

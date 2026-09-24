@@ -67,6 +67,7 @@ pub fn bind(page: &SettingsWindow) {
     state.set_rows(ModelRc::new(VecModel::default()));
     state.set_selected_id(0);
     state.set_detail_text("".into());
+    state.set_detail_styled_text(slint::StyledText::default());
     state.set_detail_is_word(false);
     state.set_detail_category("".into());
     state.set_detail_difficulty(0);
@@ -511,6 +512,13 @@ fn load_list_and_select(weak: slint::Weak<SettingsWindow>, target_id: Option<i64
     });
 }
 
+fn accent_color(page: &SettingsWindow) -> &'static str {
+    match crate::ui::resolve_color_scheme(page.window()) {
+        slint::language::ColorScheme::Dark => "#3b82f6",
+        _ => "#2563eb",
+    }
+}
+
 fn apply_filter(page: &SettingsWindow) {
     apply_filter_internal(page, None);
 }
@@ -536,14 +544,29 @@ fn apply_filter_internal(page: &SettingsWindow, target_id: Option<i64>) {
 
     let visible_ids: Vec<i64> = visible_summaries.iter().map(|s| s.id).collect();
 
+    let accent = accent_color(page);
     let rows: Vec<WordbookRow> = STATE.with_borrow(|s| {
         visible_summaries
             .into_iter()
-            .map(|sum| WordbookRow {
-                id: i32::try_from(sum.id).unwrap_or(0),
-                text: sum.text.as_str().into(),
-                preview: sum.preview.as_str().into(),
-                checked: s.checked.contains(&sum.id),
+            .map(|sum| {
+                let styled_text = if !keyword.is_empty() {
+                    crate::ui::entry_view::to_styled_text(&sum.text, &keyword, accent)
+                } else {
+                    slint::StyledText::default()
+                };
+                let styled_preview = if !keyword.is_empty() {
+                    crate::ui::entry_view::to_styled_text(&sum.preview, &keyword, accent)
+                } else {
+                    slint::StyledText::default()
+                };
+                WordbookRow {
+                    id: i32::try_from(sum.id).unwrap_or(0),
+                    text: sum.text.as_str().into(),
+                    preview: sum.preview.as_str().into(),
+                    checked: s.checked.contains(&sum.id),
+                    styled_text,
+                    styled_preview,
+                }
             })
             .collect()
     });
@@ -579,6 +602,9 @@ fn apply_filter_internal(page: &SettingsWindow, target_id: Option<i64>) {
         Some(id) => {
             if current_id != Some(id) {
                 select_entry(page, id);
+            } else {
+                // 搜索关键词或筛选变化但选中项未改变时，重新加载右卡以更新高亮
+                load_detail(page.as_weak(), id);
             }
         }
         None => {
@@ -603,6 +629,7 @@ fn select_entry(page: &SettingsWindow, id: i64) {
 
     if id == 0 {
         state.set_detail_text("".into());
+        state.set_detail_styled_text(slint::StyledText::default());
         state.set_detail_is_word(false);
         state.set_detail_category("".into());
         state.set_detail_difficulty(0);
@@ -640,15 +667,26 @@ fn load_detail(weak: slint::Weak<SettingsWindow>, id: i64) {
 }
 
 fn populate_detail(page: &SettingsWindow, entry: &Entry) {
+    let state = page.global::<WordbookState>();
+    let keyword = state.get_keyword();
+    let accent = accent_color(page);
+
     let display = result::entry_display(entry.detail.as_ref(), &entry.translation);
     let is_word = entry.kind == Kind::Word && display.kind != DisplayKind::Sentence;
     let category = format_category(display.category.as_deref());
     let difficulty = display.difficulty.map(i32::from).unwrap_or(0);
     let difficulty_reason = display.difficulty_reason.clone();
-    let detail_entry = crate::ui::entry_view::to_view(&display, &entry.translation);
+    let detail_entry =
+        crate::ui::entry_view::to_view_highlighted(&display, &entry.translation, &keyword, accent);
 
-    let state = page.global::<WordbookState>();
+    let styled_title = if !keyword.is_empty() {
+        crate::ui::entry_view::to_styled_text(&entry.text, &keyword, accent)
+    } else {
+        slint::StyledText::default()
+    };
+
     state.set_detail_text(entry.text.as_str().into());
+    state.set_detail_styled_text(styled_title);
     state.set_detail_is_word(is_word);
     state.set_detail_category(category.into());
     state.set_detail_difficulty(difficulty);
