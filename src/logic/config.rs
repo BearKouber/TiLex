@@ -23,9 +23,31 @@ pub use crate::service::umi::Config as UmiConfig;
 
 /// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
 pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
-/// 字体选项配置值。0: 微软雅黑 细（默认），1: 微软雅黑，2: 等线，3: 宋体。
-/// 只有雅黑：Slint 软件渲染不做 hinting，等线、宋体的细横笔在小字号下发淡、像只画了一半（2026-09-28 实测，已撤掉）。
-pub const FONTS: [&str; 2] = ["yahei_light", "yahei"];
+/// `general.font` 的两个预设：微软雅黑 细（默认）、微软雅黑常规。英文界面下两者都换成 Segoe UI（见 theme.slint）。
+/// 其它取值是 `FONT_CHOICES` 里的英文家族名，原样交给 Slint；清单外的值 normalize 时回到默认。
+pub const FONT_PRESETS: [&str; 2] = ["yahei_light", "yahei"];
+/// 字体下拉框里除两个雅黑预设之外的候选：(家族英文名, 中文名)。配置存英文名。
+/// 系统自带的常用中西文字体，加几款常见的免费中文字体；没装的不显示。
+/// 不收等线：它的汉字在字身里画得小，12px 时「置」只有 9 行像素，「罒」几横粘成一片（2026-09-28 实测，
+/// 开不开 hinting 都一样），标签栏这类 12px 的字会看着像缺了上半截。
+pub const FONT_CHOICES: [(&str, &str); 16] = [
+    ("SimSun", "宋体"),
+    ("NSimSun", "新宋体"),
+    ("SimHei", "黑体"),
+    ("KaiTi", "楷体"),
+    ("FangSong", "仿宋"),
+    ("Microsoft JhengHei", "微软正黑体"),
+    ("Source Han Sans SC", "思源黑体"),
+    ("Source Han Serif SC", "思源宋体"),
+    ("HarmonyOS Sans SC", "HarmonyOS Sans SC"),
+    ("MiSans", "MiSans"),
+    ("LXGW WenKai", "霞鹜文楷"),
+    ("Segoe UI", "Segoe UI"),
+    ("Arial", "Arial"),
+    ("Calibri", "Calibri"),
+    ("Georgia", "Georgia"),
+    ("Times New Roman", "Times New Roman"),
+];
 const FILE: &str = "config.json";
 /// 写盘超过这个时间记一条 warn（design §2.1：真出现卡顿再挪到后台线程）。
 const SLOW_WRITE: Duration = Duration::from_millis(50);
@@ -236,7 +258,8 @@ impl Config {
         if !LANGUAGES.contains(&self.general.language.as_str()) {
             self.general.language = General::default().language;
         }
-        if !FONTS.contains(&self.general.font.as_str()) {
+        let font = self.general.font.as_str();
+        if !FONT_PRESETS.contains(&font) && !FONT_CHOICES.iter().any(|(en, _)| *en == font) {
             self.general.font = General::default().font;
         }
         self.selection.button_distance = self.selection.button_distance.clamp(0, 50);
@@ -1052,19 +1075,16 @@ mod tests {
     #[test]
     fn normalize_font() {
         let mut config = Config::default();
-        for val in ["yahei_light", "yahei"] {
+        for val in ["yahei_light", "yahei", "SimSun", "Times New Roman"] {
             config.general.font = val.into();
             config.normalize();
             assert_eq!(config.general.font, val);
         }
-        // 试过又撤掉的两种，旧配置里留着也回到默认
-        for gone in ["dengxian", "simsun", "invalid_font"] {
-            config.general.font = gone.into();
+        // 清单外的（撤掉的等线、中文名、空值）回到默认
+        for bad in ["DengXian", "宋体", "", "invalid_font"] {
+            config.general.font = bad.into();
             config.normalize();
             assert_eq!(config.general.font, "yahei_light");
         }
-        config.general.font = "invalid_font".into();
-        config.normalize();
-        assert_eq!(config.general.font, "yahei_light");
     }
 }

@@ -23,10 +23,10 @@ thread_local! {
     static SHOT: RefCell<Option<Rc<Shot>>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn set_font_choice(choice: i32) {
+pub(crate) fn set_font(font: &str) {
     OVERLAY.with_borrow(|slot| {
         if let Some(ui) = slot.as_ref() {
-            ui.global::<Theme>().set_font_choice(choice);
+            ui.global::<Theme>().set_font(font.into());
         }
     });
 }
@@ -48,7 +48,7 @@ pub fn create() -> Result<(), Error> {
     let cfg = crate::logic::config::snapshot();
     overlay
         .global::<Theme>()
-        .set_font_choice(super::font_choice(&cfg.general.font));
+        .set_font(cfg.general.font.as_str().into());
 
     overlay.on_selected(|l, t, r, b| {
         // 顺序写死成一条直线，不许插 sleep：遮罩先消失、焦点还给原程序，再裁图。

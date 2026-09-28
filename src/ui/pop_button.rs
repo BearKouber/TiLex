@@ -16,10 +16,10 @@ thread_local! {
     static BUTTON: RefCell<Option<slint::Weak<PopButton>>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn set_font_choice(choice: i32) {
+pub(crate) fn set_font(font: &str) {
     BUTTON.with_borrow(|slot| {
         if let Some(Some(ui)) = slot.as_ref().map(|w| w.upgrade()) {
-            ui.global::<Theme>().set_font_choice(choice);
+            ui.global::<Theme>().set_font(font.into());
         }
     });
 }
@@ -46,7 +46,7 @@ pub fn create() -> Result<Option<PopButton>, Error> {
     let cfg = config::snapshot();
     button
         .global::<Theme>()
-        .set_font_choice(super::font_choice(&cfg.general.font));
+        .set_font(cfg.general.font.as_str().into());
 
     BUTTON.with(|b| *b.borrow_mut() = Some(button.as_weak()));
     button.on_hovered(|| engage_if(true));

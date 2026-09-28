@@ -63,6 +63,9 @@ pub use screenshot::capture_screen;
 mod ocr;
 pub use ocr::{wechat_ocr, wechat_ocr_status};
 
+mod fonts;
+pub use fonts::font_families;
+
 /// 按会话区分（`Local\`）：同一台机器不同用户各跑各的。
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\TiLex.Instance");
 const ACTIVATE_EVENT: PCWSTR = w!("Local\\TiLex.OpenSettings");

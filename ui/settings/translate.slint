@@ -83,6 +83,11 @@ export global TranslateSettings {
     in-out property <int> pop-button-pos-index: 0;
     in-out property <int> result-pos-index: 0;
     in-out property <int> font-index: 0;
+    // 字体下拉框：前两项是预设，后面是清单里装了的字体。Rust 拼好整张表（Slint 里数组不能拼接），
+    // 预设的显示文字从下面两个 out 属性取，切语言后 Rust 重拼一次。
+    in property <[string]> font-options: [];
+    out property <string> font-light-label: @tr("Microsoft YaHei Light");
+    out property <string> font-regular-label: @tr("Microsoft YaHei");
     in-out property <int> force-copy-index: 1;
     in-out property <int> button-distance: 10;
     in-out property <string> blacklist: "";
@@ -182,11 +187,6 @@ export component TranslatePage {
         @tr("Bottom-Right of Screen"),
     ];
 
-    in property <[string]> font-options: [
-        @tr("Microsoft YaHei Light"),
-        @tr("Microsoft YaHei"),
-    ];
-
     in property <[string]> boolean-options: [
         @tr("On"),
         @tr("Off"),
@@ -197,6 +197,18 @@ export component TranslatePage {
     VerticalLayout {
         Card {
             content-padding: 12px;
+
+            // 0. 字体（全局，所有窗口）
+            SettingRow {
+                label: @tr("Font");
+                Select {
+                    options: TranslateSettings.font-options;
+                    current-index <=> TranslateSettings.font-index;
+                    // 最多 20 项，菜单拉高一点
+                    max-menu-height: 360px;
+                    selected(idx) => { TranslateSettings.font-changed(idx); }
+                }
+            }
 
             // 1. 源语言
             SettingRow {
@@ -269,16 +281,6 @@ export component TranslatePage {
                     options: root.result-pos-options;
                     current-index <=> TranslateSettings.result-pos-index;
                     selected(idx) => { TranslateSettings.result-pos-changed(idx); }
-                }
-            }
-
-            // 8. 字体
-            SettingRow {
-                label: @tr("Font");
-                Select {
-                    options: root.font-options;
-                    current-index <=> TranslateSettings.font-index;
-                    selected(idx) => { TranslateSettings.font-changed(idx); }
                 }
             }
 

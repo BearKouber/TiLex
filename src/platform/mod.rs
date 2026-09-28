@@ -283,3 +283,8 @@ pub fn wechat_ocr(image: &Path) -> Result<String, Error> {
 pub fn wechat_ocr_status() -> Result<String, Error> {
     imp::wechat_ocr_status()
 }
+
+/// 系统里装的字体家族名（去重、排序），设置页拿来筛字体清单。
+pub fn font_families() -> Vec<String> {
+    imp::font_families()
+}

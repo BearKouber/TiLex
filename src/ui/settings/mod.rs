@@ -21,15 +21,52 @@ struct Settings {
 
 thread_local! {
     static SETTINGS: RefCell<Option<Settings>> = const { RefCell::new(None) };
+    /// 字体下拉框每一项对应的配置值：两个预设 + 系统字体名。和 `font-options` 一一对应。
+    static FONT_VALUES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-pub(crate) fn set_font_choice(choice: i32) {
+pub(crate) fn set_font(font: &str) {
     SETTINGS.with_borrow(|slot| {
         if let Some(s) = slot.as_ref() {
-            s.page.global::<Theme>().set_font_choice(choice);
-            s.page.global::<TranslateSettings>().set_font_index(choice);
+            s.page.global::<Theme>().set_font(font.into());
+            s.page
+                .global::<TranslateSettings>()
+                .set_font_index(font_index(font));
         }
     });
+}
+
+fn font_index(font: &str) -> i32 {
+    FONT_VALUES.with_borrow(|v| v.iter().position(|f| f == font).unwrap_or(0) as i32)
+}
+
+/// 拼字体下拉框：两个预设 + `FONT_CHOICES` 里装了的。建窗口和切界面语言时调（显示文字跟语言走）。
+fn fill_font_options(page: &SettingsWindow) {
+    let ts = page.global::<TranslateSettings>();
+    let cfg = config::snapshot();
+    let current = cfg.general.font;
+    let zh = cfg.general.language == "zh_CN";
+    // GDI 按系统语言给名字（中文系统下是「等线」），所以中英文名都比对
+    let installed = platform::font_families();
+    let mut values: Vec<String> = config::FONT_PRESETS.iter().map(|&f| f.to_owned()).collect();
+    let mut labels: Vec<slint::SharedString> =
+        vec![ts.get_font_light_label(), ts.get_font_regular_label()];
+    for (en, cn) in config::FONT_CHOICES {
+        if installed.iter().any(|f| f == en || f == cn) {
+            values.push(en.to_owned());
+            labels.push(if zh { cn } else { en }.into());
+        }
+    }
+    // 配置里的字体已经卸掉了也留着（normalize 保证它在清单里），不然下拉框会显示成别的项
+    if !values.contains(&current)
+        && let Some((en, cn)) = config::FONT_CHOICES.iter().find(|(en, _)| *en == current)
+    {
+        values.push((*en).to_owned());
+        labels.push(if zh { *cn } else { *en }.into());
+    }
+    ts.set_font_options(std::rc::Rc::new(slint::VecModel::from(labels)).into());
+    FONT_VALUES.set(values);
+    ts.set_font_index(font_index(&current));
 }
 
 /// 开关设置窗口：
@@ -105,8 +142,8 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     page.set_language(cfg.general.language.as_str().into());
     let scheme = super::resolve_color_scheme(page.window());
     page.set_color_scheme(scheme);
-    let font_choice = super::font_choice(&cfg.general.font);
-    page.global::<Theme>().set_font_choice(font_choice);
+    page.global::<Theme>()
+        .set_font(cfg.general.font.as_str().into());
 
     let ts = page.global::<TranslateSettings>();
     debug_assert_eq!(
@@ -125,7 +162,6 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     let pop_btn_idx = pop_button_to_index(&cfg.selection);
     let pop_btn_pos_idx = find_index(&POP_BUTTON_POS, &cfg.selection.button_pos);
     let result_pos_idx = find_index(&config::POS_VALUES, &cfg.translate.result_pos);
-    let font_idx = super::font_choice(&cfg.general.font);
     let force_copy_idx = if cfg.selection.force_copy { 0 } else { 1 };
     let distance = cfg.selection.button_distance.clamp(0, 50) as i32;
 
@@ -136,7 +172,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.set_pop_button_index(pop_btn_idx);
     ts.set_pop_button_pos_index(pop_btn_pos_idx);
     ts.set_result_pos_index(result_pos_idx);
-    ts.set_font_index(font_idx);
+    fill_font_options(&page);
     ts.set_force_copy_index(force_copy_idx);
     ts.set_button_distance(distance);
     ts.set_blacklist(cfg.selection.blacklist.into());
@@ -553,6 +589,7 @@ fn toggle_language(page: &SettingsWindow) {
             page.set_language(next.into());
             super::apply_language(next);
             update_credits(page);
+            fill_font_options(page);
         }
         Err(e) => {
             log::warn!("Settings: save language failed: {e}");
@@ -803,10 +840,11 @@ fn handle_result_pos_change(page: &SettingsWindow, idx: i32) {
 }
 
 fn handle_font_change(page: &SettingsWindow, idx: i32) {
-    let old_cfg = config::snapshot();
-    let old_idx = super::font_choice(&old_cfg.general.font);
-    let new_font = super::font_name(idx);
-    if !save(page, "font", |c| c.general.font = new_font.to_owned()) {
+    let old_idx = font_index(&config::snapshot().general.font);
+    let Some(new_font) = FONT_VALUES.with_borrow(|v| v.get(idx as usize).cloned()) else {
+        return;
+    };
+    if !save(page, "font", |c| c.general.font = new_font) {
         page.global::<TranslateSettings>().set_font_index(old_idx);
     } else {
         super::apply_font();

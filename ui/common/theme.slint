@@ -47,20 +47,22 @@ export global Theme {
     // select_bundled_translation 切语言时所有 @tr 重算，字体跟着立即变。
     out property <bool> english-ui: @tr("Settings") == "Settings";
 
-    // 0 细（默认、保持旧行为）/ 1 常规。只调字重不换字体：软件渲染不做 hinting，
-    // 等线、宋体的细横笔在 12–14px 下发淡（2026-09-28 实测）。常规体笔画边缘会有一圈灰，同一个原因。
-    in property <int> font-choice: 0;
+    // 配置里的 general.font：预设 "yahei_light"（默认、保持旧行为）/ "yahei"，或者任意系统字体家族名。
+    // 软件渲染器原本不做 hinting，小字号发灰发淡；vendor 里的补丁打开了 hinting 才放开任意字体。
+    in property <string> font: "yahei_light";
+    property <bool> preset-font: font == "yahei_light" || font == "yahei";
 
     // 全局字体。不指定的话 Slint 给拉丁字母挑系统默认西文字体、给中文挑回退字体，
     // 两边的 Light 面不一定都有，英文会比中文粗一圈（B4 手测）。写死同一家，粗细才一致。
     // 雅黑的拉丁字形是按中文全角度量设计的，西文字距偏松，英文界面下换 Segoe UI（B10 P14）。
     // 不用 "Segoe UI Variable Text"：Win11 专有，而 Slint 的 font-family 是单个名字、没有回退列表。
-    out property <string> font-family: english-ui ? "Segoe UI" : "Microsoft YaHei";
+    out property <string> font-family: !preset-font ? font : english-ui ? "Segoe UI" : "Microsoft YaHei";
     // 300 是为对齐旧版中文排版定的，两种界面语言共用。
     // P14 当初给英文界面配的是 400（怕 Segoe UI Light 太细），用户实测反馈「比中文粗一圈、
     // 两边看着不是一套字」，所以字重拉回和中文一致（B10 P25）。字体仍然分家 —— 换 Segoe UI
     // 是为了西文字距，那条没问题，粗细才是问题。
-    out property <int> font-weight: font-choice == 0 ? 300 : 400;
+    // 用户自选的字体按常规体：很多字体没有 Light 面，要 300 会被合成或回退。
+    out property <int> font-weight: font == "yahei_light" ? 300 : 400;
 
     out property <length> radius-small: 8px;
     out property <length> radius-medium: 12px;

@@ -66,28 +66,11 @@ pub fn resolve_color_scheme(window: &slint::Window) -> slint::language::ColorSch
     }
 }
 
-/// 将当前配置里的字体设置推给所有存活的窗口。
+/// 将当前配置里的字体设置推给所有存活的窗口（Theme 每个窗口一份）。
 pub fn apply_font() {
-    let cfg = crate::logic::config::snapshot();
-    let choice = font_choice(&cfg.general.font);
-    settings::set_font_choice(choice);
-    pop_result::set_font_choice(choice);
-    overlay::set_font_choice(choice);
-    pop_button::set_font_choice(choice);
-}
-
-/// 配置值 → font-choice 映射（全工程唯一出处）。
-pub fn font_choice(font: &str) -> i32 {
-    crate::logic::config::FONTS
-        .iter()
-        .position(|&f| f == font)
-        .unwrap_or(0) as i32
-}
-
-/// font-choice → 配置值映射。
-pub fn font_name(choice: i32) -> &'static str {
-    crate::logic::config::FONTS
-        .get(choice as usize)
-        .copied()
-        .unwrap_or(crate::logic::config::FONTS[0])
+    let font = crate::logic::config::snapshot().general.font;
+    settings::set_font(&font);
+    pop_result::set_font(&font);
+    overlay::set_font(&font);
+    pop_button::set_font(&font);
 }

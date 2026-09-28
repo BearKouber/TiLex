@@ -34,10 +34,10 @@ thread_local! {
     static VISIBLE: Cell<bool> = const { Cell::new(false) };
 }
 
-pub(crate) fn set_font_choice(choice: i32) {
+pub(crate) fn set_font(font: &str) {
     POP_RESULT.with_borrow(|slot| {
         if let Some(ui) = slot.as_ref() {
-            ui.global::<Theme>().set_font_choice(choice);
+            ui.global::<Theme>().set_font(font.into());
         }
     });
 }
@@ -55,7 +55,7 @@ pub fn create() -> Result<(), Error> {
     let cfg = crate::logic::config::snapshot();
     result
         .global::<Theme>()
-        .set_font_choice(super::font_choice(&cfg.general.font));
+        .set_font(cfg.general.font.as_str().into());
 
     result.on_close_requested(move || {
         hide();
@@ -393,7 +393,7 @@ fn reset_panel(ui: &PopResult, in_place: bool) {
     ui.set_color_scheme(super::resolve_color_scheme(ui.window()));
     let cfg = crate::logic::config::snapshot();
     ui.global::<Theme>()
-        .set_font_choice(super::font_choice(&cfg.general.font));
+        .set_font(cfg.general.font.as_str().into());
     platform::stop_speaking();
     SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
     ui.set_speaking_key(-2);
