@@ -15,12 +15,20 @@ use slint::{ComponentHandle, PhysicalPosition, PhysicalSize};
 use crate::error::Error;
 use crate::platform::geometry::Rect;
 use crate::platform::{self, Shot};
-use crate::slint_ui::Overlay;
+use crate::slint_ui::{Overlay, Theme};
 
 thread_local! {
     static OVERLAY: RefCell<Option<Overlay>> = const { RefCell::new(None) };
     /// 正在框选的那一帧。选完要从它裁图，所以不能只交给界面。
     static SHOT: RefCell<Option<Rc<Shot>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn set_font_choice(choice: i32) {
+    OVERLAY.with_borrow(|slot| {
+        if let Some(ui) = slot.as_ref() {
+            ui.global::<Theme>().set_font_choice(choice);
+        }
+    });
 }
 
 /// 隐藏时的窗口尺寸。0 会被 winit 拒绝，用 1×1：帧缓冲几乎为零。
@@ -36,6 +44,11 @@ pub fn create() -> Result<(), Error> {
     let overlay = Overlay::new();
     super::CREATING_INACTIVE.set(false);
     let overlay = overlay?;
+
+    let cfg = crate::logic::config::snapshot();
+    overlay
+        .global::<Theme>()
+        .set_font_choice(super::font_choice(&cfg.general.font));
 
     overlay.on_selected(|l, t, r, b| {
         // 顺序写死成一条直线，不许插 sleep：遮罩先消失、焦点还给原程序，再裁图。

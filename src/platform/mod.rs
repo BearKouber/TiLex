@@ -160,6 +160,11 @@ pub fn engage_selection() {
     imp::engage_selection()
 }
 
+/// 快捷键触发划词翻译（UI 线程调）。不阻塞：取消当前浮标，向 worker 发送 Hotkey 事件。
+pub fn translate_selection_now() {
+    imp::translate_selection_now()
+}
+
 /// 朗读用的语音。选哪种由调用方按文字定（含汉字/假名读中文，其他读英文）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Voice {

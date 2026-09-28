@@ -1,0 +1,88 @@
+import { Card, SettingRow } from "../common/card.slint";
+import { TextField } from "../common/text_field.slint";
+import { TranslateSettings } from "translate.slint";
+
+// 继承 SettingRow 而不是包一层：空根元素不参与卡片的纵向布局，行高会算错。
+component HotkeyRow inherits SettingRow {
+    in property <string> hotkey;
+    in property <string> draft;
+    in property <bool> recording;
+    callback focus-changed(bool);
+    callback key-pressed(string, bool, bool, bool, bool) -> bool;
+
+    forward-focus: hk;
+
+    hk := TextField {
+        width: 130px;
+        auto-shrink: true;
+        variant: "bordered";
+        center: true;
+        read-only: true;
+        text: root.recording ? root.draft : root.hotkey;
+        placeholder: root.recording
+            ? @tr("Press a key combination")
+            : @tr("None");
+        changed has-focus => {
+            root.focus-changed(self.has-focus);
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape && !event.modifiers.control
+                && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
+                self.clear-focus();
+                return EventResult.accept;
+            }
+            if root.key-pressed(event.text, event.modifiers.control,
+                    event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
+                self.clear-focus();
+            }
+            return EventResult.accept;
+        }
+    }
+}
+
+export component HotkeysPage {
+    VerticalLayout {
+        Card {
+            content-padding: 12px;
+
+            HotkeyRow {
+                label: @tr("Translate Selection");
+                hotkey: TranslateSettings.selection-hotkey;
+                draft: TranslateSettings.selection-hotkey-draft;
+                recording: TranslateSettings.selection-hotkey-recording;
+                focus-changed(focused) => {
+                    TranslateSettings.selection-hotkey-focus-changed(focused);
+                }
+                key-pressed(text, ctrl, shift, alt, meta) => {
+                    TranslateSettings.selection-hotkey-key(text, ctrl, shift, alt, meta)
+                }
+            }
+
+            HotkeyRow {
+                label: @tr("Screenshot Translate");
+                hotkey: TranslateSettings.hotkey;
+                draft: TranslateSettings.hotkey-draft;
+                recording: TranslateSettings.hotkey-recording;
+                focus-changed(focused) => {
+                    TranslateSettings.hotkey-focus-changed(focused);
+                }
+                key-pressed(text, ctrl, shift, alt, meta) => {
+                    TranslateSettings.hotkey-key(text, ctrl, shift, alt, meta)
+                }
+            }
+
+            HotkeyRow {
+                label: @tr("Toggle Settings Window");
+                hotkey: TranslateSettings.settings-hotkey;
+                draft: TranslateSettings.settings-hotkey-draft;
+                recording: TranslateSettings.settings-hotkey-recording;
+                focus-changed(focused) => {
+                    TranslateSettings.settings-hotkey-focus-changed(focused);
+                }
+                key-pressed(text, ctrl, shift, alt, meta) => {
+                    TranslateSettings.settings-hotkey-key(text, ctrl, shift, alt, meta)
+                }
+            }
+        }
+    }
+}

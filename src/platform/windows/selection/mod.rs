@@ -50,15 +50,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, VK_ESCAPE}
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, EVENT_SYSTEM_FOREGROUND,
-    GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetMessageTime, GetMessageW, GetWindowLongPtrW,
-    GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST, KBDLLHOOKSTRUCT,
-    MA_NOACTIVATE, MSG, MSLLHOOKSTRUCT, RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, TranslateMessage,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WINEVENT_OUTOFCONTEXT,
-    WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEACTIVATE,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WNDCLASSW,
-    WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX,
-    WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetMessageTime, GetMessageW,
+    GetWindowLongPtrW, GetWindowThreadProcessId, HC_ACTION, HWND_MESSAGE, HWND_TOPMOST,
+    KBDLLHOOKSTRUCT, MA_NOACTIVATE, MSG, MSLLHOOKSTRUCT, RegisterClassW, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW,
+    TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WINEVENT_OUTOFCONTEXT, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEACTIVATE, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
+    WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 use windows::core::{PWSTR, w};
 
@@ -86,6 +86,7 @@ enum Ev {
     Cancel(u64),
     Hide(u64),
     Engage(u64),
+    Hotkey,
 }
 
 /// 浮标窗口的 HWND（`HWND` 不是 Send，按整数存）。0 = 还没交进来。
@@ -196,6 +197,11 @@ pub fn engage_selection() {
     if owner != 0 {
         send(Ev::Engage(owner));
     }
+}
+
+pub fn translate_selection_now() {
+    cancel_current();
+    send(Ev::Hotkey);
 }
 
 fn button_hwnd() -> Option<HWND> {
@@ -607,7 +613,73 @@ impl Worker {
                 }
                 Ev::Hide(owner) => self.hide_owned(owner),
                 Ev::Engage(owner) => self.engage(owner),
+                Ev::Hotkey => self.on_hotkey(),
             }
+        }
+    }
+
+    /// 快捷键触发：在前台程序中读选区并直接弹结果浮窗。
+    fn on_hotkey(&mut self) {
+        // 1. 前台是自己的窗口，直接返回
+        if foreground_is_ours() {
+            return;
+        }
+
+        // 2. 快捷键不看 settings.enabled 和黑名单，不走 accept 和字符数过滤
+
+        // 3. 构造 Gesture
+        let mut pt = POINT::default();
+        // SAFETY: 指针有效。
+        if unsafe { GetCursorPos(&mut pt) }.is_err() {
+            return;
+        }
+        let (x, y) = (pt.x, pt.y);
+        let id = CURRENT_GESTURE.fetch_add(1, SeqCst) + 1;
+        let window = foreground();
+        // SAFETY: 无参数。
+        let clipboard_sequence = unsafe { GetClipboardSequenceNumber() };
+        let gesture = Gesture {
+            id,
+            window,
+            x,
+            y,
+            // 只有鼠标手势路径（剪贴板宽限、前台打断）看这个时间；快捷键手势不进 PENDING_SELECTION。
+            at_ms: 0,
+            clipboard_sequence,
+        };
+
+        // 4. 读 UIA 选区
+        let (mut text, _) = uia_selected_text(gesture);
+
+        // 5. 选区为空且前台进程不在 NO_FORCE_COPY 里时模拟复制
+        let excluded = foreground_process_name()
+            .is_some_and(|name| matches_blacklist(&name, force_copy::NO_FORCE_COPY));
+        if text.is_empty() && !excluded {
+            let wait_start = std::time::Instant::now();
+            let mut timed_out = false;
+            while force_copy::modifiers_down() {
+                if wait_start.elapsed() >= std::time::Duration::from_secs(1) {
+                    timed_out = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            if timed_out {
+                log::info!("PopButton: modifiers still down after 1s, aborting hotkey copy");
+            } else {
+                // 模拟复制会触发一次 WM_CLIPBOARDUPDATE。clip_proc 看的是钩子线程上的 PENDING_SELECTION，
+                // 它的手势 id 已经被 cancel_current 作废，会自己忽略。
+                text = force_copy::copy_selection(|| {
+                    CURRENT_GESTURE.load(SeqCst) == gesture.id && foreground() == gesture.window
+                });
+            }
+        }
+
+        // 6. 交付结果或记录日志（不记录文字内容）
+        if !text.is_empty() {
+            (self.engaged)(EngagedSelection { text, x, y });
+        } else {
+            log::info!("PopButton: hotkey selection found no text");
         }
     }
 

@@ -29,7 +29,9 @@ use windows::core::{PCWSTR, w};
 use crate::error::Error;
 
 mod selection;
-pub use selection::{attach_selection_button, engage_selection, start_selection};
+pub use selection::{
+    attach_selection_button, engage_selection, start_selection, translate_selection_now,
+};
 
 pub fn copy_text(text: &str) -> Result<(), Error> {
     if selection::write_text(text) {

@@ -10,7 +10,7 @@ use slint::{CloseRequestResponse, ComponentHandle};
 use crate::error::Error;
 use crate::logic::config;
 use crate::platform;
-use crate::slint_ui::{SettingsWindow, TranslateSettings};
+use crate::slint_ui::{SettingsWindow, Theme, TranslateSettings};
 
 mod services;
 mod wordbook;
@@ -21,6 +21,15 @@ struct Settings {
 
 thread_local! {
     static SETTINGS: RefCell<Option<Settings>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn set_font_choice(choice: i32) {
+    SETTINGS.with_borrow(|slot| {
+        if let Some(s) = slot.as_ref() {
+            s.page.global::<Theme>().set_font_choice(choice);
+            s.page.global::<TranslateSettings>().set_font_index(choice);
+        }
+    });
 }
 
 /// 开关设置窗口：
@@ -96,6 +105,8 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     page.set_language(cfg.general.language.as_str().into());
     let scheme = super::resolve_color_scheme(page.window());
     page.set_color_scheme(scheme);
+    let font_choice = super::font_choice(&cfg.general.font);
+    page.global::<Theme>().set_font_choice(font_choice);
 
     let ts = page.global::<TranslateSettings>();
     debug_assert_eq!(
@@ -114,6 +125,7 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     let pop_btn_idx = pop_button_to_index(&cfg.selection);
     let pop_btn_pos_idx = find_index(&POP_BUTTON_POS, &cfg.selection.button_pos);
     let result_pos_idx = find_index(&config::POS_VALUES, &cfg.translate.result_pos);
+    let font_idx = super::font_choice(&cfg.general.font);
     let force_copy_idx = if cfg.selection.force_copy { 0 } else { 1 };
     let distance = cfg.selection.button_distance.clamp(0, 50) as i32;
 
@@ -124,9 +136,11 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.set_pop_button_index(pop_btn_idx);
     ts.set_pop_button_pos_index(pop_btn_pos_idx);
     ts.set_result_pos_index(result_pos_idx);
+    ts.set_font_index(font_idx);
     ts.set_force_copy_index(force_copy_idx);
     ts.set_button_distance(distance);
     ts.set_blacklist(cfg.selection.blacklist.into());
+    ts.set_selection_hotkey(cfg.selection.hotkey.as_str().into());
     ts.set_hotkey(cfg.screenshot.hotkey.as_str().into());
     ts.set_settings_hotkey(cfg.general.settings_hotkey.as_str().into());
 
@@ -176,6 +190,13 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
     ts.on_result_pos_changed(move |idx| {
         if let Some(page) = weak_result_pos.upgrade() {
             handle_result_pos_change(&page, idx);
+        }
+    });
+
+    let weak_font = page.as_weak();
+    ts.on_font_changed(move |idx| {
+        if let Some(page) = weak_font.upgrade() {
+            handle_font_change(&page, idx);
         }
     });
 
@@ -237,6 +258,30 @@ fn create(backup: Option<&Path>) -> Result<Settings, Error> {
             handle_hotkey_key(
                 &page,
                 crate::logic::hotkey::Slot::Settings,
+                text.as_str(),
+                ctrl,
+                shift,
+                alt,
+                meta,
+            )
+        } else {
+            false
+        }
+    });
+
+    let weak_sel_hk_focus = page.as_weak();
+    ts.on_selection_hotkey_focus_changed(move |focused| {
+        if let Some(page) = weak_sel_hk_focus.upgrade() {
+            handle_hotkey_focus(&page, crate::logic::hotkey::Slot::Selection, focused);
+        }
+    });
+
+    let weak_sel_hk_key = page.as_weak();
+    ts.on_selection_hotkey_key(move |text, ctrl, shift, alt, meta| {
+        if let Some(page) = weak_sel_hk_key.upgrade() {
+            handle_hotkey_key(
+                &page,
+                crate::logic::hotkey::Slot::Selection,
                 text.as_str(),
                 ctrl,
                 shift,
@@ -467,6 +512,15 @@ fn close() {
     {
         log::warn!("Settings: restore settings hotkey on close failed: {e}");
     }
+    let cur_selection = config::snapshot().selection.hotkey;
+    if !cur_selection.is_empty()
+        && let Err(e) =
+            crate::logic::hotkey::apply(crate::logic::hotkey::Slot::Selection, &cur_selection)
+    {
+        log::warn!("Settings: restore selection hotkey on close failed: {e}");
+    }
+    // 录制中直接关窗时收不到失焦，被暂停的槽位在这里补注册
+    crate::logic::hotkey::resume_all();
 
     log::info!("Settings: closed");
 }
@@ -748,6 +802,17 @@ fn handle_result_pos_change(page: &SettingsWindow, idx: i32) {
     }
 }
 
+fn handle_font_change(page: &SettingsWindow, idx: i32) {
+    let old_cfg = config::snapshot();
+    let old_idx = super::font_choice(&old_cfg.general.font);
+    let new_font = super::font_name(idx);
+    if !save(page, "font", |c| c.general.font = new_font.to_owned()) {
+        page.global::<TranslateSettings>().set_font_index(old_idx);
+    } else {
+        super::apply_font();
+    }
+}
+
 fn handle_force_copy_change(page: &SettingsWindow, idx: i32) {
     let old_val = config::snapshot().selection.force_copy;
     let old_idx = if old_val { 0 } else { 1 };
@@ -780,6 +845,7 @@ fn handle_blacklist_change(page: &SettingsWindow, val: slint::SharedString) {
 
 fn is_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot) -> bool {
     match slot {
+        crate::logic::hotkey::Slot::Selection => ts.get_selection_hotkey_recording(),
         crate::logic::hotkey::Slot::Screenshot => ts.get_hotkey_recording(),
         crate::logic::hotkey::Slot::Settings => ts.get_settings_hotkey_recording(),
     }
@@ -787,6 +853,7 @@ fn is_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot) -> boo
 
 fn set_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, recording: bool) {
     match slot {
+        crate::logic::hotkey::Slot::Selection => ts.set_selection_hotkey_recording(recording),
         crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey_recording(recording),
         crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey_recording(recording),
     }
@@ -794,6 +861,7 @@ fn set_recording(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, recor
 
 fn set_draft(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, draft: slint::SharedString) {
     match slot {
+        crate::logic::hotkey::Slot::Selection => ts.set_selection_hotkey_draft(draft),
         crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey_draft(draft),
         crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey_draft(draft),
     }
@@ -801,6 +869,7 @@ fn set_draft(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, draft: sl
 
 fn set_display(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, key: &str) {
     match slot {
+        crate::logic::hotkey::Slot::Selection => ts.set_selection_hotkey(key.into()),
         crate::logic::hotkey::Slot::Screenshot => ts.set_hotkey(key.into()),
         crate::logic::hotkey::Slot::Settings => ts.set_settings_hotkey(key.into()),
     }
@@ -809,6 +878,7 @@ fn set_display(ts: &TranslateSettings, slot: crate::logic::hotkey::Slot, key: &s
 fn current_config_hotkey(slot: crate::logic::hotkey::Slot) -> String {
     let cfg = config::snapshot();
     match slot {
+        crate::logic::hotkey::Slot::Selection => cfg.selection.hotkey,
         crate::logic::hotkey::Slot::Screenshot => cfg.screenshot.hotkey,
         crate::logic::hotkey::Slot::Settings => cfg.general.settings_hotkey,
     }
@@ -821,6 +891,9 @@ fn save_config_hotkey(
 ) -> bool {
     let accel = accel.to_string();
     match slot {
+        crate::logic::hotkey::Slot::Selection => save(page, "selection_hotkey", move |c| {
+            c.selection.hotkey = accel
+        }),
         crate::logic::hotkey::Slot::Screenshot => {
             save(page, "hotkey", move |c| c.screenshot.hotkey = accel)
         }
@@ -839,6 +912,7 @@ fn handle_hotkey_focus(page: &SettingsWindow, slot: crate::logic::hotkey::Slot, 
         if let Err(e) = crate::logic::hotkey::apply(slot, "") {
             log::warn!("Settings: unregister {slot:?} hotkey on focus failed: {e}");
         }
+        crate::logic::hotkey::suspend_others(slot);
     } else if is_recording(&ts, slot) {
         set_recording(&ts, slot, false);
         set_draft(&ts, slot, "".into());
@@ -846,6 +920,7 @@ fn handle_hotkey_focus(page: &SettingsWindow, slot: crate::logic::hotkey::Slot, 
         if let Err(e) = crate::logic::hotkey::apply(slot, &cur) {
             log::warn!("Settings: restore {slot:?} hotkey on blur failed: {e}");
         }
+        crate::logic::hotkey::resume_all();
     }
 }
 
@@ -872,11 +947,8 @@ fn handle_hotkey_key(
     set_draft(&ts, slot, "".into());
 
     let old_hotkey = current_config_hotkey(slot);
-    if crate::logic::hotkey::conflicts(slot, &accel) {
-        let msg = match slot {
-            crate::logic::hotkey::Slot::Screenshot => ts.invoke_show_screenshot_hotkey_conflict(),
-            crate::logic::hotkey::Slot::Settings => ts.invoke_show_hotkey_conflict(),
-        };
+    if let Some(owner) = crate::logic::hotkey::conflicts(slot, &accel) {
+        let msg = ts.invoke_show_hotkey_conflict(owner as i32);
         page.invoke_show_toast(msg, 2);
         let _ = crate::logic::hotkey::apply(slot, &old_hotkey); // ignore: 冲突时恢复旧热键
         set_display(&ts, slot, &old_hotkey);

@@ -19,7 +19,7 @@ use crate::logic::screenshot::Region;
 use crate::logic::translate::{self, Query, Update};
 use crate::platform::geometry::{Rect, Side};
 use crate::platform::{self};
-use crate::slint_ui::{EntryView, PopResult, ResultRow};
+use crate::slint_ui::{EntryView, PopResult, ResultRow, Theme};
 use crate::ui::entry_view;
 
 thread_local! {
@@ -34,6 +34,14 @@ thread_local! {
     static VISIBLE: Cell<bool> = const { Cell::new(false) };
 }
 
+pub(crate) fn set_font_choice(choice: i32) {
+    POP_RESULT.with_borrow(|slot| {
+        if let Some(ui) = slot.as_ref() {
+            ui.global::<Theme>().set_font_choice(choice);
+        }
+    });
+}
+
 /// 鼠标离起算点超过这么远（逻辑像素）红三角才生效，防止浮窗刚出现在光标下就被碰掉（旧版 `ARM_PX`）。
 const ARM_PX: f64 = 10.0;
 
@@ -43,6 +51,11 @@ pub fn create() -> Result<(), Error> {
     let result = PopResult::new();
     super::CREATING_INACTIVE.set(false);
     let result = result?;
+
+    let cfg = crate::logic::config::snapshot();
+    result
+        .global::<Theme>()
+        .set_font_choice(super::font_choice(&cfg.general.font));
 
     result.on_close_requested(move || {
         hide();
@@ -378,6 +391,9 @@ fn reset_panel(ui: &PopResult, in_place: bool) {
         ui.set_is_pinned(false);
     }
     ui.set_color_scheme(super::resolve_color_scheme(ui.window()));
+    let cfg = crate::logic::config::snapshot();
+    ui.global::<Theme>()
+        .set_font_choice(super::font_choice(&cfg.general.font));
     platform::stop_speaking();
     SPEAK_TOKEN.with(|t| t.set(t.get().wrapping_add(1)));
     ui.set_speaking_key(-2);

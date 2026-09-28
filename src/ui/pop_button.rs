@@ -10,10 +10,18 @@ use crate::error::Error;
 use crate::logic::config;
 use crate::platform::geometry::Side;
 use crate::platform::{self, EngagedSelection, SelectionSettings};
-use crate::slint_ui::PopButton;
+use crate::slint_ui::{PopButton, Theme};
 
 thread_local! {
     static BUTTON: RefCell<Option<slint::Weak<PopButton>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn set_font_choice(choice: i32) {
+    BUTTON.with_borrow(|slot| {
+        if let Some(Some(ui)) = slot.as_ref().map(|w| w.upgrade()) {
+            ui.global::<Theme>().set_font_choice(choice);
+        }
+    });
 }
 
 /// 启动划词监听并建浮标。返回 `None`：这个平台还不支持划词，或监听没起来（已记日志）。
@@ -34,6 +42,12 @@ pub fn create() -> Result<Option<PopButton>, Error> {
     let button = PopButton::new();
     super::CREATING_INACTIVE.set(false);
     let button = button?;
+
+    let cfg = config::snapshot();
+    button
+        .global::<Theme>()
+        .set_font_choice(super::font_choice(&cfg.general.font));
+
     BUTTON.with(|b| *b.borrow_mut() = Some(button.as_weak()));
     button.on_hovered(|| engage_if(true));
     button.on_clicked(|| engage_if(false));

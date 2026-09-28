@@ -53,6 +53,7 @@ fn run() -> Result<(), Error> {
             log::warn!("Main: toggle settings from hotkey failed: {e}");
         }
     });
+    hotkey::init(hotkey::Slot::Selection, platform::translate_selection_now);
     let screenshot_hotkey = config::snapshot().screenshot.hotkey;
     if !screenshot_hotkey.is_empty()
         && let Err(e) = hotkey::apply(hotkey::Slot::Screenshot, &screenshot_hotkey)
@@ -64,6 +65,12 @@ fn run() -> Result<(), Error> {
         && let Err(e) = hotkey::apply(hotkey::Slot::Settings, &settings_hotkey)
     {
         log::warn!("Main: settings hotkey register failed: {e}");
+    }
+    let selection_hotkey = config::snapshot().selection.hotkey;
+    if !selection_hotkey.is_empty()
+        && let Err(e) = hotkey::apply(hotkey::Slot::Selection, &selection_hotkey)
+    {
+        log::warn!("Main: selection hotkey register failed: {e}");
     }
     // 划词浮标启动时就建好、一直不销毁（D12）。
     let pop_button = ui::pop_button::create()?;

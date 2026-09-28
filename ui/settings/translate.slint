@@ -82,6 +82,7 @@ export global TranslateSettings {
     in-out property <int> pop-button-index: 0;
     in-out property <int> pop-button-pos-index: 0;
     in-out property <int> result-pos-index: 0;
+    in-out property <int> font-index: 0;
     in-out property <int> force-copy-index: 1;
     in-out property <int> button-distance: 10;
     in-out property <string> blacklist: "";
@@ -96,11 +97,20 @@ export global TranslateSettings {
     callback pop-button-changed(int);
     callback pop-button-pos-changed(int);
     callback result-pos-changed(int);
+    callback font-changed(int);
     callback force-copy-changed(int);
     callback button-distance-changed(int);
     callback blacklist-changed(string);
 
-    // 已保存的键，空串 = 未设置
+    // 划词快捷键
+    in-out property <string> selection-hotkey: "";
+    in-out property <string> selection-hotkey-draft: "";
+    in-out property <bool> selection-hotkey-recording: false;
+
+    callback selection-hotkey-focus-changed(bool);
+    callback selection-hotkey-key(string, bool, bool, bool, bool) -> bool;
+
+    // 已保存的键，空串 = 未设置（截图翻译）
     in-out property <string> hotkey: "";
     // 录制中显示的半成品（"Ctrl+Shift"），录制结束时 Rust 会清掉
     in-out property <string> hotkey-draft: "";
@@ -121,8 +131,15 @@ export global TranslateSettings {
 
     public function show-hotkey-ok() -> string { @tr("Shortcut registered") }
     public function show-hotkey-error(err: string) -> string { @tr("Could not register shortcut: {}", err) }
-    public function show-hotkey-conflict() -> string { @tr("This shortcut is already used by Screenshot Translate") }
-    public function show-screenshot-hotkey-conflict() -> string { @tr("This shortcut is already used by Toggle Settings Window") }
+    public function show-hotkey-conflict(owner: int) -> string {
+        if owner == 0 {
+            return @tr("This shortcut is already used by Screenshot Translate");
+        }
+        if owner == 1 {
+            return @tr("This shortcut is already used by Toggle Settings Window");
+        }
+        @tr("This shortcut is already used by Translate Selection")
+    }
 }
 
 export component TranslatePage {
@@ -163,6 +180,11 @@ export component TranslatePage {
         @tr("Top-Right of Screen"),
         @tr("Bottom-Left of Screen"),
         @tr("Bottom-Right of Screen"),
+    ];
+
+    in property <[string]> font-options: [
+        @tr("Microsoft YaHei Light"),
+        @tr("Microsoft YaHei"),
     ];
 
     in property <[string]> boolean-options: [
@@ -250,7 +272,17 @@ export component TranslatePage {
                 }
             }
 
-            // 8. 增强选中识别 + ⓘ（浮标关时禁用）
+            // 8. 字体
+            SettingRow {
+                label: @tr("Font");
+                Select {
+                    options: root.font-options;
+                    current-index <=> TranslateSettings.font-index;
+                    selected(idx) => { TranslateSettings.font-changed(idx); }
+                }
+            }
+
+            // 9. 增强选中识别 + ⓘ（浮标关时禁用）
             SettingRow {
                 z: 2;
                 label: @tr("Enhanced Selection");
@@ -261,72 +293,6 @@ export component TranslatePage {
                     current-index <=> TranslateSettings.force-copy-index;
                     enabled: TranslateSettings.selection-enabled;
                     selected(idx) => { TranslateSettings.force-copy-changed(idx); }
-                }
-            }
-
-            // 9. 截图快捷键
-            SettingRow {
-                label: @tr("Screenshot Translate");
-                hk := TextField {
-                    width: 130px;
-                    auto-shrink: true;
-                    variant: "bordered";
-                    center: true;
-                    read-only: true;
-                    text: TranslateSettings.hotkey-recording
-                        ? TranslateSettings.hotkey-draft
-                        : TranslateSettings.hotkey;
-                    placeholder: TranslateSettings.hotkey-recording
-                        ? @tr("Press a key combination")
-                        : @tr("None");
-                    changed has-focus => {
-                        TranslateSettings.hotkey-focus-changed(self.has-focus);
-                    }
-                    key-pressed(event) => {
-                        if event.text == Key.Escape && !event.modifiers.control
-                            && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
-                            self.clear-focus();
-                            return EventResult.accept;
-                        }
-                        if TranslateSettings.hotkey-key(event.text, event.modifiers.control,
-                                event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
-                            self.clear-focus();
-                        }
-                        return EventResult.accept;
-                    }
-                }
-            }
-
-            // 9b. 开关设置窗口快捷键
-            SettingRow {
-                label: @tr("Toggle Settings Window");
-                shk := TextField {
-                    width: 130px;
-                    auto-shrink: true;
-                    variant: "bordered";
-                    center: true;
-                    read-only: true;
-                    text: TranslateSettings.settings-hotkey-recording
-                        ? TranslateSettings.settings-hotkey-draft
-                        : TranslateSettings.settings-hotkey;
-                    placeholder: TranslateSettings.settings-hotkey-recording
-                        ? @tr("Press a key combination")
-                        : @tr("None");
-                    changed has-focus => {
-                        TranslateSettings.settings-hotkey-focus-changed(self.has-focus);
-                    }
-                    key-pressed(event) => {
-                        if event.text == Key.Escape && !event.modifiers.control
-                            && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
-                            self.clear-focus();
-                            return EventResult.accept;
-                        }
-                        if TranslateSettings.settings-hotkey-key(event.text, event.modifiers.control,
-                                event.modifiers.shift, event.modifiers.alt, event.modifiers.meta) {
-                            self.clear-focus();
-                        }
-                        return EventResult.accept;
-                    }
                 }
             }
 

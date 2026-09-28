@@ -23,6 +23,9 @@ pub use crate::service::umi::Config as UmiConfig;
 
 /// 界面语言。顺序就是设置页下拉框的顺序；值是 `ui/i18n/` 下的目录名，`en` 是 msgid 原文。
 pub const LANGUAGES: [&str; 2] = ["zh_CN", "en"];
+/// 字体选项配置值。0: 微软雅黑 细（默认），1: 微软雅黑，2: 等线，3: 宋体。
+/// 只有雅黑：Slint 软件渲染不做 hinting，等线、宋体的细横笔在小字号下发淡、像只画了一半（2026-09-28 实测，已撤掉）。
+pub const FONTS: [&str; 2] = ["yahei_light", "yahei"];
 const FILE: &str = "config.json";
 /// 写盘超过这个时间记一条 warn（design §2.1：真出现卡顿再挪到后台线程）。
 const SLOW_WRITE: Duration = Duration::from_millis(50);
@@ -44,6 +47,7 @@ pub struct Config {
 pub struct General {
     pub language: String,
     pub theme: String,
+    pub font: String,
     pub settings_hotkey: String,
 }
 
@@ -69,6 +73,7 @@ pub struct Selection {
     /// 不让整份配置因为这一项被当成损坏。
     #[serde(deserialize_with = "distance")]
     pub button_distance: i64,
+    pub hotkey: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -135,6 +140,7 @@ impl Default for General {
         Self {
             language: LANGUAGES[0].into(),
             theme: "system".into(),
+            font: "yahei_light".into(),
             settings_hotkey: String::new(),
         }
     }
@@ -161,6 +167,7 @@ impl Default for Selection {
             blacklist: String::new(),
             button_pos: "BottomLeft".into(),
             button_distance: 10,
+            hotkey: String::new(),
         }
     }
 }
@@ -228,6 +235,9 @@ impl Config {
     pub fn normalize(&mut self) {
         if !LANGUAGES.contains(&self.general.language.as_str()) {
             self.general.language = General::default().language;
+        }
+        if !FONTS.contains(&self.general.font.as_str()) {
+            self.general.font = General::default().font;
         }
         self.selection.button_distance = self.selection.button_distance.clamp(0, 50);
         if !POS_VALUES.contains(&self.translate.result_pos.as_str()) {
@@ -1023,5 +1033,38 @@ mod tests {
         let json = r#"{"general": {"language": "zh_cn", "theme": "system"}}"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.general.settings_hotkey, "");
+    }
+
+    #[test]
+    fn old_config_without_selection_hotkey_deserializes_to_empty() {
+        let json = r#"{"selection": {"enabled": true}}"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.selection.hotkey, "");
+    }
+
+    #[test]
+    fn old_config_without_font_deserializes_to_default() {
+        let json = r#"{"general": {"language": "zh_cn", "theme": "system"}}"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.general.font, "yahei_light");
+    }
+
+    #[test]
+    fn normalize_font() {
+        let mut config = Config::default();
+        for val in ["yahei_light", "yahei"] {
+            config.general.font = val.into();
+            config.normalize();
+            assert_eq!(config.general.font, val);
+        }
+        // 试过又撤掉的两种，旧配置里留着也回到默认
+        for gone in ["dengxian", "simsun", "invalid_font"] {
+            config.general.font = gone.into();
+            config.normalize();
+            assert_eq!(config.general.font, "yahei_light");
+        }
+        config.general.font = "invalid_font".into();
+        config.normalize();
+        assert_eq!(config.general.font, "yahei_light");
     }
 }

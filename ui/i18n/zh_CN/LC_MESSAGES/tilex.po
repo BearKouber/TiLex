@@ -698,3 +698,22 @@ msgstr "该快捷键已被截图翻译占用"
 msgid "This shortcut is already used by Toggle Settings Window"
 msgstr "该快捷键已被开关设置窗口占用"
 
+msgid "Shortcuts"
+msgstr "快捷键"
+
+msgid "Translate Selection"
+msgstr "划词翻译"
+
+msgid "This shortcut is already used by Translate Selection"
+msgstr "该快捷键已被划词翻译占用"
+
+msgid "Font"
+msgstr "字体"
+
+msgid "Microsoft YaHei Light"
+msgstr "微软雅黑 细"
+
+msgid "Microsoft YaHei"
+msgstr "微软雅黑"
+
+

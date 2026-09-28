@@ -1,5 +1,6 @@
 // ui.md §6.3 设置窗口骨架。旧版 TiLex/src/window/Config/index.jsx。
 import { AboutPage } from "about.slint";
+import { HotkeysPage } from "hotkeys.slint";
 import { ServicesPage, ServiceRow } from "services.slint";
 import { ServiceDialogs, ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
 export { ServiceDraft, AiPreset, ModelRow } from "service_dialogs.slint";
@@ -498,6 +499,7 @@ export component SettingsWindow inherits Window {
                         @tr("Translate"),
                         @tr("Services"),
                         @tr("Wordbook"),
+                        @tr("Shortcuts"),
                         @tr("About"),
                     ];
                     current <=> root.page;
@@ -531,14 +533,14 @@ export component SettingsWindow inherits Window {
 
                 content := VerticalLayout {
                     // 窗口放大后内容列不设宽度封顶，所有页卡片均填满可用宽度（R7：用户要求各页卡片跟随窗口宽度放大，行为一致）。
-                    // 左右内边距保持现状：关于页（page == 3）通栏出血为 0，其余页为 10px。
+                    // 左右内边距保持现状：关于页（page == 4）通栏出血为 0，其余页为 10px。
                     // 默认 800×600 下 parent.width 本就小于 1200px，去掉封顶逐像素不变
                     //（slint-ui.md §7 的量图对照不受影响）。
                     width: parent.width;
-                    padding-left: root.page == 3 ? 0px : 10px;
-                    padding-right: root.page == 3 ? 0px : 10px;
-                    padding-top: root.page == 3 ? 0px : 10px;
-                    padding-bottom: root.page == 3 ? 0px : 10px;
+                    padding-left: root.page == 4 ? 0px : 10px;
+                    padding-right: root.page == 4 ? 0px : 10px;
+                    padding-top: root.page == 4 ? 0px : 10px;
+                    padding-bottom: root.page == 4 ? 0px : 10px;
                     alignment: start;
 
                     if root.page == 0 : TranslatePage { }
@@ -572,7 +574,9 @@ export component SettingsWindow inherits Window {
                         height: scroll.visible-height - 20px;
                     }
 
-                    if root.page == 3 : AboutPage {
+                    if root.page == 3 : HotkeysPage { }
+
+                    if root.page == 4 : AboutPage {
                         version: root.version;
                         autostart-enabled <=> root.autostart-enabled;
                         autostart-supported: root.autostart-supported;
