@@ -257,7 +257,54 @@ pub fn style_frameless_window(window: &slint::Window) -> Result<(), Error> {
         log::info!("Settings: round corners skipped or unsupported: {e}");
     }
 
+    set_exe_icon(hwnd(window)?);
     Ok(())
+}
+
+/// 窗口图标换成 exe 里的 icon.ico（app.rc 的 IDI_ICON1），按当前 DPI 的系统图标尺寸取帧。
+/// Slint 的 `icon` 只有一张大 PNG，winit 拿它交给系统缩到 16px，任务管理器、标题栏小图标会糊成锯齿；
+/// ico 里有手工做的 16/24/32… 帧，系统按尺寸挑就不失真。
+fn set_exe_icon(h: HWND) {
+    use windows::Win32::Foundation::{HINSTANCE, LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, LoadImageW, SM_CXICON, SM_CXSMICON,
+        SendMessageW, WM_SETICON,
+    };
+    // SAFETY: None = 当前 exe，不涉及指针。
+    let Ok(module) = (unsafe { GetModuleHandleW(None) }) else {
+        return;
+    };
+    // SAFETY: h 是活着的窗口。
+    let dpi = unsafe { GetDpiForWindow(h) }.max(96);
+    for (which, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
+        // SAFETY: 纯查询。
+        let size = unsafe { GetSystemMetricsForDpi(metric, dpi) };
+        // SAFETY: 资源名是静态字符串；LR_SHARED 的图标归系统管，不用 DestroyIcon。
+        let icon = unsafe {
+            LoadImageW(
+                HINSTANCE(module.0),
+                w!("IDI_ICON1"),
+                IMAGE_ICON,
+                size,
+                size,
+                LR_SHARED,
+            )
+        };
+        match icon {
+            // SAFETY: h 有效；WM_SETICON 只读 lparam 里的图标句柄。
+            Ok(icon) => unsafe {
+                SendMessageW(
+                    h,
+                    WM_SETICON,
+                    WPARAM(which as usize),
+                    LPARAM(icon.0 as isize),
+                );
+            },
+            Err(e) => log::warn!("set_exe_icon: LoadImageW failed: {e}"),
+        }
+    }
 }
 
 pub fn bring_to_front(window: &slint::Window) -> Result<(), Error> {
