@@ -10,18 +10,41 @@ use crate::slint_ui::{EntryExample, EntryExplain, EntryView, EntryVocab};
 /// 当 `display` 全空而 `fallback_text` 不空时，使用 `fallback_text` 填充 `translation`，
 /// 保证纯文本结果有内容展示。
 pub fn to_view(display: &EntryDisplay, fallback_text: &str) -> EntryView {
-    to_view_highlighted(display, fallback_text, "", "")
+    to_view_internal(display, fallback_text, None)
 }
 
-/// 将展示投影转换为带关键词高亮的 Slint 视图结构体（用于生词本详情展示）。
+/// 将展示投影转换为带中英分色与关键词高亮的 Slint 视图结构体（用于生词本详情展示）。
 pub fn to_view_highlighted(
     display: &EntryDisplay,
     fallback_text: &str,
     keyword: &str,
     accent_color: &str,
+    target_color: &str,
+) -> EntryView {
+    to_view_internal(
+        display,
+        fallback_text,
+        Some(StyleParams {
+            keyword,
+            accent_color,
+            target_color,
+        }),
+    )
+}
+
+struct StyleParams<'a> {
+    keyword: &'a str,
+    accent_color: &'a str,
+    target_color: &'a str,
+}
+
+fn to_view_internal(
+    display: &EntryDisplay,
+    fallback_text: &str,
+    style: Option<StyleParams<'_>>,
 ) -> EntryView {
     let all_empty = is_all_empty(display);
-    let has_highlight = !keyword.trim().is_empty();
+    let has_highlight = style.is_some();
 
     let raw_translation = if all_empty && !fallback_text.is_empty() {
         fallback_text
@@ -29,8 +52,8 @@ pub fn to_view_highlighted(
         display.translation.as_str()
     };
     let translation: SharedString = raw_translation.into();
-    let styled_translation = if has_highlight {
-        to_styled_text(raw_translation, keyword, accent_color)
+    let styled_translation = if let Some(ref s) = style {
+        styled(raw_translation, s, Role::Target)
     } else {
         slint::StyledText::default()
     };
@@ -40,8 +63,8 @@ pub fn to_view_highlighted(
         .iter()
         .map(|e| {
             let joined = e.explains.join(", ");
-            let styled_text = if has_highlight {
-                to_styled_text(&joined, keyword, accent_color)
+            let styled_text = if let Some(ref s) = style {
+                styled(&joined, s, Role::Target)
             } else {
                 slint::StyledText::default()
             };
@@ -53,9 +76,13 @@ pub fn to_view_highlighted(
         })
         .collect();
 
-    let styled_associations = if has_highlight && !display.associations.is_empty() {
-        let joined = display.associations.join(", ");
-        to_styled_text(&joined, keyword, accent_color)
+    let styled_associations = if let Some(ref s) = style {
+        if display.associations.is_empty() {
+            slint::StyledText::default()
+        } else {
+            let joined = display.associations.join(", ");
+            styled(&joined, s, Role::Source)
+        }
     } else {
         slint::StyledText::default()
     };
@@ -64,15 +91,13 @@ pub fn to_view_highlighted(
         .examples
         .iter()
         .map(|e| {
-            let styled_text = if has_highlight {
-                to_styled_text(&e.text, keyword, accent_color)
+            let (styled_text, styled_translation) = if let Some(ref s) = style {
+                (
+                    styled(&e.text, s, Role::Source),
+                    styled(&e.translation, s, Role::Target),
+                )
             } else {
-                slint::StyledText::default()
-            };
-            let styled_translation = if has_highlight {
-                to_styled_text(&e.translation, keyword, accent_color)
-            } else {
-                slint::StyledText::default()
+                (slint::StyledText::default(), slint::StyledText::default())
             };
             EntryExample {
                 text: e.text.as_str().into(),
@@ -84,11 +109,11 @@ pub fn to_view_highlighted(
         .collect();
 
     let notes: Vec<SharedString> = display.notes.iter().map(|n| n.as_str().into()).collect();
-    let styled_notes: Vec<slint::StyledText> = if has_highlight {
+    let styled_notes: Vec<slint::StyledText> = if let Some(ref s) = style {
         display
             .notes
             .iter()
-            .map(|n| to_styled_text(n, keyword, accent_color))
+            .map(|n| styled(n, s, Role::Target))
             .collect()
     } else {
         Vec::new()
@@ -96,20 +121,18 @@ pub fn to_view_highlighted(
 
     let (main_clause, clauses, styled_main_clause, styled_clauses) = match &display.syntax_breakdown
     {
-        Some(s) => {
-            let sm = if has_highlight {
-                to_styled_text(&s.main_clause, keyword, accent_color)
+        Some(sb) => {
+            let (sm, sc) = if let Some(ref s) = style {
+                (
+                    styled(&sb.main_clause, s, Role::Source),
+                    styled(&sb.clauses_and_modifiers, s, Role::Clauses),
+                )
             } else {
-                slint::StyledText::default()
-            };
-            let sc = if has_highlight {
-                to_styled_text(&s.clauses_and_modifiers, keyword, accent_color)
-            } else {
-                slint::StyledText::default()
+                (slint::StyledText::default(), slint::StyledText::default())
             };
             (
-                s.main_clause.as_str().into(),
-                s.clauses_and_modifiers.as_str().into(),
+                sb.main_clause.as_str().into(),
+                sb.clauses_and_modifiers.as_str().into(),
                 sm,
                 sc,
             )
@@ -122,8 +145,12 @@ pub fn to_view_highlighted(
         ),
     };
 
-    let styled_nuance = if has_highlight && !display.nuance_note.is_empty() {
-        to_styled_text(&display.nuance_note, keyword, accent_color)
+    let styled_nuance = if let Some(ref s) = style {
+        if display.nuance_note.is_empty() {
+            slint::StyledText::default()
+        } else {
+            styled(&display.nuance_note, s, Role::Target)
+        }
     } else {
         slint::StyledText::default()
     };
@@ -132,15 +159,13 @@ pub fn to_view_highlighted(
         .key_vocabulary
         .iter()
         .map(|v| {
-            let styled_word = if has_highlight {
-                to_styled_text(&v.word, keyword, accent_color)
+            let (styled_word, styled_meaning) = if let Some(ref s) = style {
+                (
+                    styled(&v.word, s, Role::Source),
+                    styled(&v.meaning_in_context, s, Role::Target),
+                )
             } else {
-                slint::StyledText::default()
-            };
-            let styled_meaning = if has_highlight {
-                to_styled_text(&v.meaning_in_context, keyword, accent_color)
-            } else {
-                slint::StyledText::default()
+                (slint::StyledText::default(), slint::StyledText::default())
             };
             EntryVocab {
                 word: v.word.as_str().into(),
@@ -170,6 +195,35 @@ pub fn to_view_highlighted(
         styled_clauses,
         styled_nuance,
     }
+}
+
+/// 生词本详情里一段文字属于原文还是译文，决定它是黑还是灰（用户定：原文黑、译文灰，按角色不按文字）。
+#[derive(Clone, Copy)]
+enum Role {
+    Source,
+    Target,
+    /// 修饰成分「原文片段 [语法作用]」：片段是原文，方括号里是译文语言
+    Clauses,
+}
+
+fn styled(text: &str, s: &StyleParams<'_>, role: Role) -> slint::StyledText {
+    if text.is_empty() {
+        return slint::StyledText::default();
+    }
+    let tinted = match role {
+        Role::Source => Vec::new(),
+        Role::Target => std::iter::once(0..text.len()).collect(),
+        Role::Clauses => crate::logic::wordbook::bracket_ranges(text),
+    };
+    let md = crate::logic::wordbook::tinted_markdown(
+        text,
+        s.keyword,
+        s.accent_color,
+        s.target_color,
+        &tinted,
+    );
+    slint::StyledText::from_markdown(&md)
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(text))
 }
 
 /// 辅助函数：将纯文本或高亮 Markdown 转换为 Slint 的 StyledText。
@@ -339,15 +393,20 @@ mod tests {
         let mut display = empty_display(DisplayKind::Sentence);
         display.translation = "这是测试译文".into();
         display.notes = vec!["测试用法与语法".into()];
-        let view = to_view_highlighted(&display, "", "测试", "#3b82f6");
+        let view = to_view_highlighted(&display, "", "测试", "#3b82f6", "#71717a");
 
         assert!(view.has_highlight);
         assert_eq!(view.translation, "这是测试译文");
         assert_eq!(view.notes.row_count(), 1);
         assert_eq!(view.styled_notes.row_count(), 1);
 
-        // 无关键词时 fallback 到非高亮
-        let view_plain = to_view_highlighted(&display, "", "", "");
+        // 生词本详情不管有无关键词，都走 StyledText 渲染（has_highlight 为 true）
+        let view_no_kw = to_view_highlighted(&display, "", "", "", "#71717a");
+        assert!(view_no_kw.has_highlight);
+
+        // 浮窗用的 to_view 保持 has_highlight 为 false、styled 字段为空
+        let view_plain = to_view(&display, "");
         assert!(!view_plain.has_highlight);
+        assert_eq!(view_plain.styled_notes.row_count(), 0);
     }
 }

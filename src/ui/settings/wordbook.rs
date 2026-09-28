@@ -519,6 +519,13 @@ fn accent_color(page: &SettingsWindow) -> &'static str {
     }
 }
 
+fn target_color(page: &SettingsWindow) -> &'static str {
+    match crate::ui::resolve_color_scheme(page.window()) {
+        slint::language::ColorScheme::Dark => "#a1a1aa",
+        _ => "#71717a",
+    }
+}
+
 fn apply_filter(page: &SettingsWindow) {
     apply_filter_internal(page, None);
 }
@@ -670,14 +677,20 @@ fn populate_detail(page: &SettingsWindow, entry: &Entry) {
     let state = page.global::<WordbookState>();
     let keyword = state.get_keyword();
     let accent = accent_color(page);
+    let target = target_color(page);
 
     let display = result::entry_display(entry.detail.as_ref(), &entry.translation);
     let is_word = entry.kind == Kind::Word && display.kind != DisplayKind::Sentence;
     let category = format_category(display.category.as_deref());
     let difficulty = display.difficulty.map(i32::from).unwrap_or(0);
     let difficulty_reason = display.difficulty_reason.clone();
-    let detail_entry =
-        crate::ui::entry_view::to_view_highlighted(&display, &entry.translation, &keyword, accent);
+    let detail_entry = crate::ui::entry_view::to_view_highlighted(
+        &display,
+        &entry.translation,
+        &keyword,
+        accent,
+        target,
+    );
 
     let styled_title = if !keyword.is_empty() {
         crate::ui::entry_view::to_styled_text(&entry.text, &keyword, accent)

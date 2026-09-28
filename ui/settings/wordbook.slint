@@ -98,9 +98,7 @@ component DetailBullet inherits HorizontalLayout {
         width: root.content-width - label-text.preferred-width - 6px;
         text: root.styled-text;
         default-font-size: 14px;
-        default-color: root.strong
-            ? Theme.foreground
-            : (Theme.dark ? Theme.default-500 : Theme.default-600);
+        default-color: Theme.foreground;
     }
 }
 
@@ -589,7 +587,7 @@ export component WordbookPage inherits Rectangle {
                                         if item.meaning != "" && WordbookState.detail-entry.has-highlight : StyledText {
                                             text: item.styled-meaning;
                                             default-font-size: 12px;
-                                            default-color: Theme.default-500;
+                                            default-color: Theme.foreground;
                                         }
                                     }
                                 }

@@ -198,6 +198,72 @@ pub fn highlight_markdown(text: &str, keyword: &str, accent_color: &str) -> Stri
     out
 }
 
+/// 生词本详情的配色：原文用默认色（黑），`tinted` 范围里的译文包一层 `tint`（灰）。
+/// 关键词优先，照 `highlight_markdown` 染成强调色加粗。`<font>` 不嵌套：先按字符分段，每个字符只属于一段。
+pub fn tinted_markdown(
+    text: &str,
+    keyword: &str,
+    accent_color: &str,
+    tint: &str,
+    tinted: &[std::ops::Range<usize>],
+) -> String {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Part {
+        Source,
+        Target,
+        Keyword,
+    }
+    let keywords = find_keyword_ranges(text, keyword);
+    let within =
+        |ranges: &[std::ops::Range<usize>], i: usize| ranges.iter().any(|r| r.contains(&i));
+    let mut runs: Vec<(Part, usize, usize)> = Vec::new();
+    for (i, c) in text.char_indices() {
+        let part = if within(&keywords, i) {
+            Part::Keyword
+        } else if within(tinted, i) {
+            Part::Target
+        } else {
+            Part::Source
+        };
+        let end = i + c.len_utf8();
+        match runs.last_mut() {
+            Some(last) if last.0 == part => last.2 = end,
+            _ => runs.push((part, i, end)),
+        }
+    }
+    let mut out = String::with_capacity(text.len() + runs.len() * 32);
+    for (part, start, end) in runs {
+        let seg = escape_markdown(&text[start..end]);
+        match part {
+            Part::Source => out.push_str(&seg),
+            Part::Target => out.push_str(&format!("<font color=\"{tint}\">{seg}</font>")),
+            Part::Keyword => {
+                out.push_str(&format!("<font color=\"{accent_color}\">**{seg}**</font>"));
+            }
+        }
+    }
+    out
+}
+
+/// 修饰成分的格式是「原文片段 [语法作用]」（AI 提示词里定的）：方括号连同括号本身是译文语言的说明。
+/// 没配对的括号不算。
+pub fn bracket_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut open = None;
+    for (i, c) in text.char_indices() {
+        match c {
+            '[' | '【' => open = Some(i),
+            ']' | '】' => {
+                if let Some(start) = open.take() {
+                    out.push(start..i + c.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// 删除之后预览停在哪条：还在就不动；被删了就往下找第一条没被删的，没有再往上找，都没有就空。
 /// `visible` 是**删除前**的可见顺序；选中项不在里面（或没选）时从首项算起，和旧版 `?? list[0]` 一致。
 pub fn next_selected(visible: &[i64], removed: &[i64], selected: Option<i64>) -> Option<i64> {
@@ -726,5 +792,48 @@ mod tests {
             hl_spec,
             "Notice\\: \\[<font color=\"#3b82f6\">**tag**</font>\\] \\*bold\\*"
         );
+    }
+
+    #[test]
+    fn tinted_markdown_colors_by_role_not_script() {
+        let (accent, gray) = ("#3b82f6", "#71717a");
+        // 原文：不管中英都不染
+        assert_eq!(tinted_markdown("run 跑", "", accent, gray, &[]), "run 跑");
+        // 译文：整段染灰，里面的英文也灰（用户实测指出的问题）
+        assert_eq!(
+            tinted_markdown(
+                "使用 API 调用",
+                "",
+                accent,
+                gray,
+                std::slice::from_ref(&(0..16))
+            ),
+            "<font color=\"#71717a\">使用 API 调用</font>"
+        );
+        // 修饰成分：片段黑，方括号连括号一起灰
+        let clauses = "which was built [定语从句]；by him [by 短语]";
+        assert_eq!(
+            tinted_markdown(clauses, "", accent, gray, &bracket_ranges(clauses)),
+            r##"which was built <font color="#71717a">\[定语从句\]</font>；by him <font color="#71717a">\[by 短语\]</font>"##
+        );
+        // 关键词压过灰色，前后接着灰
+        assert_eq!(
+            tinted_markdown(
+                "定语从句",
+                "从",
+                accent,
+                gray,
+                std::slice::from_ref(&(0..12))
+            ),
+            "<font color=\"#71717a\">定语</font><font color=\"#3b82f6\">**从**</font><font color=\"#71717a\">句</font>"
+        );
+        assert_eq!(tinted_markdown("", "x", accent, gray, &[]), "");
+    }
+
+    #[test]
+    fn bracket_ranges_pair_square_and_cjk_brackets() {
+        assert_eq!(bracket_ranges("a [b] c"), vec![2..5]);
+        assert_eq!(bracket_ranges("甲【乙】"), vec![3..12]);
+        assert!(bracket_ranges("a ] [b").is_empty());
     }
 }
