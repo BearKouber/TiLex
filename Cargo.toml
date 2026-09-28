@@ -134,6 +134,7 @@ todo = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 
 # 软件渲染器画字不开 hinting，雅黑常规会发灰（vectorfont.rs 里 swash 的 .hint 默认 false）。
-# vendor 里是 1.17.1 原样拷贝，只改了 fonts/vectorfont.rs（搜 "TiLex patch"）：开 hinting、宋体类用内置点阵、字形边缘对比度 1.4。升级 slint 时要重新拷贝，或者上游加了开关就删掉这段。
+# vendor 里是 1.17.1 原样拷贝，只改了 fonts/vectorfont.rs（搜 "TiLex patch"）：开 hinting、宋体类用内置点阵。
+# 试过给字形边缘加对比度（gamma 1.4），更清楚但看着像加粗，用户选了不加（2026-09-28）。升级 slint 时要重新拷贝，或者上游加了开关就删掉这段。
 [patch.crates-io]
 i-slint-renderer-software = { path = "vendor/i-slint-renderer-software" }

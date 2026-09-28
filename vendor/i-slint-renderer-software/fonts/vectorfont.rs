@@ -191,14 +191,7 @@ impl VectorFont {
                 } else {
                     None
                 };
-                let image = match strike {
-                    Some(image) => image,
-                    None => {
-                        let mut image = outline;
-                        enhance_contrast(&mut image.data);
-                        image
-                    }
-                };
+                let image = strike.unwrap_or(outline);
 
                 let placement = image.placement;
                 let alpha_map: Rc<[u8]> = image.data.into();
@@ -312,18 +305,5 @@ impl super::GlyphRenderer for VectorFont {
 
     fn scale_delta(&self) -> super::Fixed<u16, 8> {
         super::Fixed::from_integer(1)
-    }
-}
-
-/// TiLex patch: darken anti-aliased glyph edges (gamma on coverage, like DirectWrite's
-/// enhanced contrast). Upstream multiplies raw coverage into the color, so thin strokes
-/// come out light gray. 1.0 = upstream; 1.4 picked on-screen from 1.0/1.4/1.8 (2026-09-28),
-/// 2.0 starts to look bold and smeared.
-const TEXT_GAMMA: f32 = 1.4;
-
-fn enhance_contrast(alpha: &mut [u8]) {
-    let inv = 1.0 / TEXT_GAMMA;
-    for a in alpha.iter_mut().filter(|a| **a != 0 && **a != 255) {
-        *a = (255.0 * (*a as f32 / 255.0).powf(inv)).round() as u8;
     }
 }
